@@ -26,6 +26,8 @@ Test data `testdata/basis/*.basis`: encoded by Basis Universal v2.50 (C++ CLI bu
   R11/RG11, BC6H, RGB/RGBA half, RGB9E5, ASTC 6x6 HDR. Not yet: FXT1, plain ASTC HDR 6x6
   source files (`AstcHdr6x6`).
 - ETC1S codebooks/Huffman tables decoded once per file (`OnceLock`).
+- UASTC 4x4 (LDR/HDR): one row of source blocks per work unit, multithreaded through
+  `parallel::for_each_unit` (PVRTC1 transcodes the whole image at once; ETC1S is sequential).
 - Golden test: `tests/basis_transcode.rs` vs `testdata/basis/golden.txt`, FNV-1a hashes of every
   level x supported target from the C++ transcoder (`tools/basisu-golden/dump.cpp`, offline
   dev tool, not part of the crate). PVRTC1 on non-power-of-two sizes fails in both.
@@ -34,3 +36,4 @@ Test data `testdata/basis/*.basis`: encoded by Basis Universal v2.50 (C++ CLI bu
 
 - 2026-11-21: transcoder modules copied from ktx-rs; `.basis` parser written from the headers.
 - 2026-11-21: transcode API; ETC1S bit-exact with basisu v2.50 on 168 level/target cases.
+- 2026-11-21: UASTC LDR 4x4 bit-exact on 136 level/target cases; row-parallel UASTC 4x4.

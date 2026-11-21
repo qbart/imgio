@@ -1,12 +1,14 @@
 //! Transcoding `.basis` image levels to GPU formats.
 
-use super::file::{BasisFile, BasisTexFormat};
+use super::file::{BasisFile, BasisTexFormat, SliceDesc};
 use super::ll::etc1s::{LowlevelEtc1sTranscoder, TranscodeStatus};
 use super::ll::uastc_hdr::LowlevelUastcHdr4x4Transcoder;
 use super::ll::uastc_hdr_6x6i::LowlevelUastcHdr6x6IntermediateTranscoder;
 use super::ll::uastc_ldr::LowlevelUastcLdr4x4Transcoder;
 use super::ll::{TranscoderState, TranscoderTextureFormat as T, basis_is_format_supported};
+use crate::parallel::for_each_unit;
 use crate::{AstcBlock, AstcKind, Buffer, Error, Format, Result};
+use std::sync::Mutex;
 
 /// The basisu target for `format` (sRGB variants share the unorm target: same bits).
 fn target(format: Format) -> Option<T> {
@@ -152,51 +154,8 @@ impl BasisFile<'_> {
                     0,
                 ))
             }
-            BasisTexFormat::UastcLdr4x4 => {
-                status(LowlevelUastcLdr4x4Transcoder::new().transcode_image(
-                    t,
-                    dst,
-                    units,
-                    self.data,
-                    color.blocks_x,
-                    color.blocks_y,
-                    color.orig_width,
-                    color.orig_height,
-                    level,
-                    color.file_ofs as u64,
-                    color.file_size,
-                    0,
-                    self.has_alpha(),
-                    video,
-                    0,
-                    &mut state,
-                    0,
-                    -1,
-                    -1,
-                ))
-            }
-            BasisTexFormat::UastcHdr4x4 => {
-                status(LowlevelUastcHdr4x4Transcoder::new().transcode_image(
-                    t,
-                    dst,
-                    units,
-                    self.data,
-                    color.blocks_x,
-                    color.blocks_y,
-                    color.orig_width,
-                    color.orig_height,
-                    level,
-                    color.file_ofs as u64,
-                    color.file_size,
-                    0,
-                    self.has_alpha(),
-                    video,
-                    0,
-                    &mut state,
-                    0,
-                    -1,
-                    -1,
-                ))
+            BasisTexFormat::UastcLdr4x4 | BasisTexFormat::UastcHdr4x4 => {
+                self.transcode_uastc_4x4(t, format, color, level, dst)
             }
             BasisTexFormat::UastcHdr6x6Intermediate => status(
                 LowlevelUastcHdr6x6IntermediateTranscoder::new().transcode_image(
@@ -222,6 +181,63 @@ impl BasisFile<'_> {
                 ),
             ),
             BasisTexFormat::AstcHdr6x6 => Err(Error::Unsupported),
+        }
+    }
+
+    /// UASTC 4x4 (LDR or HDR): blocks are independent, so rows of blocks are transcoded in
+    /// parallel (except PVRTC1, which needs the whole image).
+    fn transcode_uastc_4x4(
+        &self,
+        t: T,
+        format: Format,
+        color: &SliceDesc,
+        level: u32,
+        dst: &mut [u8],
+    ) -> Result<()> {
+        let hdr = self.tex_format == BasisTexFormat::UastcHdr4x4;
+        let video = self.tex_type == super::file::BasisTexType::VideoFrames;
+        let run = |out: &mut [u8], first_row: u32, rows: u32, height: u32| -> TranscodeStatus {
+            let bx = color.blocks_x;
+            let ofs = color.file_ofs as u64 + u64::from(first_row) * u64::from(bx) * 16;
+            let len = bx * rows * 16;
+            let units = if format.is_compressed() {
+                bx * rows
+            } else {
+                color.orig_width * height
+            };
+            let mut state = TranscoderState::new();
+            let (w, has_alpha) = (color.orig_width, self.has_alpha());
+            if hdr {
+                LowlevelUastcHdr4x4Transcoder::new().transcode_image(
+                    t, out, units, self.data, bx, rows, w, height, level, ofs, len, 0, has_alpha,
+                    video, 0, &mut state, 0, -1, -1,
+                )
+            } else {
+                LowlevelUastcLdr4x4Transcoder::new().transcode_image(
+                    t, out, units, self.data, bx, rows, w, height, level, ofs, len, 0, has_alpha,
+                    video, 0, &mut state, 0, -1, -1,
+                )
+            }
+        };
+        if matches!(format, Format::Pvrtc1Rgb | Format::Pvrtc1Rgba) {
+            return status(run(dst, 0, color.blocks_y, color.orig_height));
+        }
+        // One unit = one row of 4x4 source blocks.
+        let row = format.row_bytes(color.orig_width)?;
+        let unit = if format.is_compressed() { row } else { row * 4 };
+        let first_error = Mutex::new(None);
+        for_each_unit(dst, unit, |by, out| {
+            let by = by as u32;
+            let height = (color.orig_height - by * 4).min(4);
+            if let Err(e) = status(run(out, by, 1, height))
+                && let Ok(mut slot) = first_error.lock()
+            {
+                slot.get_or_insert(e);
+            }
+        });
+        match first_error.into_inner() {
+            Ok(Some(e)) => Err(e),
+            _ => Ok(()),
         }
     }
 

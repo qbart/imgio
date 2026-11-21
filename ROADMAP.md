@@ -29,7 +29,7 @@
 4. [x] ASTC decode (LDR, HDR)
 5. [x] Basis core: .basis file, bit reader, Huffman, tables
 6. [x] ETC1S transcoder -> all LDR targets
-7. [ ] UASTC LDR 4x4 transcoder -> all LDR targets
+7. [x] UASTC LDR 4x4 transcoder -> all LDR targets
 8. [ ] UASTC HDR (4x4, 6x6) transcoder -> BC6H, ASTC HDR, RGBA16F
 9. [ ] KTX2 reader for Basis payloads (BasisLZ, zstd)
 10. [ ] Golden transcode tests and benches
