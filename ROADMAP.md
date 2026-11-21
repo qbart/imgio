@@ -47,7 +47,30 @@
 - [x] PVRTC1/2, ATC and FXT1 decoders (PVRTC2 / FXT1: the modes Basis Universal emits)
 - [x] Parallel transcode of many levels/images (`transcode_all`)
 
-## Current plan (in order): basisu v2 payloads (XUASTC LDR, ASTC LDR, XUBC7)
+## Current plan (in order): finish everything texture related
+
+Image file formats wait until every step below is done. Ports keep bit-exactness with their
+C++ / ktx-rs reference (golden hashes from offline builds, as for the transcoder).
+
+1. [ ] Conversion gaps: `Rgba16Unorm`, sRGB <-> linear transfer, every uncompressed format
+   as a conversion target
+2. [ ] Mipmap generation: basisu resampler (box, tent, kaiser, lanczos, ...), sRGB aware,
+   clamp / wrap, levels in parallel
+3. [ ] Encode API (`imgio::encode`, quality presets, multithreaded per block row) with
+   BC1 / BC3 / BC4 / BC5 (basisu `encode_bc1` / `encode_bc4`) and BC2
+4. [ ] BC7 encoders: `bc7f` (real-time), `bc7enc` (ktx-rs port), basisu v2.50 `bc7e_scalar`
+5. [ ] BC6H encoder
+6. [ ] ETC1 / ETC2 / EAC encoders: `etc1f`, basisu `etc` (ktx-rs `etc_enc`), EAC
+7. [ ] ASTC LDR / HDR encoder: astcenc (ktx-rs port)
+8. [ ] PVRTC1 encoder exposure (and PVRTC2 / ATC where basisu has one)
+9. [ ] Basis Universal encoders: ETC1S, UASTC LDR 4x4 (+ RDO), UASTC HDR 4x4, ASTC HDR 6x6,
+   UASTC HDR 6x6i (ktx-rs `basisu::comp` port) -> `.basis`
+10. [ ] KTX2 writer for Basis payloads (BasisLZ global data, UASTC, HDR, 6x6i)
+11. [ ] Basis Universal v2 encoders: ASTC LDR, XUASTC LDR, XUBC7 (basisu v2.50)
+12. [ ] DDS reader and writer
+13. [ ] Optional Vulkan / OpenGL upload features (ktx-rs `vkloader` / `glloader`)
+
+## Previous plan (done): basisu v2 payloads (XUASTC LDR, ASTC LDR, XUBC7)
 
 Ported from C++ basisu (`ref/basisu`; ktx-rs has no groundwork here), bit-exact vs the C++
 transcoder via `tools/basisu-golden`.
