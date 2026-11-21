@@ -1,0 +1,11 @@
+# Generates testdata/astc with the ktx-rs port of Arm astcenc (dev tool, not published).
+[package]
+name = "astc-golden"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+ktx-rs = { version = "4.4.4", default-features = false }
