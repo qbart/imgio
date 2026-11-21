@@ -33,7 +33,12 @@ fn qmt(integer_count: usize, bits: i32) -> i32 {
 }
 
 const Q6: usize = QUANT_6 as usize;
+const Q12: usize = QUANT_12 as usize;
 const Q16: usize = QUANT_16 as usize;
+const Q32: usize = QUANT_32 as usize;
+const Q40: usize = QUANT_40 as usize;
+const Q128: usize = QUANT_128 as usize;
+const Q160: usize = QUANT_160 as usize;
 const Q192: usize = QUANT_192 as usize;
 const Q256: usize = QUANT_256 as usize;
 
@@ -58,16 +63,23 @@ fn compute_error_squared_rgb_single_partition(
     plines: [&ProcessedLine; 4],
 ) -> ([f32; 4], f32) {
     let ews = blk.channel_weight;
+    // RGB + lumashift is only considered for HDR endpoint formats
+    let encode_hdr_rgb = blk.rgb_lns[0] != 0;
     let texel_count = pi.partition_texel_count[partition_index] as usize;
     let texel_indexes = &pi.texels_of_partition[partition_index];
 
     let mut a_drop_errv = Vfloat4::zero();
     let default_a = Vfloat8::splat(blk.get_default_alpha());
     let mut errv = [Vfloat4::zero(); 4];
-    let bs = plines.map(|l| [0, 1, 2].map(|k| Vfloat8::splat(l.bs.lane(k))));
-    let amod = plines.map(|l| [0, 1, 2].map(|k| Vfloat8::splat(l.amod.lane(k))));
-    // The same chroma and luminance lines go through the origin
-    let has_amod = [true, false, true, false];
+    let sp = |v: Vfloat4, k: usize| Vfloat8::splat(v.lane(k));
+    let [uncor, samec, rgbl, lum] = plines;
+    let (ub0, ub1, ub2) = (sp(uncor.bs, 0), sp(uncor.bs, 1), sp(uncor.bs, 2));
+    let (ua0, ua1, ua2) = (sp(uncor.amod, 0), sp(uncor.amod, 1), sp(uncor.amod, 2));
+    let (sb0, sb1, sb2) = (sp(samec.bs, 0), sp(samec.bs, 1), sp(samec.bs, 2));
+    let (rb0, rb1, rb2) = (sp(rgbl.bs, 0), sp(rgbl.bs, 1), sp(rgbl.bs, 2));
+    let (ra0, ra1, ra2) = (sp(rgbl.amod, 0), sp(rgbl.amod, 1), sp(rgbl.amod, 2));
+    let (lb0, lb1, lb2) = (sp(lum.bs, 0), sp(lum.bs, 1), sp(lum.bs, 2));
+    let (ew0, ew1, ew2) = (sp(ews, 0), sp(ews, 1), sp(ews, 2));
 
     let mut lane_ids = Vint8::lane_id();
     let mut i = 0;
@@ -81,25 +93,43 @@ fn compute_error_squared_rgb_single_partition(
         alpha_diff = alpha_diff * alpha_diff;
         Vfloat8::haccumulate_masked(&mut a_drop_errv, alpha_diff, mask);
 
-        let d = [
-            Vfloat8::gatherf_byte_inds(&blk.data_r, tix),
-            Vfloat8::gatherf_byte_inds(&blk.data_g, tix),
-            Vfloat8::gatherf_byte_inds(&blk.data_b, tix),
-        ];
-        for l in 0..4 {
-            let b = &bs[l];
-            let param = d[0] * b[0] + d[1] * b[1] + d[2] * b[2];
-            let dist = |k: usize| {
-                if has_amod[l] {
-                    (amod[l][k] + param * b[k]) - d[k]
-                } else {
-                    (param * b[k]) - d[k]
-                }
-            };
-            let (d0, d1, d2) = (dist(0), dist(1), dist(2));
-            let error = d0 * d0 * ews.lane(0) + d1 * d1 * ews.lane(1) + d2 * d2 * ews.lane(2);
-            Vfloat8::haccumulate_masked(&mut errv[l], error, mask);
+        let data_r = Vfloat8::gatherf_byte_inds(&blk.data_r, tix);
+        let data_g = Vfloat8::gatherf_byte_inds(&blk.data_g, tix);
+        let data_b = Vfloat8::gatherf_byte_inds(&blk.data_b, tix);
+
+        // Uncorrelated line
+        let param = data_r * ub0 + data_g * ub1 + data_b * ub2;
+        let dist0 = (ua0 + param * ub0) - data_r;
+        let dist1 = (ua1 + param * ub1) - data_g;
+        let dist2 = (ua2 + param * ub2) - data_b;
+        let error = dist0 * dist0 * ew0 + dist1 * dist1 * ew1 + dist2 * dist2 * ew2;
+        Vfloat8::haccumulate_masked(&mut errv[0], error, mask);
+
+        // Same chroma line (no amod, it is always zero)
+        let param = data_r * sb0 + data_g * sb1 + data_b * sb2;
+        let dist0 = (param * sb0) - data_r;
+        let dist1 = (param * sb1) - data_g;
+        let dist2 = (param * sb2) - data_b;
+        let error = dist0 * dist0 * ew0 + dist1 * dist1 * ew1 + dist2 * dist2 * ew2;
+        Vfloat8::haccumulate_masked(&mut errv[1], error, mask);
+
+        // RGB + lumashift is only considered for HDR endpoint formats
+        if encode_hdr_rgb {
+            let param = data_r * rb0 + data_g * rb1 + data_b * rb2;
+            let dist0 = (ra0 + param * rb0) - data_r;
+            let dist1 = (ra1 + param * rb1) - data_g;
+            let dist2 = (ra2 + param * rb2) - data_b;
+            let error = dist0 * dist0 * ew0 + dist1 * dist1 * ew1 + dist2 * dist2 * ew2;
+            Vfloat8::haccumulate_masked(&mut errv[2], error, mask);
         }
+
+        // Luminance line (no amod, it is always zero)
+        let param = data_r * lb0 + data_g * lb1 + data_b * lb2;
+        let dist0 = (param * lb0) - data_r;
+        let dist1 = (param * lb1) - data_g;
+        let dist2 = (param * lb2) - data_b;
+        let error = dist0 * dist0 * ew0 + dist1 * dist1 * ew1 + dist2 * dist2 * ew2;
+        Vfloat8::haccumulate_masked(&mut errv[3], error, mask);
         i += SIMD_WIDTH;
     }
 
@@ -116,11 +146,18 @@ pub fn compute_encoding_choice_errors(
     blk: &ImageBlock,
     pi: &PartitionInfo,
     ep: &Endpoints,
+    rgb_metrics: Option<&[PartitionMetrics; BLOCK_MAX_PARTITIONS]>,
     eci: &mut [EncodingChoiceErrors; BLOCK_MAX_PARTITIONS],
 ) {
     let partition_count = pi.partition_count as usize;
-    let mut pms = [PartitionMetrics::default(); BLOCK_MAX_PARTITIONS];
-    compute_avgs_and_dirs_3_comp_rgb(pi, blk, &mut pms);
+    let mut local_metrics = [PartitionMetrics::default(); BLOCK_MAX_PARTITIONS];
+    let pms = match rgb_metrics {
+        Some(m) => m,
+        None => {
+            compute_avgs_and_dirs_3_comp_rgb(pi, blk, &mut local_metrics);
+            &local_metrics
+        }
+    };
 
     for i in 0..partition_count {
         let pm = &pms[i];
@@ -374,16 +411,16 @@ pub fn compute_color_error_for_every_integer_count_and_quant_level(
             let base_quant_error = BASELINE_QUANT_ERROR[i - Q6] * partition_size;
             let rgb_quantization_error = error_weight_rgbsum * base_quant_error * 2.0;
             let alpha_quantization_error = error_weight.lane(3) * base_quant_error * 2.0;
-            let rgba_quantization_error = rgb_quantization_error + alpha_quantization_error;
+            // RGB uses the same endpoint encoding with or without explicit alpha
+            let hdr_rgb_error = (rgb_quantization_error * mode11mult) + rgb_range_error;
 
-            // For 8 integers, we have two encodings: one with HDR A and another one with LDR A
-            let full_hdr_rgba_error = rgba_quantization_error + rgb_range_error + alpha_range_error;
+            // Eight integers support HDR RGB with HDR or LDR alpha
+            let full_hdr_rgba_error = hdr_rgb_error + alpha_quantization_error + alpha_range_error;
             best_error[i][3] = full_hdr_rgba_error;
             format_of_choice[i][3] = hdr_alpha_fmt;
 
-            // For 6 integers, we have one HDR-RGB encoding
-            let full_hdr_rgb_error =
-                (rgb_quantization_error * mode11mult) + rgb_range_error + eci.alpha_drop_error;
+            // Six integers support HDR RGB
+            let full_hdr_rgb_error = hdr_rgb_error + eci.alpha_drop_error;
             best_error[i][2] = full_hdr_rgb_error;
             format_of_choice[i][2] = FMT_HDR_RGB;
 
@@ -520,10 +557,13 @@ fn one_partition_find_best_combination_for_bitcount(
 
 isa_fn! {
 /// `{two,three,four}_partitions_find_best_combination_for_every_quantization_and_integer_count`:
-/// `N` partitions, `C` = 3 * N + 1 combined integer counts.
+/// `N` partitions, `C` combined integer counts. The search is split by quantization level so
+/// that integer count classes which cannot fit the bit budget are not constructed: `ranges`
+/// lists `(first quant, last quant, class count)`; combined counts above `C - 1` are skipped.
 fn n_partitions_find_best_combination<const N: usize, const C: usize>(
     best_error: &[[[f32; 4]; 21]; BLOCK_MAX_PARTITIONS],
     best_format: &[[[u8; 4]; 21]; BLOCK_MAX_PARTITIONS],
+    ranges: &[(usize, usize, usize)],
     best_combined_error: &mut [[f32; C]; 21],
     best_combined_format: &mut [[[u8; N]; C]; 21],
 ) {
@@ -531,40 +571,54 @@ fn n_partitions_find_best_combination<const N: usize, const C: usize>(
         *row = [ERROR_CALC_DEFAULT; C];
     }
 
-    for quant in Q6..=Q256 {
-        // Integer counts per endpoint pair; no two may differ by more than one
-        let mut idx = [0usize; N];
-        'combos: loop {
-            let (lo, hi) = (
-                idx.iter().copied().fold(usize::MAX, usize::min),
-                idx.iter().copied().fold(0, usize::max),
-            );
-            if hi - lo <= 1 {
-                let intcnt: usize = idx.iter().sum();
-                let mut sum = 0.0f32;
-                for p in 0..N {
-                    sum += best_error[p][quant][idx[p]];
-                }
-                let errorterm = mathlib::min(sum, 1e10);
+    for &(first, last, classes) in ranges {
+        for quant in first..=last {
+            let be = |p: usize, c: usize| best_error[p][quant][c];
+            let bf = |p: usize, c: usize| best_format[p][quant][c];
+            let mut record = |intcnt: usize, sum: f32, idx: [usize; 4]| {
+                let errorterm = mathlib::min(sum, ERROR_CALC_DEFAULT);
                 if errorterm <= best_combined_error[quant][intcnt] {
                     best_combined_error[quant][intcnt] = errorterm;
                     for p in 0..N {
-                        best_combined_format[quant][intcnt][p] = best_format[p][quant][idx[p]];
+                        best_combined_format[quant][intcnt][p] = bf(p, idx[p]);
                     }
                 }
-            }
-            // Advance the innermost (last) counter first
-            let mut p = N;
-            loop {
-                if p == 0 {
-                    break 'combos;
+            };
+            // Integer counts per endpoint pair; no two may differ by more than one
+            for i in 0..classes {
+                let error0 = be(0, i);
+                for j in 0..classes {
+                    let (low2, high2) = (i.min(j), i.max(j));
+                    if high2 - low2 > 1 {
+                        continue;
+                    }
+                    let error01 = error0 + be(1, j);
+                    if N == 2 {
+                        record(i + j, error01, [i, j, 0, 0]);
+                        continue;
+                    }
+                    for k in 0..classes {
+                        let (low3, high3) = (k.min(low2), k.max(high2));
+                        if high3 - low3 > 1 {
+                            continue;
+                        }
+                        let error012 = error01 + be(2, k);
+                        if N == 3 {
+                            record(i + j + k, error012, [i, j, k, 0]);
+                            continue;
+                        }
+                        for l in 0..classes {
+                            // Combined counts beyond the table cannot fit the bit budget
+                            if i + j + k + l >= C {
+                                break;
+                            }
+                            if l.max(high3) - l.min(low3) > 1 {
+                                continue;
+                            }
+                            record(i + j + k + l, error012 + be(3, l), [i, j, k, l]);
+                        }
+                    }
                 }
-                p -= 1;
-                idx[p] += 1;
-                if idx[p] < 4 {
-                    break;
-                }
-                idx[p] = 0;
             }
         }
     }
@@ -624,40 +678,50 @@ fn n_partitions_find_best_combination_for_bitcount<const N: usize, const C: usiz
 isa_fn! {
 /// Shared mode loop of the 2, 3 and 4 partition cases.
 fn n_partitions_modes<const N: usize, const C: usize>(
-    best_error: &[[[f32; 4]; 21]; BLOCK_MAX_PARTITIONS],
-    format_of_choice: &[[[u8; 4]; 21]; BLOCK_MAX_PARTITIONS],
     qwt_bitcounts: &[i8],
     qwt_errors: &[f32],
     end_block_mode: usize,
-    tmpbuf: &mut CompressionWorkingBuffers,
+    ranges: &[(usize, usize, usize)],
+    tmpbuf: &mut FormatBuffers,
     error_of_best_combination: &mut f32,
     index_of_best_combination: &mut i32,
 ) {
     let mut combined_best_error = [[0.0f32; C]; 21];
     let mut formats_of_choice = [[[0u8; N]; C]; 21];
     n_partitions_find_best_combination::<N, C>(
-        best_error,
-        format_of_choice,
+        &tmpbuf.best_error,
+        &tmpbuf.format_of_choice,
+        ranges,
         &mut combined_best_error,
         &mut formats_of_choice,
     );
 
+    // Endpoint choices depend on the bit budget; only weight error varies between block modes
+    tmpbuf.cache.clear();
     for i in 0..end_block_mode {
         if qwt_errors[i] >= ERROR_CALC_DEFAULT {
             tmpbuf.errors_of_best_combination[i] = ERROR_CALC_DEFAULT;
             continue;
         }
 
-        let error_of_best = n_partitions_find_best_combination_for_bitcount::<N, C>(
-            &combined_best_error,
-            &formats_of_choice,
-            i32::from(qwt_bitcounts[i]),
-            &mut tmpbuf.best_quant_levels[i],
-            &mut tmpbuf.best_quant_levels_mod[i],
-            &mut tmpbuf.best_ep_formats[i],
-        );
+        let bitcount = qwt_bitcounts[i];
+        let choice = tmpbuf.cache.get_or(bitcount, || {
+            let mut c = EndpointFormatChoice::default();
+            c.error = n_partitions_find_best_combination_for_bitcount::<N, C>(
+                &combined_best_error,
+                &formats_of_choice,
+                i32::from(bitcount),
+                &mut c.quant_level,
+                &mut c.quant_level_mod,
+                &mut c.formats,
+            );
+            c
+        });
+        tmpbuf.best_quant_levels[i] = choice.quant_level;
+        tmpbuf.best_quant_levels_mod[i] = choice.quant_level_mod;
+        tmpbuf.best_ep_formats[i][..N].copy_from_slice(&choice.formats[..N]);
 
-        let total_error = error_of_best + qwt_errors[i];
+        let total_error = choice.error + qwt_errors[i];
         tmpbuf.errors_of_best_combination[i] = total_error;
         if total_error < *error_of_best_combination {
             *error_of_best_combination = total_error;
@@ -680,6 +744,7 @@ pub fn compute_ideal_endpoint_formats(
     pi: &PartitionInfo,
     blk: &ImageBlock,
     ep: &Endpoints,
+    rgb_metrics: Option<&[PartitionMetrics; BLOCK_MAX_PARTITIONS]>,
     qwt_bitcounts: &[i8],
     qwt_errors: &[f32],
     tune_candidate_limit: u32,
@@ -689,7 +754,7 @@ pub fn compute_ideal_endpoint_formats(
     block_mode: &mut [i32; TUNE_MAX_TRIAL_CANDIDATES],
     quant_level: &mut [u32; TUNE_MAX_TRIAL_CANDIDATES],
     quant_level_mod: &mut [u32; TUNE_MAX_TRIAL_CANDIDATES],
-    tmpbuf: &mut CompressionWorkingBuffers,
+    tmpbuf: &mut FormatBuffers,
 ) -> u32 {
     let partition_count = pi.partition_count as usize;
     let (start_block_mode, end_block_mode) = (start_block_mode as usize, end_block_mode as usize);
@@ -700,11 +765,9 @@ pub fn compute_ideal_endpoint_formats(
     // Compute the errors that result from various encoding choices (such as using luminance instead
     // of RGB, discarding Alpha, using RGB-scale in place of two separate RGB endpoints and so on)
     let mut eci = [EncodingChoiceErrors::default(); BLOCK_MAX_PARTITIONS];
-    compute_encoding_choice_errors(blk, pi, ep, &mut eci);
+    compute_encoding_choice_errors(blk, pi, ep, rgb_metrics, &mut eci);
 
-    let mut best_error = [[[0.0f32; 4]; 21]; BLOCK_MAX_PARTITIONS];
-    let mut format_of_choice = [[[0u8; 4]; 21]; BLOCK_MAX_PARTITIONS];
-
+    // Every entry of the per partition tables is rewritten below
     for i in 0..partition_count {
         compute_color_error_for_every_integer_count_and_quant_level(
             encode_hdr_rgb,
@@ -714,8 +777,8 @@ pub fn compute_ideal_endpoint_formats(
             &eci[i],
             ep,
             blk.channel_weight,
-            &mut best_error[i],
-            &mut format_of_choice[i],
+            &mut tmpbuf.best_error[i],
+            &mut tmpbuf.format_of_choice[i],
         );
     }
 
@@ -742,25 +805,35 @@ pub fn compute_ideal_endpoint_formats(
 
     // The block contains 1 partition
     if partition_count == 1 {
+        // Endpoint choices depend on the bit budget; only weight error varies between modes
+        tmpbuf.cache.clear();
         for i in start_block_mode..end_block_mode {
             if qwt_errors[i] >= ERROR_CALC_DEFAULT {
                 tmpbuf.errors_of_best_combination[i] = ERROR_CALC_DEFAULT;
                 continue;
             }
 
-            let mut fmt = 0u8;
-            let error_of_best = one_partition_find_best_combination_for_bitcount(
-                &best_error[0],
-                &format_of_choice[0],
-                i32::from(qwt_bitcounts[i]),
-                &mut tmpbuf.best_quant_levels[i],
-                &mut fmt,
-            );
-            tmpbuf.best_ep_formats[i][0] = fmt;
+            let bitcount = qwt_bitcounts[i];
+            let (best_error0, format_of_choice0) =
+                (&tmpbuf.best_error[0], &tmpbuf.format_of_choice[0]);
+            let choice = tmpbuf.cache.get_or(bitcount, || {
+                let mut c = EndpointFormatChoice::default();
+                c.error = one_partition_find_best_combination_for_bitcount(
+                    best_error0,
+                    format_of_choice0,
+                    i32::from(bitcount),
+                    &mut c.quant_level,
+                    &mut c.formats[0],
+                );
+                c.quant_level_mod = c.quant_level;
+                c
+            });
+            tmpbuf.best_quant_levels[i] = choice.quant_level;
+            tmpbuf.best_quant_levels_mod[i] = choice.quant_level_mod;
+            tmpbuf.best_ep_formats[i][0] = choice.formats[0];
 
-            let total_error = error_of_best + qwt_errors[i];
+            let total_error = choice.error + qwt_errors[i];
             tmpbuf.errors_of_best_combination[i] = total_error;
-            tmpbuf.best_quant_levels_mod[i] = tmpbuf.best_quant_levels[i];
 
             if total_error < error_of_best_combination {
                 error_of_best_combination = total_error;
@@ -769,40 +842,31 @@ pub fn compute_ideal_endpoint_formats(
         }
     } else {
         debug_assert!(start_block_mode == 0);
-        let args = (
-            &best_error,
-            &format_of_choice,
-            qwt_bitcounts,
-            qwt_errors,
-            end_block_mode,
-        );
+        let args = (qwt_bitcounts, qwt_errors, end_block_mode);
         match partition_count {
             2 => n_partitions_modes::<2, 7>(
                 args.0,
                 args.1,
                 args.2,
-                args.3,
-                args.4,
+                &[(Q6, Q32, 4), (Q40, Q128, 3), (Q160, Q256, 2)],
                 tmpbuf,
                 &mut error_of_best_combination,
                 &mut index_of_best_combination,
             ),
-            3 => n_partitions_modes::<3, 10>(
+            3 => n_partitions_modes::<3, 7>(
                 args.0,
                 args.1,
                 args.2,
-                args.3,
-                args.4,
+                &[(Q6, Q32, 3), (Q40, Q256, 2)],
                 tmpbuf,
                 &mut error_of_best_combination,
                 &mut index_of_best_combination,
             ),
-            _ => n_partitions_modes::<4, 13>(
+            _ => n_partitions_modes::<4, 6>(
                 args.0,
                 args.1,
                 args.2,
-                args.3,
-                args.4,
+                &[(Q6, Q12, 3), (Q16, Q256, 2)],
                 tmpbuf,
                 &mut error_of_best_combination,
                 &mut index_of_best_combination,

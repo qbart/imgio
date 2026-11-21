@@ -333,12 +333,17 @@ pub struct ImageBlock {
     pub data_g: [f32; BLOCK_DATA_LEN],
     pub data_b: [f32; BLOCK_DATA_LEN],
     pub data_a: [f32; BLOCK_DATA_LEN],
+    /// `data_rgba`: the texels as RGBA vectors (an AoS copy of the planes).
+    pub data_rgba: [Vfloat4; BLOCK_MAX_TEXELS],
     pub texel_count: u8,
     pub origin_texel: Vfloat4,
     pub data_min: Vfloat4,
     pub data_mean: Vfloat4,
     pub data_max: Vfloat4,
     pub channel_weight: Vfloat4,
+    /// `active_channel_mask`: channels with a nonzero configured error weight (bit 0 = R ..
+    /// bit 3 = A); 0xF for HDR profiles.
+    pub active_channel_mask: u32,
     pub grayscale: bool,
     pub decode_unorm8: bool,
     pub rgb_lns: [u8; BLOCK_MAX_TEXELS],
@@ -355,12 +360,14 @@ impl Default for ImageBlock {
             data_g: [0.0; BLOCK_DATA_LEN],
             data_b: [0.0; BLOCK_DATA_LEN],
             data_a: [0.0; BLOCK_DATA_LEN],
+            data_rgba: [Vfloat4::zero(); BLOCK_MAX_TEXELS],
             texel_count: 0,
             origin_texel: Vfloat4::zero(),
             data_min: Vfloat4::zero(),
             data_mean: Vfloat4::zero(),
             data_max: Vfloat4::zero(),
             channel_weight: Vfloat4::zero(),
+            active_channel_mask: 0xF,
             grayscale: false,
             decode_unorm8: false,
             rgb_lns: [0; BLOCK_MAX_TEXELS],
@@ -377,19 +384,16 @@ impl ImageBlock {
     /// `texel(index)`.
     #[inline]
     pub fn texel(&self, i: usize) -> Vfloat4 {
-        Vfloat4::new(
-            self.data_r[i],
-            self.data_g[i],
-            self.data_b[i],
-            self.data_a[i],
-        )
+        self.data_rgba[i]
     }
     }
     isa_fn! {
     /// `texel3(index)`.
     #[inline]
     pub fn texel3(&self, i: usize) -> Vfloat4 {
-        Vfloat4::new3(self.data_r[i], self.data_g[i], self.data_b[i])
+        let mut t = self.data_rgba[i];
+        t.m[3] = 0.0;
+        t
     }
     }
     isa_fn! {
@@ -402,6 +406,13 @@ impl ImageBlock {
             2 => &self.data_b,
             _ => &self.data_a,
         }
+    }
+    }
+    isa_fn! {
+    /// `is_la_block`: luminance + alpha data with only the R and A channel errors weighted.
+    #[inline]
+    pub fn is_la_block(&self) -> bool {
+        self.active_channel_mask == 0x9 && self.grayscale
     }
     }
     isa_fn! {
@@ -457,16 +468,6 @@ pub struct ProcessedLine {
     pub bs: Vfloat4,
 }
 
-/// Port of `partition_lines3`.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct PartitionLines3 {
-    pub uncor_line: Line,
-    pub samec_line: Line,
-    pub uncor_pline: ProcessedLine,
-    pub samec_pline: ProcessedLine,
-    pub line_length: f32,
-}
-
 /// Port of `endpoints`.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Endpoints {
@@ -495,18 +496,8 @@ impl Default for EndpointsAndWeights {
     }
 }
 
-/// Port of `compression_working_buffers`.
-pub struct CompressionWorkingBuffers {
-    pub ei1: EndpointsAndWeights,
-    pub ei2: EndpointsAndWeights,
-    pub dec_weights_ideal: Vec<f32>,
-    pub dec_weights_uquant: Vec<u8>,
-    pub errors_of_best_combination: Vec<f32>,
-    pub best_quant_levels: Vec<u8>,
-    pub best_quant_levels_mod: Vec<u8>,
-    pub best_ep_formats: Vec<[u8; BLOCK_MAX_PARTITIONS]>,
-    pub qwt_bitcounts: Vec<i8>,
-    pub qwt_errors: Vec<f32>,
+/// The angular endpoint buffers of `compression_working_buffers`.
+pub struct AngularBuffers {
     pub weight_low_value1: Vec<f32>,
     pub weight_high_value1: Vec<f32>,
     pub weight_low_values1: Vec<[f32; TUNE_MAX_ANGULAR_QUANT + 1]>,
@@ -517,39 +508,112 @@ pub struct CompressionWorkingBuffers {
     pub weight_high_values2: Vec<[f32; TUNE_MAX_ANGULAR_QUANT + 1]>,
 }
 
+/// `endpoint_format_choice`: the endpoint format search result for one weight bit count.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct EndpointFormatChoice {
+    pub error: f32,
+    pub quant_level: u8,
+    pub quant_level_mod: u8,
+    pub formats: [u8; BLOCK_MAX_PARTITIONS],
+}
+
+/// The per call `cached_formats` / `is_cached` of `compute_ideal_endpoint_formats`, kept
+/// across calls: an entry is valid when its tag equals the current generation.
+pub struct FormatChoiceCache {
+    generation: u32,
+    tags: [u32; 128],
+    entries: [EndpointFormatChoice; 128],
+}
+
+impl FormatChoiceCache {
+    /// Invalidates every entry (`is_cached[] = false`).
+    #[inline]
+    pub fn clear(&mut self) {
+        self.generation = self.generation.wrapping_add(1);
+        if self.generation == 0 {
+            self.tags = [0; 128];
+            self.generation = 1;
+        }
+    }
+    /// The cached choice for `bitcount`, or `compute()` stored as it.
+    #[inline]
+    pub fn get_or(
+        &mut self,
+        bitcount: i8,
+        compute: impl FnOnce() -> EndpointFormatChoice,
+    ) -> EndpointFormatChoice {
+        let Ok(b) = usize::try_from(bitcount) else {
+            return compute();
+        };
+        let b = b & 127;
+        if self.tags[b] == self.generation {
+            return self.entries[b];
+        }
+        let c = compute();
+        self.entries[b] = c;
+        self.tags[b] = self.generation;
+        c
+    }
+}
+
+/// The endpoint format search buffers of `compression_working_buffers`, plus the per call
+/// tables of `compute_ideal_endpoint_formats` (fully rewritten by every call).
+pub struct FormatBuffers {
+    pub errors_of_best_combination: Vec<f32>,
+    pub best_quant_levels: Vec<u8>,
+    pub best_quant_levels_mod: Vec<u8>,
+    pub best_ep_formats: Vec<[u8; BLOCK_MAX_PARTITIONS]>,
+    pub cache: Box<FormatChoiceCache>,
+    pub best_error: Box<[[[f32; 4]; 21]; BLOCK_MAX_PARTITIONS]>,
+    pub format_of_choice: Box<[[[u8; 4]; 21]; BLOCK_MAX_PARTITIONS]>,
+}
+
+/// Port of `compression_working_buffers` (grouped so the ideal endpoints can be read while
+/// the other buffers are written).
+pub struct CompressionWorkingBuffers {
+    pub ei1: EndpointsAndWeights,
+    pub ei2: EndpointsAndWeights,
+    pub dec_weights_ideal: Vec<f32>,
+    pub dec_weights_uquant: Vec<u8>,
+    pub qwt_bitcounts: Vec<i8>,
+    pub qwt_errors: Vec<f32>,
+    pub angular: AngularBuffers,
+    pub formats: FormatBuffers,
+}
+
 impl Default for CompressionWorkingBuffers {
     fn default() -> Self {
+        let quant = || vec![[0.0; TUNE_MAX_ANGULAR_QUANT + 1]; WEIGHTS_MAX_DECIMATION_MODES];
         CompressionWorkingBuffers {
             ei1: EndpointsAndWeights::default(),
             ei2: EndpointsAndWeights::default(),
             dec_weights_ideal: vec![0.0; WEIGHTS_MAX_DECIMATION_MODES * BLOCK_MAX_WEIGHTS],
             dec_weights_uquant: vec![0; WEIGHTS_MAX_BLOCK_MODES * BLOCK_MAX_WEIGHTS],
-            errors_of_best_combination: vec![0.0; WEIGHTS_MAX_BLOCK_MODES],
-            best_quant_levels: vec![0; WEIGHTS_MAX_BLOCK_MODES],
-            best_quant_levels_mod: vec![0; WEIGHTS_MAX_BLOCK_MODES],
-            best_ep_formats: vec![[0; BLOCK_MAX_PARTITIONS]; WEIGHTS_MAX_BLOCK_MODES],
             qwt_bitcounts: vec![0; WEIGHTS_MAX_BLOCK_MODES],
             qwt_errors: vec![0.0; WEIGHTS_MAX_BLOCK_MODES],
-            weight_low_value1: vec![0.0; WEIGHTS_MAX_BLOCK_MODES],
-            weight_high_value1: vec![0.0; WEIGHTS_MAX_BLOCK_MODES],
-            weight_low_values1: vec![
-                [0.0; TUNE_MAX_ANGULAR_QUANT + 1];
-                WEIGHTS_MAX_DECIMATION_MODES
-            ],
-            weight_high_values1: vec![
-                [0.0; TUNE_MAX_ANGULAR_QUANT + 1];
-                WEIGHTS_MAX_DECIMATION_MODES
-            ],
-            weight_low_value2: vec![0.0; WEIGHTS_MAX_BLOCK_MODES],
-            weight_high_value2: vec![0.0; WEIGHTS_MAX_BLOCK_MODES],
-            weight_low_values2: vec![
-                [0.0; TUNE_MAX_ANGULAR_QUANT + 1];
-                WEIGHTS_MAX_DECIMATION_MODES
-            ],
-            weight_high_values2: vec![
-                [0.0; TUNE_MAX_ANGULAR_QUANT + 1];
-                WEIGHTS_MAX_DECIMATION_MODES
-            ],
+            angular: AngularBuffers {
+                weight_low_value1: vec![0.0; WEIGHTS_MAX_BLOCK_MODES],
+                weight_high_value1: vec![0.0; WEIGHTS_MAX_BLOCK_MODES],
+                weight_low_values1: quant(),
+                weight_high_values1: quant(),
+                weight_low_value2: vec![0.0; WEIGHTS_MAX_BLOCK_MODES],
+                weight_high_value2: vec![0.0; WEIGHTS_MAX_BLOCK_MODES],
+                weight_low_values2: quant(),
+                weight_high_values2: quant(),
+            },
+            formats: FormatBuffers {
+                errors_of_best_combination: vec![0.0; WEIGHTS_MAX_BLOCK_MODES],
+                best_quant_levels: vec![0; WEIGHTS_MAX_BLOCK_MODES],
+                best_quant_levels_mod: vec![0; WEIGHTS_MAX_BLOCK_MODES],
+                best_ep_formats: vec![[0; BLOCK_MAX_PARTITIONS]; WEIGHTS_MAX_BLOCK_MODES],
+                cache: Box::new(FormatChoiceCache {
+                    generation: 0,
+                    tags: [0; 128],
+                    entries: [EndpointFormatChoice::default(); 128],
+                }),
+                best_error: Box::new([[[0.0; 4]; 21]; BLOCK_MAX_PARTITIONS]),
+                format_of_choice: Box::new([[[0; 4]; 21]; BLOCK_MAX_PARTITIONS]),
+            },
         }
     }
 }

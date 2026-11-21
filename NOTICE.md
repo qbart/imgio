@@ -21,8 +21,8 @@ state that they were modified (Apache-2.0 §4(b)).
 | `src/basis/xubc7/*`, `src/basis/deblock.rs`, `src/basis/pvrtc1_enc.rs` | Basis Universal `basisu_transcoder.cpp`, `basisu_xbc7_decoder.{h,inl}` | Binomial LLC | Apache-2.0 |
 | `src/basis/xuastc/*` | Basis Universal `basisu_transcoder.cpp` (`astc_ldr_t`), `basisu_transcoder_internal.h` (`arith`), `basisu_idct.h`, `basisu_astc_cfgs.inl` | Binomial LLC | Apache-2.0 |
 | `src/atc.rs`, `src/fxt1.rs`, `src/pvrtc.rs` | Basis Universal `basisu_gpu_texture.cpp`, `basisu_pvrtc1_4.{h,cpp}` (encoder library) | Binomial LLC | Apache-2.0 |
-| `src/astcenc/*` | [astc-encoder](https://github.com/ARM-software/astc-encoder) (astcenc), via ktx-rs `src/astcenc` (`#[isa]` attributes rewritten as `isa_fn!` wrappers) | Arm Limited | Apache-2.0 |
-| `src/astcenc/tests.rs`, `testdata/astcenc/compress_golden.txt` | ktx-rs `tests/astcenc_compress.rs` and its golden data (hashes of C++ astcenc output) | Mark Callow, The Khronos Group Inc. and KTX-Software contributors | Apache-2.0 |
+| `src/astcenc/*` | [astc-encoder](https://github.com/ARM-software/astc-encoder) (astcenc) 6.0.0, via ktx-rs `src/astcenc` (5.x port, `#[isa]` attributes rewritten as `isa_fn!` wrappers) | Arm Limited | Apache-2.0 |
+| `src/astcenc/tests.rs`, `tools/astcenc-golden/compress.cpp` | ktx-rs `tests/astcenc_compress.rs` and `scripts/golden/astcenc_compress_golden.cpp` (the generator updated for the astc-encoder 6.0 API) | Mark Callow, The Khronos Group Inc. and KTX-Software contributors | Apache-2.0 |
 | `src/bc7e.rs` | Basis Universal v2.50 `encoder/basisu_bc7e_scalar.cpp` (scalar port of `bc7e.ispc`) | Binomial LLC | Apache-2.0 |
 | `src/basis/xubc7/encoder.rs` | Basis Universal v2.50 `encoder/basisu_xbc7_encode.cpp` (XBC7 / XUBC7 encoder) and the `basisu_comp.cpp` XUBC7 option setup | Binomial LLC | Apache-2.0 |
 | `src/mip/resampler.rs`, `src/mip/filters.rs` | Basis Universal `basisu_resampler.cpp`, `basisu_resample_filters.cpp`, via ktx-rs `src/basisu` | Binomial LLC | Apache-2.0 |
@@ -53,6 +53,7 @@ Copyright © 2016–2026 Binomial LLC.
 | [bcdec_rs](https://crates.io/crates/bcdec_rs) | tests only: reference BC6H/BC7 decoder | MIT |
 | Basis Universal C++ (`ref/basisu`) | `tools/basisu-golden` only (offline generator, not linked into the crate) | Apache-2.0 |
 | [ktx-rs](https://crates.io/crates/ktx-rs) | `tools/astc-golden` only (not a crate dependency): astcenc reference | Apache-2.0 AND BSD-3-Clause AND MIT AND Zlib |
+| astc-encoder 6.0.0 C++ (`ref/astcenc`) | `tools/astcenc-golden`, `scripts/gen_astcenc_golden.sh`, `scripts/gen_astcenc_testdata.py` only (offline generators, not linked into the crate) | Apache-2.0 |
 
 ## Test data
 
@@ -81,6 +82,8 @@ Not included in the published crate.
 | `testdata/ktx2/basis/*.basis` | `.basis` twins of `testdata/ktx2/*.ktx2`, same Basis Universal v2.50 CLI options (`scripts/gen_basis_testdata.sh`) | Apache-2.0 |
 | `testdata/ktx2/plain/*` | synthetic raw images (`tools/ktx2-golden/gen.py`) packed by `ktx create --raw` (KTX-Software CLI, ktx-rs port) | Apache-2.0 |
 | `testdata/astc/files/*` | `testdata/images` raw image (as TGA) encoded / decoded by ARM astcenc 6.0 (`ref/astcenc`) | Apache-2.0 |
+| `testdata/astcenc/compress_golden.txt` | hashes of C++ astc-encoder 6.0.0 compressor output on synthetic images (`tools/astcenc-golden/compress.cpp`, `scripts/gen_astcenc_golden.sh`) | Apache-2.0 |
+| `testdata/astcenc/cli/*.astc` | `testdata/images/raw` images encoded by the ARM astc-encoder 6.0.0 CLI (`astcenc-avx2`, `scripts/gen_astcenc_testdata.py`) | Apache-2.0 |
 | `testdata/ktx1/*` | KTX2 test files exported by the Basis Universal v2.50 CLI (`basisu -export_ktx`; `cube_32.ktx2` from `testdata/images/rgba_32x32.png`) | Apache-2.0 |
 | `testdata/dds/*.dds` | `testdata/images` PNGs written by the Basis Universal v2.50 CLI (`basisu -dds`) | Apache-2.0 |
 | `testdata/bench/*.ktx2` | `scripts/gen_images.py` bench image encoded by the Basis Universal v2.50 CLI | Apache-2.0 |

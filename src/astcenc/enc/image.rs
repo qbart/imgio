@@ -126,6 +126,7 @@ pub fn load_image_block(
                 blk.data_g[idx] = datav.m[1];
                 blk.data_b[idx] = datav.m[2];
                 blk.data_a[idx] = datav.m[3];
+            blk.data_rgba[idx] = datav;
                 blk.rgb_lns[idx] = rgb_lns;
                 blk.alpha_lns[idx] = a_lns;
                 idx += 1;
@@ -196,6 +197,7 @@ pub fn load_image_block_fast_ldr(
             blk.data_g[idx] = datav.m[1];
             blk.data_b[idx] = datav.m[2];
             blk.data_a[idx] = datav.m[3];
+            blk.data_rgba[idx] = datav;
             idx += 1;
         }
     }

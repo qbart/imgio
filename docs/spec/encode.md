@@ -36,13 +36,24 @@
   offset bytes through the unsigned encoders, endpoint / base bytes XOR 0x80 (offset binary
   -> two's complement keeps their order; signed EAC lacks the unsigned +4 bias).
 - ASTC (all 2D blocks; unorm -> LDR, sRGB -> LDR_SRGB, float -> HDR profile): `src/astcenc`,
-  the ktx-rs port of ARM astc-encoder (compressor + SSE4.1 / AVX2 copies picked at runtime;
-  ktx-rs' `#[isa]` proc macro replaced by `isa_fn! { .. }` wrappers so no macro crate is
-  needed). Presets fastest 0 / fast 10 / medium 60 / thorough 98 / exhaustive 100. One context,
+  a port of ARM astc-encoder 6.0.0 (from the ktx-rs 5.x port; compressor + SSE4.1 / AVX2 copies
+  picked at runtime, AVX2 = AVX2 + BMI1 / BMI2 + F16C + POPCNT like the 6.0 build; ktx-rs'
+  `#[isa]` proc macro replaced by `isa_fn! { .. }` wrappers). Every copy emulates the C++ AVX2
+  build, incl. its two-candidates-per-vector partition search (`ASTCENC_HAS_NATIVE_QUAD_OPS`).
+  `Quality` -> preset: Fastest `-fastest` (0), Fast `-fast` (10), Default `-medium` (60), High
+  `-thorough` (98), Best `-exhaustive` (100); flags 0, RGBA swizzle, no alpha weighting /
+  decode_unorm8 (= the CLI defaults for an RGBA8 TGA / PNG or FP16 DDS input). One context,
   `available_parallelism` threads (1 below 64K pixels) each calling `astcenc_compress_image`;
-  input RGBA8 (LDR) or RGBA32F (HDR). Golden: `astcenc::tests::compress_matches_astcenc` (ktx-rs
-  golden from C++ astcenc: 8 block sizes x 4 profiles x 3 qualities x 4 flag sets, every ISA
-  copy) + PSNR round trips (also multithreaded).
+  input RGBA8 (LDR) or RGBA32F (HDR). Not ported: LZ-RDO (`astcenc_lz_optimize.cpp`,
+  `-rdo-lambda`) and alpha-scale RDO (`a_scale_radius`), both `NotImplemented`.
+  Byte identity with the C++ 6.0 CLI (`astcenc-avx2`): `tests/astcenc_cli.rs` (11 `.astc` files
+  from `scripts/gen_astcenc_testdata.py`: LDR / sRGB / HDR, 4x4..12x12, every `Quality`);
+  `astcenc::tests::compress_matches_astcenc` (C++ 6.0 library hashes from
+  `tools/astcenc-golden` + `scripts/gen_astcenc_golden.sh`: 8 block sizes incl. 3D x 4 profiles
+  x 3 qualities x 4 flag sets, U8 / F16 / F32 data, 1-4 threads, every ISA copy) + PSNR round
+  trips. Dev cross-check (not in the tests): `-cl` / `-cs` / `-ch` / `-cH` x all six presets x
+  4x4, 5x4, 6x6, 8x8, 10x5, 12x12 x 1 / 16 threads, also `-normal`, `-perceptual`, `-a 0`,
+  `-decode_unorm8`, on the test images, a 256x256 crop and a 1024x1024 image: all identical.
 - PVRTC1 4bpp RGB / RGBA: basisu `encode_pvrtc1` (min/max endpoints + modulation fit against
   the bilinear upsample), whole image, power-of-two block counts (`InvalidArgument`).
 - ATC RGB / RGBA (BC4 alpha), PVRTC2 RGB / RGBA (hard-transition blocks; translucent mode
@@ -76,6 +87,11 @@
 - 2026-11-21: API + BC1-BC5 encoders (basisu real-time), bit-exact with C++ (24 cases).
 - 2026-11-21: PVRTC1 encoder exposed (`encode_pvrtc1`), 6 golden cases.
 - 2026-11-21: ASTC encoder (astcenc port from ktx-rs), C++ golden passes on every ISA copy.
+- 2026-11-21: astcenc compressor upgraded to astc-encoder 6.0.0 (presets with dual-plane
+  component limits, batched / luminance / L+A partition search, analytic realign, endpoint
+  format search splits, k-means SoA, RGB metric reuse, LDR / sRGB / HDR quality changes and bug
+  fixes): byte identical with the 6.0 CLI; `compress_golden.txt` regenerated from C++ 6.0
+  (209 of 336 hashes changed). 1024x1024 4x4 medium, 1 thread: 1.99 s -> 1.16 s (6.0 CLI 0.86 s).
 - 2026-11-21: ATC, PVRTC2, FXT1 encoders (`legacy_enc`): every compressed `Format` encodes.
 - 2026-11-21: signed BC6H encoder (`bc6h_signed`).
 - 2026-11-21: ETC2 T / H / planar mode encoding (`etc2modes`).

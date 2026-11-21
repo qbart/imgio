@@ -7,10 +7,13 @@
 //! physical to symbolic block conversion, color endpoint unpacking, weight
 //! infill, texel decode and image store).
 //!
-//! Matches the x86-64 AVX2 + F16C build KTX-Software uses (fp-contract off):
-//! IEEE float math, `_mm_min_ps` / `_mm_max_ps` NaN rules (second operand
-//! wins), round-to-nearest-even float16 conversion. The compressor (`enc/`) is
-//! compiled once per instruction set and picked at context creation.
+//! The compressor (`enc/`) follows astc-encoder 6.0.0 and is byte identical with its
+//! x86-64 AVX2 build (C++ `astcenc-avx2`, invariance on, fp-contract off): IEEE float math,
+//! `_mm_min_ps` / `_mm_max_ps` NaN rules (second operand wins), round-to-nearest-even
+//! float16 conversion, and the AVX2 build's two-candidates-per-vector partition search
+//! (`ASTCENC_HAS_NATIVE_QUAD_OPS`) in every instruction set copy. It is compiled once per
+//! instruction set and picked at context creation. LZ rate-distortion optimization
+//! (`ASTCENC_FLG_USE_LZ_RDO`, `astcenc_lz_optimize.cpp`) is not ported.
 
 pub mod percentile_tables;
 pub mod sincos_tables;
@@ -20,7 +23,7 @@ pub mod tables;
 // expands to the `isa_fn!` of the copy, which adds the copy's `#[target_feature]`. The context
 // picks the best copy the CPU supports (`astcenc_context_alloc`). The decompressor below is
 // scalar and shared.
-/// AVX2 + F16C + POPCNT copy (the astcenc build KTX-Software uses by default).
+/// AVX2 + BMI1 / BMI2 + F16C + POPCNT copy (the astcenc 6.0 AVX2 build).
 #[cfg(target_arch = "x86_64")]
 pub mod avx2;
 /// Baseline copy (SSE2 on x86-64, scalar elsewhere; follows the build's own target features).
@@ -88,13 +91,16 @@ pub const ASTCENC_FLG_USE_PERCEPTUAL: u32 = 1 << 3;
 pub const ASTCENC_FLG_DECOMPRESS_ONLY: u32 = 1 << 4;
 pub const ASTCENC_FLG_SELF_DECOMPRESS_ONLY: u32 = 1 << 5;
 pub const ASTCENC_FLG_MAP_RGBM: u32 = 1 << 6;
+/// LZ rate-distortion optimization (`lz_rdo_lambda` > 0 enables it; LDR profiles only).
+pub const ASTCENC_FLG_USE_LZ_RDO: u32 = 1 << 7;
 const ASTCENC_ALL_FLAGS: u32 = ASTCENC_FLG_MAP_NORMAL
     | ASTCENC_FLG_MAP_RGBM
     | ASTCENC_FLG_USE_ALPHA_WEIGHT
     | ASTCENC_FLG_USE_PERCEPTUAL
     | ASTCENC_FLG_USE_DECODE_UNORM8
     | ASTCENC_FLG_DECOMPRESS_ONLY
-    | ASTCENC_FLG_SELF_DECOMPRESS_ONLY;
+    | ASTCENC_FLG_SELF_DECOMPRESS_ONLY
+    | ASTCENC_FLG_USE_LZ_RDO;
 
 pub const ASTCENC_PRE_FASTEST: f32 = 0.0;
 pub const ASTCENC_PRE_FAST: f32 = 10.0;
@@ -162,7 +168,12 @@ pub struct AstcencConfig {
     pub tune_2partition_early_out_limit_factor: f32,
     pub tune_3partition_early_out_limit_factor: f32,
     pub tune_2plane_early_out_limit_correlation: f32,
+    pub tune_2plane_component_limit_factor: f32,
     pub tune_search_mode0_enable: f32,
+    pub lz_rdo_lambda: f32,
+    pub tune_lz_rdo_endpoint_history_size: u32,
+    pub tune_lz_rdo_weight_history_size: u32,
+    pub tune_lz_rdo_num_passes: u32,
 }
 
 impl AstcencConfig {
@@ -195,7 +206,12 @@ impl AstcencConfig {
             tune_2partition_early_out_limit_factor: 0.0,
             tune_3partition_early_out_limit_factor: 0.0,
             tune_2plane_early_out_limit_correlation: 0.0,
+            tune_2plane_component_limit_factor: 0.0,
             tune_search_mode0_enable: 0.0,
+            lz_rdo_lambda: 0.0,
+            tune_lz_rdo_endpoint_history_size: 0,
+            tune_lz_rdo_weight_history_size: 0,
+            tune_lz_rdo_num_passes: 0,
         }
     }
 }
@@ -219,12 +235,17 @@ struct PresetConfig {
     tune_2partition_early_out_limit_factor: f32,
     tune_3partition_early_out_limit_factor: f32,
     tune_2plane_early_out_limit_correlation: f32,
+    tune_2plane_component_limit_factor: f32,
     tune_search_mode0_enable: f32,
+    tune_lz_rdo_endpoint_history_size: u32,
+    tune_lz_rdo_weight_history_size: u32,
+    tune_lz_rdo_num_passes: u32,
 }
 
 macro_rules! preset {
     ($q:expr, $a:expr, $b:expr, $c:expr, $d:expr, $e:expr, $f:expr, $g:expr, $h:expr, $i:expr, $j:expr,
-     $k:expr, $l:expr, $m:expr, $n:expr, $o:expr, $p:expr, $r:expr) => {
+     $k:expr, $l:expr, $m:expr, $n:expr, $o:expr, $p:expr, $cl:expr, $r:expr, $eh:expr, $wh:expr,
+     $np:expr) => {
         PresetConfig {
             quality: $q,
             tune_partition_count_limit: $a,
@@ -243,7 +264,11 @@ macro_rules! preset {
             tune_2partition_early_out_limit_factor: $n,
             tune_3partition_early_out_limit_factor: $o,
             tune_2plane_early_out_limit_correlation: $p,
+            tune_2plane_component_limit_factor: $cl,
             tune_search_mode0_enable: $r,
+            tune_lz_rdo_endpoint_history_size: $eh,
+            tune_lz_rdo_weight_history_size: $wh,
+            tune_lz_rdo_num_passes: $np,
         }
     };
 }
@@ -251,37 +276,38 @@ macro_rules! preset {
 /// The static presets for high bandwidth encodings (x < 25 texels per block).
 #[rustfmt::skip]
 static PRESET_CONFIGS_HIGH: [PresetConfig; 6] = [
-    preset!(ASTCENC_PRE_FASTEST, 2, 10, 6, 4, 43, 2, 2, 2, 2, 2, 85.2, 63.2, 3.5, 1.00, 1.00, 0.85, 0.0),
-    preset!(ASTCENC_PRE_FAST, 3, 18, 10, 8, 55, 3, 3, 2, 2, 2, 85.2, 63.2, 3.5, 1.00, 1.00, 0.90, 0.0),
-    preset!(ASTCENC_PRE_MEDIUM, 4, 34, 28, 16, 77, 3, 3, 2, 2, 2, 95.0, 70.0, 2.5, 1.10, 1.05, 0.95, 0.0),
-    preset!(ASTCENC_PRE_THOROUGH, 4, 82, 60, 30, 94, 4, 4, 3, 2, 2, 105.0, 77.0, 10.0, 1.35, 1.15, 0.97, 0.0),
-    preset!(ASTCENC_PRE_VERYTHOROUGH, 4, 256, 128, 64, 98, 4, 6, 8, 6, 4, 200.0, 200.0, 10.0, 1.60, 1.40, 0.98, 0.0),
-    preset!(ASTCENC_PRE_EXHAUSTIVE, 4, 512, 512, 512, 100, 4, 8, 8, 8, 8, 200.0, 200.0, 10.0, 2.00, 2.00, 0.99, 0.0),
+    preset!(ASTCENC_PRE_FASTEST, 2, 10, 6, 4, 43, 2, 2, 2, 2, 1, 85.2, 63.2, 3.5, 1.00, 1.00, 0.85, 0.98, 0.0, 16, 4, 1),
+    preset!(ASTCENC_PRE_FAST, 3, 18, 10, 8, 55, 3, 3, 2, 2, 1, 85.2, 63.2, 3.5, 1.00, 1.00, 0.90, 0.97, 0.0, 32, 16, 1),
+    preset!(ASTCENC_PRE_MEDIUM, 4, 34, 28, 16, 77, 3, 3, 2, 2, 1, 95.0, 70.0, 2.5, 1.10, 1.05, 0.95, 0.95, 0.0, 64, 40, 1),
+    preset!(ASTCENC_PRE_THOROUGH, 4, 82, 60, 30, 94, 4, 4, 3, 2, 1, 105.0, 77.0, 10.0, 1.35, 1.15, 0.97, 0.90, 0.0, 256, 80, 1),
+    preset!(ASTCENC_PRE_VERYTHOROUGH, 4, 256, 128, 64, 98, 4, 6, 8, 6, 3, 200.0, 200.0, 10.0, 1.60, 1.40, 0.98, 0.85, 0.0, 320, 160, 1),
+    preset!(ASTCENC_PRE_EXHAUSTIVE, 4, 512, 512, 512, 100, 4, 8, 8, 8, 7, 200.0, 200.0, 10.0, 2.00, 2.00, 0.99, 0.80, 0.0, 512, 160, 2),
 ];
 
 /// The static presets for medium bandwidth encodings (25 <= x < 64 texels per block).
 #[rustfmt::skip]
 static PRESET_CONFIGS_MID: [PresetConfig; 6] = [
-    preset!(ASTCENC_PRE_FASTEST, 2, 10, 6, 4, 43, 2, 2, 2, 2, 2, 85.2, 63.2, 3.5, 1.00, 1.00, 0.80, 1.0),
-    preset!(ASTCENC_PRE_FAST, 3, 18, 12, 10, 55, 3, 3, 2, 2, 2, 85.2, 63.2, 3.5, 1.00, 1.00, 0.85, 1.0),
-    preset!(ASTCENC_PRE_MEDIUM, 3, 34, 28, 16, 77, 3, 3, 2, 2, 2, 95.0, 70.0, 3.0, 1.10, 1.05, 0.90, 1.0),
-    preset!(ASTCENC_PRE_THOROUGH, 4, 82, 60, 30, 94, 4, 4, 3, 2, 2, 105.0, 77.0, 10.0, 1.40, 1.20, 0.95, 0.0),
-    preset!(ASTCENC_PRE_VERYTHOROUGH, 4, 256, 128, 64, 98, 4, 6, 8, 6, 3, 200.0, 200.0, 10.0, 1.60, 1.40, 0.98, 0.0),
-    preset!(ASTCENC_PRE_EXHAUSTIVE, 4, 256, 256, 256, 100, 4, 8, 8, 8, 8, 200.0, 200.0, 10.0, 2.00, 2.00, 0.99, 0.0),
+    preset!(ASTCENC_PRE_FASTEST, 2, 10, 6, 4, 43, 2, 2, 2, 2, 1, 85.2, 63.2, 3.5, 1.00, 1.00, 0.80, 0.99, 1.0, 16, 4, 1),
+    preset!(ASTCENC_PRE_FAST, 3, 18, 12, 10, 55, 3, 3, 2, 2, 1, 85.2, 63.2, 3.5, 1.00, 1.00, 0.85, 0.98, 1.0, 32, 16, 1),
+    preset!(ASTCENC_PRE_MEDIUM, 3, 34, 28, 16, 77, 3, 3, 2, 2, 1, 95.0, 70.0, 3.0, 1.10, 1.05, 0.90, 0.96, 1.0, 64, 40, 1),
+    preset!(ASTCENC_PRE_THOROUGH, 4, 82, 60, 30, 94, 4, 4, 3, 2, 1, 105.0, 77.0, 10.0, 1.40, 1.20, 0.95, 0.95, 0.0, 256, 80, 1),
+    preset!(ASTCENC_PRE_VERYTHOROUGH, 4, 256, 128, 64, 98, 4, 6, 8, 6, 2, 200.0, 200.0, 10.0, 1.60, 1.40, 0.98, 0.90, 0.0, 320, 160, 1),
+    preset!(ASTCENC_PRE_EXHAUSTIVE, 4, 256, 256, 256, 100, 4, 8, 8, 8, 7, 200.0, 200.0, 10.0, 2.00, 2.00, 0.99, 0.85, 0.0, 512, 160, 2),
 ];
 
 /// The static presets for low bandwidth encodings (64 <= x texels per block).
 #[rustfmt::skip]
 static PRESET_CONFIGS_LOW: [PresetConfig; 6] = [
-    preset!(ASTCENC_PRE_FASTEST, 2, 10, 6, 4, 40, 2, 2, 2, 2, 2, 85.0, 63.0, 3.5, 1.00, 1.00, 0.80, 1.0),
-    preset!(ASTCENC_PRE_FAST, 2, 18, 12, 10, 55, 3, 3, 2, 2, 2, 85.0, 63.0, 3.5, 1.00, 1.00, 0.85, 1.0),
-    preset!(ASTCENC_PRE_MEDIUM, 3, 34, 28, 16, 77, 3, 3, 2, 2, 2, 95.0, 70.0, 3.5, 1.10, 1.05, 0.90, 1.0),
-    preset!(ASTCENC_PRE_THOROUGH, 4, 82, 60, 30, 93, 4, 4, 3, 2, 2, 105.0, 77.0, 10.0, 1.30, 1.20, 0.97, 1.0),
-    preset!(ASTCENC_PRE_VERYTHOROUGH, 4, 256, 128, 64, 98, 4, 6, 8, 5, 2, 200.0, 200.0, 10.0, 1.60, 1.40, 0.98, 1.0),
-    preset!(ASTCENC_PRE_EXHAUSTIVE, 4, 256, 256, 256, 100, 4, 8, 8, 8, 8, 200.0, 200.0, 10.0, 2.00, 2.00, 0.99, 1.0),
+    preset!(ASTCENC_PRE_FASTEST, 2, 10, 6, 4, 40, 2, 2, 2, 2, 1, 85.0, 63.0, 3.5, 1.00, 1.00, 0.80, 0.99, 1.0, 16, 4, 1),
+    preset!(ASTCENC_PRE_FAST, 2, 18, 12, 10, 55, 3, 3, 2, 2, 1, 85.0, 63.0, 3.5, 1.00, 1.00, 0.85, 0.98, 1.0, 32, 16, 1),
+    preset!(ASTCENC_PRE_MEDIUM, 3, 34, 28, 16, 77, 3, 3, 2, 2, 1, 95.0, 70.0, 3.5, 1.10, 1.05, 0.90, 0.96, 1.0, 64, 40, 1),
+    preset!(ASTCENC_PRE_THOROUGH, 4, 82, 60, 30, 93, 4, 4, 3, 2, 1, 105.0, 77.0, 10.0, 1.30, 1.20, 0.97, 0.95, 1.0, 256, 80, 1),
+    preset!(ASTCENC_PRE_VERYTHOROUGH, 4, 256, 128, 64, 98, 4, 6, 8, 5, 1, 200.0, 200.0, 10.0, 1.60, 1.40, 0.98, 0.90, 1.0, 320, 160, 1),
+    preset!(ASTCENC_PRE_EXHAUSTIVE, 4, 256, 256, 256, 100, 4, 8, 8, 8, 7, 200.0, 200.0, 10.0, 2.00, 2.00, 0.99, 0.85, 1.0, 512, 160, 2),
 ];
 
 const BLOCK_MAX_TEXELS: usize = 216;
+const ALPHASCALE_MAX_RADIUS: u32 = 64;
 const BLOCK_MAX_WEIGHTS: u32 = 64;
 const BLOCK_MIN_WEIGHT_BITS: u32 = 24;
 const BLOCK_MAX_WEIGHT_BITS: u32 = 96;
@@ -358,12 +384,18 @@ fn validate_flags(profile: AstcencProfile, flags: u32) -> Result<(), AstcencErro
     if flags & ASTCENC_FLG_USE_DECODE_UNORM8 != 0 && is_hdr {
         return Err(AstcencError::BadDecodeMode);
     }
+    // LZ-RDO mode is only supported for LDR data
+    if flags & ASTCENC_FLG_USE_LZ_RDO != 0 && is_hdr {
+        return Err(AstcencError::NotImplemented);
+    }
     Ok(())
 }
 
 /// `validate_config`: clamps the tuning parameters to their valid ranges.
 fn validate_config(config: &mut AstcencConfig) -> Result<(), AstcencError> {
     validate_flags(config.profile, config.flags)?;
+    // A block_z of 0 is accepted to mean 2D, normalize to 1 to avoid div-by-zero later
+    config.block_z = config.block_z.max(1);
     validate_block_size(config.block_x, config.block_y, config.block_z)?;
     use mathlib::max as fmax;
     let cl = |v: u32, lo: u32, hi: u32| {
@@ -376,6 +408,8 @@ fn validate_config(config: &mut AstcencConfig) -> Result<(), AstcencError> {
         }
     };
     config.rgbm_m_scale = fmax(config.rgbm_m_scale, 1.0);
+    // Clamp alpha-scale kernel radius to put an upper bound on memory use
+    config.a_scale_radius = config.a_scale_radius.min(ALPHASCALE_MAX_RADIUS);
     config.tune_partition_count_limit = cl(config.tune_partition_count_limit, 1, 4);
     config.tune_2partition_index_limit = cl(
         config.tune_2partition_index_limit,
@@ -414,6 +448,14 @@ fn validate_config(config: &mut AstcencConfig) -> Result<(), AstcencError> {
         fmax(config.tune_3partition_early_out_limit_factor, 0.0);
     config.tune_2plane_early_out_limit_correlation =
         fmax(config.tune_2plane_early_out_limit_correlation, 0.0);
+    let v = config.tune_2plane_component_limit_factor;
+    config.tune_2plane_component_limit_factor = if v > 1.0 {
+        1.0
+    } else if v > 0.0 {
+        v
+    } else {
+        0.0
+    };
 
     // Specifying a zero weight color component is not allowed; force to small value
     let max_weight = fmax(
@@ -426,11 +468,15 @@ fn validate_config(config: &mut AstcencConfig) -> Result<(), AstcencError> {
         config.cw_g_weight = fmax(config.cw_g_weight, max_weight);
         config.cw_b_weight = fmax(config.cw_b_weight, max_weight);
         config.cw_a_weight = fmax(config.cw_a_weight, max_weight);
-        Ok(())
     } else {
         // If all color components error weights are zero then return an error
-        Err(AstcencError::BadParam)
+        return Err(AstcencError::BadParam);
     }
+    config.lz_rdo_lambda = fmax(config.lz_rdo_lambda, 0.0);
+    config.tune_lz_rdo_endpoint_history_size = config.tune_lz_rdo_endpoint_history_size.max(1);
+    config.tune_lz_rdo_weight_history_size = config.tune_lz_rdo_weight_history_size.max(1);
+    config.tune_lz_rdo_num_passes = config.tune_lz_rdo_num_passes.max(1);
+    Ok(())
 }
 
 /// Port of `astcenc_config_init`.
@@ -502,7 +548,11 @@ pub fn astcenc_config_init(
         config.tune_2partition_early_out_limit_factor = p.tune_2partition_early_out_limit_factor;
         config.tune_3partition_early_out_limit_factor = p.tune_3partition_early_out_limit_factor;
         config.tune_2plane_early_out_limit_correlation = p.tune_2plane_early_out_limit_correlation;
+        config.tune_2plane_component_limit_factor = p.tune_2plane_component_limit_factor;
         config.tune_search_mode0_enable = p.tune_search_mode0_enable;
+        config.tune_lz_rdo_endpoint_history_size = p.tune_lz_rdo_endpoint_history_size;
+        config.tune_lz_rdo_weight_history_size = p.tune_lz_rdo_weight_history_size;
+        config.tune_lz_rdo_num_passes = p.tune_lz_rdo_num_passes;
     } else {
         // Start and end node are not the same - so interpolate between them
         let node_a = &preset_configs[start];
@@ -566,10 +616,24 @@ pub fn astcenc_config_init(
             node_a.tune_2plane_early_out_limit_correlation,
             node_b.tune_2plane_early_out_limit_correlation,
         );
+        config.tune_2plane_component_limit_factor = lerp(
+            node_a.tune_2plane_component_limit_factor,
+            node_b.tune_2plane_component_limit_factor,
+        );
         config.tune_search_mode0_enable = lerp(
             node_a.tune_search_mode0_enable,
             node_b.tune_search_mode0_enable,
         );
+        config.tune_lz_rdo_endpoint_history_size = lerpi(
+            node_a.tune_lz_rdo_endpoint_history_size,
+            node_b.tune_lz_rdo_endpoint_history_size,
+        );
+        config.tune_lz_rdo_weight_history_size = lerpi(
+            node_a.tune_lz_rdo_weight_history_size,
+            node_b.tune_lz_rdo_weight_history_size,
+        );
+        config.tune_lz_rdo_num_passes =
+            lerpi(node_a.tune_lz_rdo_num_passes, node_b.tune_lz_rdo_num_passes);
     }
 
     // Set heuristics to the defaults for each color profile
@@ -580,6 +644,7 @@ pub fn astcenc_config_init(
     config.a_scale_radius = 0;
     config.rgbm_m_scale = 0.0;
     config.profile = profile;
+    config.lz_rdo_lambda = 0.0;
 
     // Values in this enum are from an external user, so not guaranteed to be
     // bounded to the enum values
@@ -1105,7 +1170,7 @@ pub enum AstcencIsa {
     Baseline = 0,
     /// SSE4.1 + POPCNT.
     Sse41 = 1,
-    /// AVX2 + F16C + POPCNT.
+    /// AVX2 + BMI1 / BMI2 + F16C + POPCNT (astcenc 6.0's AVX2 build requirements).
     Avx2 = 2,
 }
 
@@ -1120,6 +1185,8 @@ impl AstcencIsa {
             if sse41
                 && std::arch::is_x86_feature_detected!("avx")
                 && std::arch::is_x86_feature_detected!("avx2")
+                && std::arch::is_x86_feature_detected!("bmi1")
+                && std::arch::is_x86_feature_detected!("bmi2")
                 && std::arch::is_x86_feature_detected!("f16c")
             {
                 return AstcencIsa::Avx2;
@@ -1146,6 +1213,9 @@ enum CompressorCopy {
 pub struct AstcencContext {
     pub config: AstcencConfig,
     pub thread_count: u32,
+    /// `active_channel_mask`: the channels with a nonzero error weight in the caller's config
+    /// (before validation forces zero weights to a small value), bit 0 = R .. bit 3 = A.
+    active_channel_mask: u32,
     /// Decoding view of the block size descriptor.
     bsd: BlockSizeDescriptor,
     /// The compressor (absent for DECOMPRESS_ONLY contexts): block size descriptor and
@@ -1210,6 +1280,11 @@ pub fn astcenc_context_alloc_isa(
         return Err(AstcencError::BadParam);
     }
     let mut cfg = *config;
+    // Build the active-channel mask for zero-weight specializations
+    let active_channel_mask = u32::from(config.cw_r_weight > 0.0)
+        | (u32::from(config.cw_g_weight > 0.0) << 1)
+        | (u32::from(config.cw_b_weight > 0.0) << 2)
+        | (u32::from(config.cw_a_weight > 0.0) << 3);
     validate_config(&mut cfg)?;
 
     let mut compressor = None;
@@ -1242,6 +1317,7 @@ pub fn astcenc_context_alloc_isa(
     Ok(Box::new(AstcencContext {
         config: cfg,
         thread_count,
+        active_channel_mask,
         bsd: BlockSizeDescriptor::new(cfg.block_x, cfg.block_y, cfg.block_z),
         compressor,
         manage_compress: ParallelManager::default(),
@@ -1272,8 +1348,9 @@ pub type AstcencOutput<'a> = std::sync::Mutex<&'a mut [u8]>;
 
 /// Port of `astcenc_compress_image`. As in C++, every thread of a multi-threaded context
 /// calls it with its own `thread_index` and the same `data_out`; the threads share the
-/// blocks. Alpha scale RDO (`a_scale_radius`, the `compute_variance.cpp` averages) is not
-/// ported and fails with `NotImplemented`.
+/// blocks. Alpha scale RDO (`a_scale_radius`, the `compute_variance.cpp` averages) and LZ-RDO
+/// (`ASTCENC_FLG_USE_LZ_RDO` with a nonzero `lz_rdo_lambda`) are not ported and fail with
+/// `NotImplemented`.
 #[allow(unsafe_code)] // calls into the SSE4.1 / AVX2 copies, see `CompressorCopy`
 pub fn astcenc_compress_image(
     context: &AstcencContext,
@@ -1328,25 +1405,30 @@ pub fn astcenc_compress_image(
     if context.config.a_scale_radius != 0 {
         return Err(AstcencError::NotImplemented);
     }
+    // LZ-RDO (`astcenc_lz_optimize.cpp`) is not ported
+    if context.config.flags & ASTCENC_FLG_USE_LZ_RDO != 0 && context.config.lz_rdo_lambda > 0.0 {
+        return Err(AstcencError::NotImplemented);
+    }
 
     let (config, manage, t) = (
         &context.config,
         &context.manage_compress,
         thread_index as usize,
     );
+    let acm = context.active_channel_mask;
     match &context.compressor {
         Some(CompressorCopy::Baseline(c)) => {
-            base::compressor::compress_image(c, config, manage, t, image, swizzle, data_out)
+            base::compressor::compress_image(c, config, acm, manage, t, image, swizzle, data_out)
         }
         // SAFETY: these copies only exist when the CPU has their features (see
         // `CompressorCopy`).
         #[cfg(target_arch = "x86_64")]
         Some(CompressorCopy::Sse41(c)) => unsafe {
-            sse41::compressor::compress_image(c, config, manage, t, image, swizzle, data_out)
+            sse41::compressor::compress_image(c, config, acm, manage, t, image, swizzle, data_out)
         },
         #[cfg(target_arch = "x86_64")]
         Some(CompressorCopy::Avx2(c)) => unsafe {
-            avx2::compressor::compress_image(c, config, manage, t, image, swizzle, data_out)
+            avx2::compressor::compress_image(c, config, acm, manage, t, image, swizzle, data_out)
         },
         None => Err(AstcencError::BadContext),
     }

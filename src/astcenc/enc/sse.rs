@@ -576,14 +576,131 @@ impl LanesI for I8 {
     }
 }
 
+/// A 32-entry byte table prepared for [`table32_lookup`] (`vtable_prepare`): the low half and
+/// the high half XORed with the low half, plus the original table.
+#[derive(Clone, Copy)]
+pub struct Table32 {
+    lo: [u8; 16],
+    hi: [u8; 16],
+    tbl: [u8; 32],
+}
+
+/// `vtable_prepare` of a 32-entry byte table (usable in constants).
+pub const fn table32_prepare(tbl: &[u8; 32]) -> Table32 {
+    let mut lo = [0u8; 16];
+    let mut hi = [0u8; 16];
+    let mut k = 0;
+    while k < 16 {
+        lo[k] = tbl[k];
+        hi[k] = tbl[k + 16] ^ tbl[k];
+        k += 1;
+    }
+    Table32 { lo, hi, tbl: *tbl }
+}
+
 /// `vtable_lookup_32bit` on a 32-entry byte table: lane `i` = `tbl[idx[i] & 31]`.
 #[inline(always)]
-pub fn table32_lookup(tbl: &[u8; 32], idx: I8) -> I8 {
+pub fn table32_lookup(t: &Table32, idx: I8) -> I8 {
     #[cfg(target_arch = "x86_64")]
     if AVX2 {
-        return avx::table32_lookup(tbl, idx);
+        return avx::table32_lookup(&t.lo, &t.hi, idx);
     }
-    idx.map(|i| i32::from(tbl[(i & 31) as usize]))
+    idx.map(|i| i32::from(t.tbl[(i & 31) as usize]))
+}
+
+/// `gatherf(base, indices)`: lane `i` = `base[idx[i]]`, indices clamped into the table
+/// (callers' indices are always in range; an empty table reads zeros). AVX2:
+/// `_mm256_i32gather_ps` like the `ASTCENC_X86_GATHERS` build.
+#[inline(always)]
+pub fn gather_ps(base: &[f32], idx: I8) -> F8 {
+    let Some(last) = base.len().checked_sub(1) else {
+        return [0.0; 8];
+    };
+    let last = last.min(i32::MAX as usize) as i32;
+    #[cfg(target_arch = "x86_64")]
+    if AVX2 {
+        return avx::gather_ps(base, idx, last);
+    }
+    idx.map(|i| base[i.clamp(0, last) as usize])
+}
+
+/// `gatheri(base, indices)`: lane `i` = `base[idx[i]]`, indices clamped into the table (an
+/// empty table reads zeros). AVX2: `_mm256_i32gather_epi32`.
+#[inline(always)]
+pub fn gather_epi32(base: &[i32], idx: I8) -> I8 {
+    let Some(last) = base.len().checked_sub(1) else {
+        return [0; 8];
+    };
+    let last = last.min(i32::MAX as usize) as i32;
+    #[cfg(target_arch = "x86_64")]
+    if AVX2 {
+        return avx::gather_epi32(base, idx, last);
+    }
+    idx.map(|i| base[i.clamp(0, last) as usize])
+}
+
+/// `gatherf_byte_inds(base, idx)`: the first 8 bytes of `idx` (missing bytes read 0) as
+/// indices into `base`, clamped into the table.
+#[inline(always)]
+pub fn gather_bytes_ps(base: &[f32], idx: &[u8]) -> F8 {
+    gather_ps(base, load_u8x8(idx))
+}
+
+/// The low byte of each lane (`pack_and_store_low_bytes`); AVX2: `pshufb` + unpack.
+#[inline(always)]
+pub fn pack_low_bytes8(a: I8) -> [u8; 8] {
+    #[cfg(target_arch = "x86_64")]
+    if AVX2 {
+        return avx::pack_low_bytes(a);
+    }
+    a.map(|x| x as u8)
+}
+
+/// The first 8 bytes of `p` zero extended to `i32` lanes (missing bytes read 0); AVX2:
+/// `_mm256_cvtepu8_epi32`.
+#[inline(always)]
+pub fn load_u8x8(p: &[u8]) -> I8 {
+    match p.first_chunk::<8>() {
+        Some(b) => {
+            #[cfg(target_arch = "x86_64")]
+            if AVX2 {
+                return avx::cvtepu8_epi32(b);
+            }
+            b.map(i32::from)
+        }
+        None => core::array::from_fn(|k| p.get(k).map_or(0, |&b| i32::from(b))),
+    }
+}
+
+/// `swizzle_quads<l0, l1, l2, l3>`: the same in-quad permutation of both 4-lane halves
+/// (`IMM` = `_MM_SHUFFLE(l3, l2, l1, l0)`); AVX: `_mm256_permute_ps`.
+#[inline(always)]
+pub fn permute_quads<const IMM: i32>(a: F8) -> F8 {
+    #[cfg(target_arch = "x86_64")]
+    if AVX2 {
+        return avx::permute_quads::<IMM>(a);
+    }
+    let l = |k: i32| ((IMM >> (2 * k)) & 3) as usize;
+    [
+        a[l(0)],
+        a[l(1)],
+        a[l(2)],
+        a[l(3)],
+        a[4 + l(0)],
+        a[4 + l(1)],
+        a[4 + l(2)],
+        a[4 + l(3)],
+    ]
+}
+
+/// Two 4-lane vectors as the low and high halves (`pack_quads`).
+#[inline(always)]
+pub fn pack_halves(lo: F4, hi: F4) -> F8 {
+    #[cfg(target_arch = "x86_64")]
+    if AVX2 {
+        return avx::pack_halves(lo, hi);
+    }
+    [lo[0], lo[1], lo[2], lo[3], hi[0], hi[1], hi[2], hi[3]]
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -712,12 +829,68 @@ mod avx {
     pub fn cvtepi32_ps(a: I8) -> F8 {
         of(unsafe { _mm256_cvtepi32_ps(i(a)) })
     }
+    #[inline(always)]
+    pub fn permute_quads<const IMM: i32>(a: F8) -> F8 {
+        of(unsafe { _mm256_permute_ps::<IMM>(f(a)) })
+    }
+    #[inline(always)]
+    pub fn pack_halves(lo: super::F4, hi: super::F4) -> F8 {
+        of(unsafe { _mm256_set_m128(bytemuck::cast(hi), bytemuck::cast(lo)) })
+    }
+    /// The low byte of each lane, in lane order.
+    #[inline(always)]
+    pub fn pack_low_bytes(a: I8) -> [u8; 8] {
+        // SAFETY: register-only intrinsics.
+        let q = unsafe {
+            let shuf = _mm256_setr_epi8(
+                0, 4, 8, 12, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 0, 4, 8, 12, -1, -1,
+                -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+            );
+            let v = _mm256_shuffle_epi8(i(a), shuf);
+            let lo = _mm256_castsi256_si128(v);
+            let hi = _mm256_extracti128_si256::<1>(v);
+            _mm_cvtsi128_si64(_mm_unpacklo_epi32(lo, hi))
+        };
+        (q as u64).to_le_bytes()
+    }
+    /// `_mm256_cvtepu8_epi32` of 8 bytes.
+    #[inline(always)]
+    pub fn cvtepu8_epi32(b: &[u8; 8]) -> I8 {
+        let q = u64::from_le_bytes(*b);
+        // SAFETY: register-only intrinsics on a value already in hand.
+        oi(unsafe { _mm256_cvtepu8_epi32(_mm_cvtsi64_si128(q as i64)) })
+    }
+    /// `_mm256_i32gather_ps` with the indices clamped to `0..=last`, `last < base.len()`.
+    #[inline(always)]
+    pub fn gather_ps(base: &[f32], idx: I8, last: i32) -> F8 {
+        // SAFETY: every index is clamped into `0..=last` and `last < base.len()`, so each
+        // gathered element is inside `base`.
+        of(unsafe {
+            let ix = _mm256_min_epi32(
+                _mm256_max_epi32(i(idx), _mm256_setzero_si256()),
+                _mm256_set1_epi32(last),
+            );
+            _mm256_i32gather_ps::<4>(base.as_ptr(), ix)
+        })
+    }
+    /// `_mm256_i32gather_epi32` with the indices clamped to `0..=last`, `last < base.len()`.
+    #[inline(always)]
+    pub fn gather_epi32(base: &[i32], idx: I8, last: i32) -> I8 {
+        // SAFETY: every index is clamped into `0..=last` and `last < base.len()`, so each
+        // gathered element is inside `base`.
+        oi(unsafe {
+            let ix = _mm256_min_epi32(
+                _mm256_max_epi32(i(idx), _mm256_setzero_si256()),
+                _mm256_set1_epi32(last),
+            );
+            _mm256_i32gather_epi32::<4>(base.as_ptr(), ix)
+        })
+    }
     /// Two `pshufb`s over the halves of the table (the second XOR-prepared), as astcenc's
     /// `vtable_lookup_32bit`; the index's upper bytes are forced to 0xFF so they read 0.
     #[inline(always)]
-    pub fn table32_lookup(tbl: &[u8; 32], idx: I8) -> I8 {
-        let lo: [u8; 16] = core::array::from_fn(|k| tbl[k]);
-        let hi: [u8; 16] = core::array::from_fn(|k| tbl[k + 16] ^ tbl[k]);
+    pub fn table32_lookup(lo: &[u8; 16], hi: &[u8; 16], idx: I8) -> I8 {
+        let (lo, hi) = (*lo, *hi);
         oi(unsafe {
             let t0 = _mm256_broadcastsi128_si256(bytemuck::cast(lo));
             let t1 = _mm256_broadcastsi128_si256(bytemuck::cast(hi));

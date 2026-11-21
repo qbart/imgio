@@ -239,17 +239,14 @@ fn compute_angular_endpoints_for_quant_levels(
             error[i],
         );
 
-        // Check best error against record N-1 with either cut low or cut high
-        let mut best_result = best_results[idx_span - 1];
-        best_result = sel(
-            best_result,
-            Vfloat4::new(error_cut_low, i_flt, 1.0, 0.0),
-            error_cut_low,
-        );
+        // Discard one end weight, giving an N-1 weight result; pick the cheaper end, keeping
+        // the cut-low preference when the errors are equal
+        let error_cut = super::mathlib::min(error_cut_low, error_cut_high);
+        let cut_low_flt = if error_cut == error_cut_low { 1.0 } else { 0.0 };
         best_results[idx_span - 1] = sel(
-            best_result,
-            Vfloat4::new(error_cut_high, i_flt, 0.0, 0.0),
-            error_cut_high,
+            best_results[idx_span - 1],
+            Vfloat4::new(error_cut, i_flt, cut_low_flt, 0.0),
+            error_cut,
         );
 
         // Check best error against record N-2 with both cut low and high
@@ -278,17 +275,17 @@ isa_fn! {
 pub fn compute_angular_endpoints_1plane(
     only_always: bool,
     bsd: &BlockSizeDescriptor,
+    dec_weight_ideal_value: &[f32],
     max_weight_quant: u32,
-    tmpbuf: &mut CompressionWorkingBuffers,
+    angular: &mut AngularBuffers,
 ) {
-    let CompressionWorkingBuffers {
-        dec_weights_ideal: dec_weight_ideal_value,
+    let AngularBuffers {
         weight_low_value1: low_value,
         weight_high_value1: high_value,
         weight_low_values1: low_values,
         weight_high_values1: high_values,
         ..
-    } = tmpbuf;
+    } = angular;
 
     let max_decimation_modes = if only_always {
         bsd.decimation_mode_count_always
@@ -297,7 +294,8 @@ pub fn compute_angular_endpoints_1plane(
     } as usize;
     for i in 0..max_decimation_modes {
         let dm = &bsd.decimation_modes[i];
-        if !dm.is_ref_1plane(max_weight_quant) {
+        // Modes above the angular cutoff use fixed bounds and do not need a search
+        if !dm.is_ref_1plane(max_weight_quant.min(TUNE_MAX_ANGULAR_QUANT as u32)) {
             continue;
         }
         let weight_count = bsd.get_decimation_info(i).weight_count as usize;
@@ -339,11 +337,11 @@ isa_fn! {
 /// `compute_angular_endpoints_2planes` (ideal weights from `tmpbuf.dec_weights_ideal`).
 pub fn compute_angular_endpoints_2planes(
     bsd: &BlockSizeDescriptor,
+    dec_weight_ideal_value: &[f32],
     max_weight_quant: u32,
-    tmpbuf: &mut CompressionWorkingBuffers,
+    angular: &mut AngularBuffers,
 ) {
-    let CompressionWorkingBuffers {
-        dec_weights_ideal: dec_weight_ideal_value,
+    let AngularBuffers {
         weight_low_value1: low_value1,
         weight_high_value1: high_value1,
         weight_low_values1: low_values1,
@@ -352,12 +350,12 @@ pub fn compute_angular_endpoints_2planes(
         weight_high_value2: high_value2,
         weight_low_values2: low_values2,
         weight_high_values2: high_values2,
-        ..
-    } = tmpbuf;
+    } = angular;
 
     for i in 0..bsd.decimation_mode_count_selected as usize {
         let dm = &bsd.decimation_modes[i];
-        if !dm.is_ref_2plane(max_weight_quant) {
+        // Modes above the angular cutoff use fixed bounds and do not need a search
+        if !dm.is_ref_2plane(max_weight_quant.min(TUNE_MAX_ANGULAR_QUANT as u32)) {
             continue;
         }
         let weight_count = bsd.get_decimation_info(i).weight_count as usize;

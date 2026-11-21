@@ -8,6 +8,8 @@
 
 #![allow(clippy::too_many_arguments, clippy::type_complexity)]
 
+use super::AstcencProfile;
+use super::decompress_symbolic::unpack_color_endpoints;
 use super::internal::*;
 use super::mathlib::{clamp, clamp1f, clamp255f, flt2int_rtn};
 use super::tables::COLOR_UNQUANT_TO_UQUANT;
@@ -459,13 +461,8 @@ fn quantize_rgbs_alpha(
 isa_fn! {
 /// `quantize_luminance`.
 fn quantize_luminance(color0: Vfloat4, color1: Vfloat4, output: &mut [u8], quant_level: u32) {
-    let mut lum0 = color0.hadd_rgb_s() * (1.0f32 / 3.0f32);
-    let mut lum1 = color1.hadd_rgb_s() * (1.0f32 / 3.0f32);
-    if lum0 > lum1 {
-        let avg = (lum0 + lum1) * 0.5;
-        lum0 = avg;
-        lum1 = avg;
-    }
+    let lum0 = color0.hadd_rgb_s() * (1.0f32 / 3.0f32);
+    let lum1 = color1.hadd_rgb_s() * (1.0f32 / 3.0f32);
     output[0] = quant_color_f(quant_level, flt2int_rtn(lum0), lum0);
     output[1] = quant_color_f(quant_level, flt2int_rtn(lum1), lum1);
 }
@@ -491,8 +488,12 @@ fn quantize_retain_top_bits(quant_level: u32, mut value: u8, mask: u8) -> u8 {
     loop {
         let quantval = quant_color(quant_level, value as i32);
         let perform_loop = (value & mask) != (quantval & mask);
-        if (quantval & mask) != (value & mask) {
+        if (quantval & mask) > (value & mask) {
+            // Rounded up so that the top bits changed; decrement the input
             value = value.wrapping_sub(1);
+        } else if (quantval & mask) < (value & mask) {
+            // Rounded down so that the top bits changed; increment the input
+            value = value.wrapping_add(1);
         }
         if !perform_loop {
             return quantval;
@@ -572,6 +573,8 @@ fn quantize_hdr_rgbo(mut color: Vfloat4, output: &mut [u8], quant_level: u32) {
 
         // Quantize and unquantize R
         let mut r_intval = flt2int_rtn(r_base * mode_scale);
+        // Saturate after rounding so the base still fits in the mode's field
+        r_intval = r_intval.min((1 << MODE_BITS[mode][0]) - 1);
         let mut r_lowbits = r_intval & 0x3f;
         r_lowbits |= (mode_enc & 3) << 6;
         let r_quantval = top2(quant_level, r_lowbits as u8);
@@ -761,7 +764,10 @@ fn quantize_hdr_rgb(color0: Vfloat4, color1: Vfloat4, output: &mut [u8], quant_l
     // Scaling factors when going from what was encoded in the mode to 16 bits.
     const MODE_RSCALES: [f32; 8] = [128.0, 128.0, 64.0, 64.0, 32.0, 32.0, 16.0, 16.0];
 
-    // Try modes one by one, with the highest-precision mode first.
+    let mut delta_output = [0u8; 6];
+    let mut is_delta_valid = false;
+
+    // Try modes in decreasing precision order
     for mode in (0..8usize).rev() {
         let b_cutoff = MODE_CUTOFFS[mode][0];
         let c_cutoff = MODE_CUTOFFS[mode][1];
@@ -782,6 +788,8 @@ fn quantize_hdr_rgb(color0: Vfloat4, color1: Vfloat4, output: &mut [u8], quant_l
 
         // Quantize and unquantize A, with the assumption that its high bits can be handled safely.
         let mut a_intval = flt2int_rtn(a_base * mode_scale);
+        // Saturate after rounding so the base still fits in the mode's field
+        a_intval = a_intval.min((1 << MODE_BITS[mode][0]) - 1);
         let a_lowbits = a_intval & 0xFF;
         let a_quantval = quant_color(quant_level, a_lowbits) as i32;
         let a_uquantval = a_quantval;
@@ -839,9 +847,15 @@ fn quantize_hdr_rgb(color0: Vfloat4, color1: Vfloat4, output: &mut [u8], quant_l
         let mut d1_fval = a_fval - b1_fval - c_fval - color0.lane(2);
         d0_fval = clamp(d0_fval, -65535.0, 65535.0);
         d1_fval = clamp(d1_fval, -65535.0, 65535.0);
-        let d0_intval = flt2int_rtn(d0_fval * mode_scale);
-        let d1_intval = flt2int_rtn(d1_fval * mode_scale);
-        if d0_intval.wrapping_abs() >= d_intcutoff || d1_intval.wrapping_abs() >= d_intcutoff {
+        // Round signed deltas to nearest, with halfway cases rounding upward
+        let d0_intval = (d0_fval * mode_scale + 0.5).floor() as i32;
+        let d1_intval = (d1_fval * mode_scale + 0.5).floor() as i32;
+        // The negative limit is inclusive; the positive limit is exclusive
+        if d0_intval < -d_intcutoff
+            || d0_intval >= d_intcutoff
+            || d1_intval < -d_intcutoff
+            || d1_intval >= d_intcutoff
+        {
             continue;
         }
         let mut d0_lowbits = d0_intval & 0x1f;
@@ -878,7 +892,14 @@ fn quantize_hdr_rgb(color0: Vfloat4, color1: Vfloat4, output: &mut [u8], quant_l
         output[3] = b1_quantval;
         output[4] = d0_quantval;
         output[5] = d1_quantval;
-        return;
+
+        // Clamping negative C can retain more precision than the direct encoding
+        if c_base >= 0.0 {
+            return;
+        }
+        delta_output.copy_from_slice(&output[..6]);
+        is_delta_valid = true;
+        break;
     }
 
     // If neither of the modes fit we will use a flat representation for storing data, using
@@ -903,6 +924,27 @@ fn quantize_hdr_rgb(color0: Vfloat4, color1: Vfloat4, output: &mut [u8], quant_l
     for i in 4..6 {
         let idx = flt2int_rtn(vals[i] * 1.0 / 512.0) + 128;
         output[i] = top2(quant_level, idx as u8);
+    }
+
+    // For negative C, retain the clamped delta encoding if it beats the direct fallback
+    if is_delta_valid {
+        let mut delta_in = [0u8; 8];
+        delta_in[..6].copy_from_slice(&delta_output);
+        let mut direct_in = [0u8; 8];
+        direct_in[..6].copy_from_slice(&output[..6]);
+        let (delta0, delta1, _, _) =
+            unpack_color_endpoints(AstcencProfile::Hdr, FMT_HDR_RGB, &delta_in);
+        let (direct0, direct1, _, _) =
+            unpack_color_endpoints(AstcencProfile::Hdr, FMT_HDR_RGB, &direct_in);
+        let d0 = color0_bak - delta0.int_to_float();
+        let d1 = color1_bak - delta1.int_to_float();
+        let delta_error = (d0 * d0 + d1 * d1).hadd_rgb_s();
+        let d0 = color0_bak - direct0.int_to_float();
+        let d1 = color1_bak - direct1.int_to_float();
+        let direct_error = (d0 * d0 + d1 * d1).hadd_rgb_s();
+        if delta_error <= direct_error {
+            output[..6].copy_from_slice(&delta_output);
+        }
     }
 }
 }
@@ -949,11 +991,21 @@ fn quantize_hdr_luminance_large_range(
     let lower_v0 = (ilum1.wrapping_add(256) >> 8).clamp(0, 255);
     let lower_v1 = (ilum0 >> 8).clamp(0, 255);
 
-    // Determine the distance between the point in code-point space and the input value
+    // Quantization can reverse the submode error ranking, so score the quantized endpoints
+    let upper_v0 = quant_color(quant_level, upper_v0) as i32;
+    let upper_v1 = quant_color(quant_level, upper_v1) as i32;
+    let lower_v0 = quant_color(quant_level, lower_v0) as i32;
+    let lower_v1 = quant_color(quant_level, lower_v1) as i32;
+
     let upper0_dec = upper_v0 << 8;
     let upper1_dec = upper_v1 << 8;
-    let lower0_dec = (lower_v1 << 8) + 128;
-    let lower1_dec = (lower_v0 << 8) - 128;
+    let mut lower0_dec = lower_v0 << 8;
+    let mut lower1_dec = lower_v1 << 8;
+    // Equal quantized values select the upper submode in the decoder
+    if lower_v0 > lower_v1 {
+        lower0_dec = (lower_v1 << 8) + 128;
+        lower1_dec = (lower_v0 << 8) - 128;
+    }
     let upper0_diff = upper0_dec.wrapping_sub(ilum0);
     let upper1_diff = upper1_dec.wrapping_sub(ilum1);
     let lower0_diff = lower0_dec.wrapping_sub(ilum0);
@@ -970,9 +1022,8 @@ fn quantize_hdr_luminance_large_range(
         (lower_v0, lower_v1)
     };
 
-    // OK; encode
-    output[0] = quant_color(quant_level, v0);
-    output[1] = quant_color(quant_level, v1);
+    output[0] = v0 as u8;
+    output[1] = v1 as u8;
 }
 }
 
@@ -1085,8 +1136,9 @@ fn quantize_hdr_alpha(alpha0: f32, alpha1: f32, output: &mut [u8], quant_level: 
     }
 
     // Could not encode any of the delta modes; instead encode a flat value
-    let val0 = (ialpha0 + 256) >> 9;
-    let val1 = (ialpha1 + 256) >> 9;
+    // Saturate after rounding so the values still fit in the mode's field
+    let val0 = ((ialpha0 + 256) >> 9).min(127);
+    let val1 = ((ialpha1 + 256) >> 9).min(127);
     let v6 = val0 | 0x80;
     let v7 = val1 | 0x80;
     output[0] = quant_color(quant_level, v6);
@@ -1180,7 +1232,7 @@ pub fn pack_color_endpoints(
             } else {
                 (FMT_RGB_DELTA, FMT_RGB)
             };
-            if quant_level <= QUANT_160 {
+            if quant_level <= QUANT_192 {
                 if delta_bc(
                     color0_ldr,
                     color1_ldr,
@@ -1209,7 +1261,14 @@ pub fn pack_color_endpoints(
                     }
                 }
             }
-            if quant_level < QUANT_256 {
+            // At full precision, only blue-contract endpoints that need ordering adjustments
+            let mut is_blue_contract_allowed = quant_level < QUANT_256;
+            if !is_blue_contract_allowed {
+                let color0i = color0_ldr.float_to_int_rtn();
+                let color1i = color1_ldr.float_to_int_rtn();
+                is_blue_contract_allowed = color0i.hadd_rgb_s() > color1i.hadd_rgb_s();
+            }
+            if is_blue_contract_allowed {
                 let ok = if rgba {
                     try_quantize_rgba_blue_contract(
                         color0_ldr,
@@ -1302,7 +1361,7 @@ pub fn pack_color_endpoints(
             retval = FMT_LUMINANCE;
         }
         FMT_LUMINANCE_ALPHA => {
-            if quant_level <= 18
+            if quant_level <= QUANT_192
                 && try_quantize_luminance_alpha_delta(color0_ldr, color1_ldr, output, quant_level)
             {
                 retval = FMT_LUMINANCE_ALPHA_DELTA;

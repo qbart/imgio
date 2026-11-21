@@ -11,21 +11,6 @@ use super::internal::*;
 use super::vecmath::*;
 
 isa_fn! {
-/// `unit3()` / `unit4()`.
-#[allow(clippy::excessive_precision)]
-fn unit3() -> Vfloat4 {
-    let v = 0.577350258827209473f32;
-    Vfloat4::new(v, v, v, 0.0)
-}
-}
-
-isa_fn! {
-fn unit4() -> Vfloat4 {
-    Vfloat4::splat(0.5)
-}
-}
-
-isa_fn! {
 /// `kmeans_init`.
 fn kmeans_init(
     blk: &ImageBlock,
@@ -168,22 +153,24 @@ fn kmeans_update(
 }
 
 isa_fn! {
-/// `partition_mismatch2`.
-fn partition_mismatch2(a: &[u64], b: &[u64; 2]) -> u8 {
-    let v1 = popcount(a[0] ^ b[0]) + popcount(a[1] ^ b[1]);
-    let v2 = popcount(a[0] ^ b[1]) + popcount(a[1] ^ b[0]);
-    (v1.min(v2) / 2) as u8
+/// `partition_mismatch2`: the second masks are complements of the first within the sample,
+/// so only the first XOR is counted; swapping the labels gives `texel_count - mismatch`.
+fn partition_mismatch2(a: &[u64], b: &[u64; 2], texel_count: u32) -> u8 {
+    let mismatch = (a[0] ^ b[0]).count_ones();
+    mismatch.min(texel_count.wrapping_sub(mismatch)) as u8
 }
 }
 
 isa_fn! {
-/// `partition_mismatch3`.
+/// `partition_mismatch3`: OR of the XORs of the first two masks counts each mismatched texel
+/// once; the minimum over the six label permutations.
 fn partition_mismatch3(a: &[u64], b: &[u64; 3]) -> u8 {
-    let p = |i: usize, j: usize| popcount(a[i] ^ b[j]);
-    let v0 = (p(1, 1) + p(2, 2)).min(p(1, 2) + p(2, 1)) + p(0, 0);
-    let v1 = (p(1, 0) + p(2, 2)).min(p(1, 2) + p(2, 0)) + p(0, 1);
-    let v2 = (p(1, 0) + p(2, 1)).min(p(1, 1) + p(2, 0)) + p(0, 2);
-    (v0.min(v1).min(v2) / 2) as u8
+    let (p00, p01, p02) = (a[0] ^ b[0], a[0] ^ b[1], a[0] ^ b[2]);
+    let (p10, p11, p12) = (a[1] ^ b[0], a[1] ^ b[1], a[1] ^ b[2]);
+    let v0 = (p00 | p11).count_ones().min((p00 | p12).count_ones());
+    let v1 = (p01 | p10).count_ones().min((p01 | p12).count_ones());
+    let v2 = (p02 | p10).count_ones().min((p02 | p11).count_ones());
+    v0.min(v1).min(v2) as u8
 }
 }
 
@@ -214,9 +201,10 @@ fn count_partition_mismatch_bits(
     mismatch_counts: &mut [u8; BLOCK_MAX_PARTITIONINGS],
 ) {
     let active_count = bsd.partitioning_count_selected[partition_count - 1] as usize;
+    let texel_count = (bsd.texel_count as u32).min(BLOCK_MAX_KMEANS_TEXELS as u32);
     for i in 0..active_count {
         mismatch_counts[i] = match partition_count {
-            2 => partition_mismatch2(bitmaps, &bsd.coverage_bitmaps_2[i]),
+            2 => partition_mismatch2(bitmaps, &bsd.coverage_bitmaps_2[i], texel_count),
             3 => partition_mismatch3(bitmaps, &bsd.coverage_bitmaps_3[i]),
             _ => partition_mismatch4(bitmaps, &bsd.coverage_bitmaps_4[i]),
         };
@@ -396,102 +384,75 @@ pub fn find_best_partition_candidates(
         samec_best_errors[i] = ERROR_CALC_DEFAULT;
     }
 
-    for i in 0..partition_search_limit {
-        let partition = partition_sequence[i] as u32;
-        let pi = bsd.get_raw_partition_info(partition_count, partition);
-        let mut pms = [PartitionMetrics::default(); 4];
-        let (mut uncor_error, mut samec_error) = (0.0f32, 0.0f32);
-
-        if uses_alpha {
-            // Compute the error for the partitioning with alpha
-            compute_avgs_and_dirs_4_comp(pi, blk, &mut pms);
-            let mut uncor_lines = [Line::default(); 4];
-            let mut samec_lines = [Line::default(); 4];
-            let mut uncor_plines = [ProcessedLine::default(); 4];
-            let mut samec_plines = [ProcessedLine::default(); 4];
-            let mut line_lengths = [0.0f32; 4];
-            for j in 0..pc {
-                let pm = &pms[j];
-                uncor_lines[j].a = pm.avg;
-                uncor_lines[j].b = normalize_safe(pm.dir, unit4());
-                uncor_plines[j].amod =
-                    uncor_lines[j].a - uncor_lines[j].b * uncor_lines[j].a.dot(uncor_lines[j].b);
-                uncor_plines[j].bs = uncor_lines[j].b;
-                samec_lines[j].a = Vfloat4::zero();
-                samec_lines[j].b = normalize_safe(pm.avg, unit4());
-                samec_plines[j].amod = Vfloat4::zero();
-                samec_plines[j].bs = samec_lines[j].b;
-            }
-            compute_error_squared_rgba(
-                pi,
+    // The AVX2 build (`ASTCENC_HAS_NATIVE_QUAD_OPS`) scores two candidates per vector, one per
+    // quad. The candidate list is padded to the batch width by repeating the last candidate;
+    // padded results are not ranked.
+    if partition_search_limit > 0 {
+        let padded_limit = partition_search_limit.next_multiple_of(SIMD_BATCH_WIDTH);
+        for i in partition_search_limit..padded_limit {
+            partition_sequence[i] = partition_sequence[partition_search_limit - 1];
+        }
+    }
+    let mut i = 0;
+    while i < partition_search_limit {
+        let candidates = [
+            bsd.get_raw_partition_info(partition_count, partition_sequence[i] as u32),
+            bsd.get_raw_partition_info(partition_count, partition_sequence[i + 1] as u32),
+        ];
+        let mut uncor_errors = [0.0f32; 2];
+        let mut samec_errors = [0.0f32; 2];
+        let w = weight_imprecision_estim;
+        match (uses_alpha, blk.grayscale) {
+            (true, true) => compute_partition_errors_luminance_alpha_batch(
+                candidates,
                 blk,
-                &uncor_plines,
-                &samec_plines,
-                &mut line_lengths,
-                &mut uncor_error,
-                &mut samec_error,
-            );
-
-            // Compute an estimate of error introduced by weight quantization imprecision.
-            // This error is computed as follows, for each partition
-            //     1: compute the principal-axis vector (full length) in error-space
-            //     2: convert the principal-axis vector to regular RGB-space
-            //     3: scale the vector by a constant that estimates average quantization error
-            //     4: for each texel, square the vector, then do a dot-product with the texel's
-            //        error weight; sum up the results across all texels.
-            //     4(optimized): square the vector once, then do a dot-product with the average
-            //        texel error, then multiply by the number of texels.
-            for j in 0..pc {
-                let tpp = pi.partition_texel_count[j] as f32;
-                let error_weights = Vfloat4::splat(tpp * weight_imprecision_estim);
-                let uncor_vector = uncor_lines[j].b * line_lengths[j];
-                let samec_vector = samec_lines[j].b * line_lengths[j];
-                uncor_error += (uncor_vector * uncor_vector).dot_s(error_weights);
-                samec_error += (samec_vector * samec_vector).dot_s(error_weights);
-            }
-        } else {
-            compute_avgs_and_dirs_3_comp_rgb(pi, blk, &mut pms);
-            let mut plines = [PartitionLines3::default(); 4];
-            for j in 0..pc {
-                let pm = &pms[j];
-                let pl = &mut plines[j];
-                pl.uncor_line.a = pm.avg;
-                pl.uncor_line.b = normalize_safe(pm.dir, unit3());
-                pl.samec_line.a = Vfloat4::zero();
-                pl.samec_line.b = normalize_safe(pm.avg, unit3());
-                pl.uncor_pline.amod =
-                    pl.uncor_line.a - pl.uncor_line.b * pl.uncor_line.a.dot3(pl.uncor_line.b);
-                pl.uncor_pline.bs = pl.uncor_line.b;
-                pl.samec_pline.amod = Vfloat4::zero();
-                pl.samec_pline.bs = pl.samec_line.b;
-            }
-            compute_error_squared_rgb(pi, blk, &mut plines, &mut uncor_error, &mut samec_error);
-
-            for j in 0..pc {
-                let pl = &plines[j];
-                let tpp = pi.partition_texel_count[j] as f32;
-                let error_weights = Vfloat4::splat(tpp * weight_imprecision_estim);
-                let uncor_vector = pl.uncor_line.b * pl.line_length;
-                let samec_vector = pl.samec_line.b * pl.line_length;
-                uncor_error += (uncor_vector * uncor_vector).dot3_s(error_weights);
-                samec_error += (samec_vector * samec_vector).dot3_s(error_weights);
-            }
+                w,
+                &mut uncor_errors,
+                &mut samec_errors,
+            ),
+            (true, false) => compute_partition_errors_rgba_batch(
+                candidates,
+                blk,
+                w,
+                &mut uncor_errors,
+                &mut samec_errors,
+            ),
+            (false, true) => compute_partition_errors_luminance_batch(
+                candidates,
+                blk,
+                w,
+                &mut uncor_errors,
+                &mut samec_errors,
+            ),
+            (false, false) => compute_partition_errors_rgb_batch(
+                candidates,
+                blk,
+                w,
+                &mut uncor_errors,
+                &mut samec_errors,
+            ),
         }
 
-        insert_result(
-            requested_candidates,
-            uncor_error,
-            partition,
-            &mut uncor_best_errors,
-            &mut uncor_best_partitions,
-        );
-        insert_result(
-            requested_candidates,
-            samec_error,
-            partition,
-            &mut samec_best_errors,
-            &mut samec_best_partitions,
-        );
+        // Keep candidate insertion order and exclude padded results from the rankings
+        let active_count = SIMD_BATCH_WIDTH.min(partition_search_limit - i);
+        for c in 0..active_count {
+            let partition = partition_sequence[i + c] as u32;
+            insert_result(
+                requested_candidates,
+                uncor_errors[c],
+                partition,
+                &mut uncor_best_errors,
+                &mut uncor_best_partitions,
+            );
+            insert_result(
+                requested_candidates,
+                samec_errors[c],
+                partition,
+                &mut samec_best_errors,
+                &mut samec_best_partitions,
+            );
+        }
+        i += SIMD_BATCH_WIDTH;
     }
 
     let mut interleave = [0u32; 2 * TUNE_MAX_PARTITIONING_CANDIDATES];

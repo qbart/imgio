@@ -274,6 +274,11 @@ macro_rules! vtypes {
             /// `vintN(const uint8_t*)`: N bytes zero extended.
             #[inline(always)]
             pub fn from_u8(p: &[u8]) -> Self {
+                if let Some(a) = p.first_chunk::<$n>() {
+                    return Self {
+                        m: a.map(i32::from),
+                    };
+                }
                 let mut m = [0; $n];
                 for (d, s) in m.iter_mut().zip(p) {
                     *d = *s as i32;
@@ -613,33 +618,12 @@ macro_rules! common_fns {
                     m: a.m.blendv_ps(b.m, cond.m),
                 }
             }
-            /// `gatherf(base, indices)`.
+            /// `gatherf(base, indices)` (out of range lanes read zero).
             #[inline(always)]
             pub fn gatherf(base: &[f32], idx: $vi) -> Self {
                 Self {
                     m: idx.m.map(|i| base.get(i as usize).copied().unwrap_or(0.0)),
                 }
-            }
-            /// `gatherf_byte_inds`.
-            #[inline(always)]
-            pub fn gatherf_byte_inds(base: &[f32], idx: &[u8]) -> Self {
-                // Full vector of indices: clamped (provably in bounds, no per lane branch) and
-                // out of range lanes zeroed with a select.
-                if let (Some(ix), Some(last)) = (idx.first_chunk::<$n>(), base.len().checked_sub(1))
-                {
-                    let mut m = [0.0; $n];
-                    for k in 0..$n {
-                        let i = ix[k] as usize;
-                        let v = base[i.min(last)];
-                        m[k] = if i <= last { v } else { 0.0 };
-                    }
-                    return Self { m };
-                }
-                let mut m = [0.0; $n];
-                for (d, i) in m.iter_mut().zip(idx) {
-                    *d = base.get(*i as usize).copied().unwrap_or(0.0);
-                }
-                Self { m }
             }
             #[inline(always)]
             pub fn float_to_int(self) -> $vi {
@@ -861,7 +845,36 @@ impl Vmask4 {
 
 // ------------------------------------------------------------------- 8-wide specifics
 
+impl Vint8 {
+    /// `vint8(const uint8_t*)`: 8 bytes zero extended (missing bytes read 0).
+    #[inline(always)]
+    pub fn from_u8x8(p: &[u8]) -> Vint8 {
+        Vint8 {
+            m: super::sse::load_u8x8(p),
+        }
+    }
+    /// The low byte of each lane (`pack_and_store_low_bytes`).
+    #[inline(always)]
+    pub fn pack_bytes8(self) -> [u8; 8] {
+        super::sse::pack_low_bytes8(self.m)
+    }
+}
+
 impl Vfloat8 {
+    /// `gatherf(base, indices)` for in-range indices (clamped into `base`).
+    #[inline(always)]
+    pub fn gather(base: &[f32], idx: Vint8) -> Vfloat8 {
+        Vfloat8 {
+            m: super::sse::gather_ps(base, idx.m),
+        }
+    }
+    /// `gatherf_byte_inds` for in-range byte indices (clamped into `base`).
+    #[inline(always)]
+    pub fn gatherf_byte_inds(base: &[f32], idx: &[u8]) -> Vfloat8 {
+        Vfloat8 {
+            m: super::sse::gather_bytes_ps(base, idx),
+        }
+    }
     /// `abs`: sign bit cleared.
     #[inline(always)]
     pub fn abs(self) -> Vfloat8 {
@@ -916,6 +929,96 @@ impl Vfloat8 {
     #[inline(always)]
     pub fn haccumulate_masked(accum: &mut Vfloat4, a: Vfloat8, m: Vmask8) {
         Vfloat8::haccumulate(accum, Vfloat8::select(Vfloat8::zero(), a, m));
+    }
+}
+
+// ------------------------------------------------------------------- quad operations
+// The AVX2 build processes `ASTCENC_SIMD_BATCH_WIDTH` = 2 candidates per vector, one per
+// quad of four lanes (`ASTCENC_HAS_NATIVE_QUAD_OPS`).
+
+/// `ASTCENC_SIMD_BATCH_WIDTH`.
+pub const SIMD_BATCH_WIDTH: usize = SIMD_WIDTH / 4;
+
+impl Vfloat8 {
+    /// `swizzle_quads<2, 3, 0, 1>`.
+    #[inline(always)]
+    pub fn swap_pairs_quads(self) -> Vfloat8 {
+        Vfloat8 {
+            m: super::sse::permute_quads::<0b01_00_11_10>(self.m),
+        }
+    }
+    /// `swizzle_quads<1, 0, 3, 2>`.
+    #[inline(always)]
+    pub fn swap_lanes_quads(self) -> Vfloat8 {
+        Vfloat8 {
+            m: super::sse::permute_quads::<0b10_11_00_01>(self.m),
+        }
+    }
+    /// `swizzle_quads<l, l, l, l>`: lane `l` of each quad broadcast within the quad.
+    #[inline(always)]
+    pub fn quad_lane(self, l: usize) -> Vfloat8 {
+        let m = match l {
+            0 => super::sse::permute_quads::<0b00_00_00_00>(self.m),
+            1 => super::sse::permute_quads::<0b01_01_01_01>(self.m),
+            2 => super::sse::permute_quads::<0b10_10_10_10>(self.m),
+            _ => super::sse::permute_quads::<0b11_11_11_11>(self.m),
+        };
+        Vfloat8 { m }
+    }
+    /// `sum_quads`: `(a0 + a2) + (a1 + a3)` per quad, replicated within the quad.
+    #[inline(always)]
+    pub fn sum_quads(self) -> Vfloat8 {
+        let pairs = self + self.swap_pairs_quads();
+        pairs + pairs.swap_lanes_quads()
+    }
+    /// `dot_quads`.
+    #[inline(always)]
+    pub fn dot_quads(self, b: Vfloat8) -> Vfloat8 {
+        (self * b).sum_quads()
+    }
+    /// `sum_rgb_quads`: `(a0 + a1) + a2` per quad.
+    #[inline(always)]
+    pub fn sum_rgb_quads(self) -> Vfloat8 {
+        (self.quad_lane(0) + self.quad_lane(1)) + self.quad_lane(2)
+    }
+    /// `min_quads`.
+    #[inline(always)]
+    pub fn min_quads(self) -> Vfloat8 {
+        let pairs = self.min(self.swap_pairs_quads());
+        pairs.min(pairs.swap_lanes_quads())
+    }
+    /// `max_quads`.
+    #[inline(always)]
+    pub fn max_quads(self) -> Vfloat8 {
+        let pairs = self.max(self.swap_pairs_quads());
+        pairs.max(pairs.swap_lanes_quads())
+    }
+    /// `normalize_safe_quads`: `safe` for zero-length quads.
+    #[inline(always)]
+    pub fn normalize_safe_quads(self, safe: Vfloat8) -> Vfloat8 {
+        let length = self.dot_quads(self);
+        let is_zero = length.eq(Vfloat8::zero());
+        let normalized = self / length.sqrt();
+        Vfloat8::select(normalized, safe, is_zero)
+    }
+    /// `broadcast_quad`.
+    #[inline(always)]
+    pub fn broadcast_quad(a: Vfloat4) -> Vfloat8 {
+        Vfloat8 {
+            m: super::sse::pack_halves(a.m, a.m),
+        }
+    }
+    /// `pack_quads`.
+    #[inline(always)]
+    pub fn pack_quads(g: [Vfloat4; 2]) -> Vfloat8 {
+        Vfloat8 {
+            m: super::sse::pack_halves(g[0].m, g[1].m),
+        }
+    }
+    /// `store_lane0_quads`.
+    #[inline(always)]
+    pub fn lane0_quads(self) -> [f32; 2] {
+        [self.m[0], self.m[4]]
     }
 }
 

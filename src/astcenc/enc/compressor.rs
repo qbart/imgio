@@ -43,9 +43,11 @@ pub fn compressor_alloc(cfg: &AstcencConfig, thread_count: u32) -> Compressor {
 isa_fn! {
 /// `compress_image`: compresses the batches of 16 blocks the task manager hands to this
 /// thread. Each batch is compressed locally and copied into the shared output.
+#[allow(clippy::too_many_arguments)]
 pub fn compress_image(
     compressor: &Compressor,
     config: &AstcencConfig,
+    active_channel_mask: u32,
     manage_compress: &ParallelManager,
     thread_index: usize,
     image: &AstcencImage,
@@ -83,8 +85,12 @@ pub fn compress_image(
 
     blk.decode_unorm8 = config.flags & ASTCENC_FLG_USE_DECODE_UNORM8 != 0;
 
-    // Populate the block channel weights
-    blk.channel_weight = vecmath::Vfloat4::new(
+    // The L+A refit skips the RGB+offset endpoint calculation needed for HDR mode 7
+    let is_ldr = matches!(decode_mode, AstcencProfile::Ldr | AstcencProfile::LdrSrgb);
+    blk.active_channel_mask = if is_ldr { active_channel_mask } else { 0xF };
+
+    // Preserve the configured weights before applying per-block adjustments
+    let channel_weight = vecmath::Vfloat4::new(
         config.cw_r_weight,
         config.cw_g_weight,
         config.cw_b_weight,
@@ -120,6 +126,7 @@ pub fn compress_image(
             let x = rem - (y * row_blocks);
 
             // Fetch the full block for compression
+            blk.channel_weight = channel_weight;
             if use_fast_load {
                 image::load_image_block_fast_ldr(image, &mut blk, bsd, x * block_x, y * block_y);
             } else {
@@ -135,16 +142,33 @@ pub fn compress_image(
                 );
             }
 
+            if needs_hdr && config.flags & ASTCENC_FLG_USE_PERCEPTUAL != 0 {
+                // Approximate display-space error by weighting logarithmic channels by their
+                // geometric brightness
+                let mut mean = blk.data_mean;
+                mean.set_lane(3, 0.0);
+                let geometric_mean =
+                    vecmath::float16_to_float_v(vecmath::lns_to_sf16(mean.float_to_int()));
+                let maximum = mathlib::max(geometric_mean.hmax_s(), 1e-20);
+
+                // Retain at least 1% weight for dim channels
+                let mut weights = (geometric_mean / maximum).max(vecmath::Vfloat4::splat(0.01));
+                weights.set_lane(3, 1.0);
+                blk.channel_weight = weights * blk.channel_weight;
+            }
+
             // Scale RGB error contribution by the maximum alpha in the block. This encourages
-            // preserving alpha accuracy in regions with high transparency.
+            // alpha accuracy in regions with high transparency, and can gain up to 0.5 dB.
             if config.flags & ASTCENC_FLG_USE_ALPHA_WEIGHT != 0 {
-                let alpha_scale = blk.data_max.lane(3) * (1.0 / 65535.0);
-                blk.channel_weight = vecmath::Vfloat4::new(
-                    config.cw_r_weight * alpha_scale,
-                    config.cw_g_weight * alpha_scale,
-                    config.cw_b_weight * alpha_scale,
-                    config.cw_a_weight,
-                );
+                let mut alpha_scale = blk.data_max.lane(3) * (1.0 / 65535.0);
+                if decode_mode == AstcencProfile::Hdr {
+                    // Transparency uses linear alpha, even when the endpoints use LNS
+                    let alpha_lns = blk.data_max.float_to_int();
+                    let alpha = vecmath::float16_to_float_v(vecmath::lns_to_sf16(alpha_lns));
+                    alpha_scale = mathlib::clamp1f(alpha.lane(3));
+                }
+                blk.channel_weight = blk.channel_weight
+                    * vecmath::Vfloat4::new(alpha_scale, alpha_scale, alpha_scale, 1.0);
             }
 
             // ((z * blocks_y + y) * blocks_x + x) * 16 == i * 16: a batch is contiguous

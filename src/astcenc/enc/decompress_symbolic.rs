@@ -21,10 +21,8 @@ pub fn get_u8_component_mask(decode_mode: AstcencProfile, blk: &ImageBlock) -> V
 isa_fn! {
 /// `lerp_color_int`.
 fn lerp_color_int(u8_mask: Vmask4, color0: Vint4, color1: Vint4, weights: Vint4) -> Vint4 {
-    let weight1 = weights;
-    let weight0 = Vint4::splat(64) - weight1;
-    let mut color = (color0 * weight0) + (color1 * weight1) + Vint4::splat(32);
-    color = color.asr(6);
+    let color_delta = color1 - color0;
+    let color = color0 + (color_delta * weights + Vint4::splat(32)).asr(6);
 
     // For decode_unorm8 values force the codec to bit replicate
     let color_u8 = color.asr(8) * Vint4::splat(257);
@@ -44,49 +42,86 @@ pub fn unpack_color_endpoints(
 }
 }
 
+/// `unpack_weights` lookup tables of one symbolic block: the plane weights as `i32` (the
+/// vtable lookups only use the low index bits: 64 entries, or 32 per plane).
+struct WeightTables {
+    tab1: [i32; BLOCK_MAX_WEIGHTS],
+    tab2: [i32; WEIGHTS_PLANE2_OFFSET],
+    size: usize,
+    direct: bool,
+}
+
 isa_fn! {
-/// `unpack_weights`: unquantized, undecimated weights (0..64) for every texel, written
-/// in groups of 8 texels like the SIMD build.
-pub fn unpack_weights(
+#[inline]
+fn weight_tables(
     bsd: &BlockSizeDescriptor,
     scb: &SymbolicCompressedBlock,
     di: &DecimationInfo,
     is_dual_plane: bool,
-    weights_plane1: &mut [i32; BLOCK_MAX_TEXELS + SIMD_WIDTH],
-    weights_plane2: &mut [i32; BLOCK_MAX_TEXELS + SIMD_WIDTH],
-) {
-    let table = |plane: usize, idx: u8| -> i32 {
-        let base = if is_dual_plane { plane * 32 } else { 0 };
-        let size = if is_dual_plane { 32 } else { 64 };
-        // vtable lookups only use the low bits of the index
-        i32::from(scb.weights[base + (idx as usize % size)])
+) -> WeightTables {
+    let size = if is_dual_plane {
+        WEIGHTS_PLANE2_OFFSET
+    } else {
+        BLOCK_MAX_WEIGHTS
     };
-    let get = |a: &[u8; BLOCK_MAX_TEXELS], i: usize| a.get(i).copied().unwrap_or(0);
-    let texel_count = bsd.texel_count as usize;
-    let mut i = 0;
-    while i < texel_count {
-        let max_weight_count = (i..i + SIMD_WIDTH)
-            .map(|t| get(&di.texel_weight_count, t))
-            .max()
-            .unwrap_or(0) as usize;
-        for t in i..i + SIMD_WIDTH {
-            let mut sum1 = 8i32;
-            let mut sum2 = 8i32;
-            for j in 0..max_weight_count {
-                let w = get(&di.texel_weights_tr[j], t);
-                let c = i32::from(get(&di.texel_weight_contribs_int_tr[j], t));
-                sum1 = sum1.wrapping_add(table(0, w).wrapping_mul(c));
-                if is_dual_plane {
-                    sum2 = sum2.wrapping_add(table(1, w).wrapping_mul(c));
-                }
-            }
-            weights_plane1[t] = ((sum1 as u32) >> 4) as i32;
-            if is_dual_plane {
-                weights_plane2[t] = ((sum2 as u32) >> 4) as i32;
-            }
-        }
-        i += SIMD_WIDTH;
+    let mut t = WeightTables {
+        tab1: [0; BLOCK_MAX_WEIGHTS],
+        tab2: [0; WEIGHTS_PLANE2_OFFSET],
+        size,
+        direct: di.weight_count == bsd.texel_count,
+    };
+    for k in 0..size {
+        t.tab1[k] = i32::from(scb.weights[k]);
     }
+    if is_dual_plane {
+        for k in 0..WEIGHTS_PLANE2_OFFSET {
+            t.tab2[k] = i32::from(scb.weights[WEIGHTS_PLANE2_OFFSET + k]);
+        }
+    }
+    t
+}
+}
+
+isa_fn! {
+/// The unquantized, undecimated weights (0..64) of texels `i..i + 8` of plane 1 and (dual
+/// plane) plane 2, as `unpack_weights` computes them. Undecimated grids are copied directly
+/// (the infill of a single full weight is exact).
+#[inline]
+fn unpack_weights_at(
+    t: &WeightTables,
+    di: &DecimationInfo,
+    i: usize,
+    is_dual_plane: bool,
+) -> (Vint8, Vint8) {
+    if t.direct {
+        let w = |tab: &[i32]| Vint8::load(tab.get(i..).unwrap_or_default());
+        let w2 = if is_dual_plane {
+            w(&t.tab2)
+        } else {
+            Vint8::zero()
+        };
+        return (w(&t.tab1[..t.size]), w2);
+    }
+    let index_mask = t.size as i32 - 1;
+    let max_weight_count =
+        Vint8::from_u8x8(di.texel_weight_count.get(i..).unwrap_or_default()).hmax_s();
+    let mut sum1 = Vint8::splat(8);
+    let mut sum2 = Vint8::splat(8);
+    for j in 0..max_weight_count.max(0) as usize {
+        let idx =
+            Vint8::from_u8x8(di.texel_weights_tr[j].get(i..).unwrap_or_default()) & index_mask;
+        let contrib =
+            Vint8::from_u8x8(di.texel_weight_contribs_int_tr[j].get(i..).unwrap_or_default());
+        sum1 += Vint8 {
+            m: super::sse::gather_epi32(&t.tab1[..t.size], idx.m),
+        } * contrib;
+        if is_dual_plane {
+            sum2 += Vint8 {
+                m: super::sse::gather_epi32(&t.tab2, idx.m),
+            } * contrib;
+        }
+    }
+    (sum1.lsr(4), sum2.lsr(4))
 }
 }
 
@@ -140,10 +175,8 @@ pub fn compute_symbolic_block_difference_2plane(
     let bm = bsd.get_block_mode(scb.block_mode as usize);
     let di = bsd.get_decimation_info(bm.decimation_mode as usize);
 
-    // Unquantize and undecimate the weights
-    let mut plane1_weights = [0i32; BLOCK_MAX_TEXELS + SIMD_WIDTH];
-    let mut plane2_weights = [0i32; BLOCK_MAX_TEXELS + SIMD_WIDTH];
-    unpack_weights(bsd, scb, di, true, &mut plane1_weights, &mut plane2_weights);
+    // Unquantize and undecimate the weights (8 texels at a time)
+    let tables = weight_tables(bsd, scb, di, true);
 
     let plane2_mask = Vint4::lane_id().eq(Vint4::splat(i32::from(scb.plane2_component)));
 
@@ -156,10 +189,14 @@ pub fn compute_symbolic_block_difference_2plane(
     let u8_mask = get_u8_component_mask(config.profile, blk);
 
     // Unpack and compute error for each texel in the partition
+    let mut chunk = (Vint8::zero(), Vint8::zero());
     for i in 0..bsd.texel_count as usize {
+        if i % SIMD_WIDTH == 0 {
+            chunk = unpack_weights_at(&tables, di, i, true);
+        }
         let weight = Vint4::select(
-            Vint4::splat(plane1_weights[i]),
-            Vint4::splat(plane2_weights[i]),
+            Vint4::splat(chunk.0.m[i % SIMD_WIDTH]),
+            Vint4::splat(chunk.1.m[i % SIMD_WIDTH]),
             plane2_mask,
         );
         let colori = lerp_color_int(u8_mask, ep0, ep1, weight);
@@ -205,9 +242,16 @@ pub fn compute_symbolic_block_difference_1plane(
     let di = bsd.get_decimation_info(bm.decimation_mode as usize);
 
     // Unquantize and undecimate the weights
-    let mut plane1_weights = [0i32; BLOCK_MAX_TEXELS + SIMD_WIDTH];
-    let mut unused = [0i32; BLOCK_MAX_TEXELS + SIMD_WIDTH];
-    unpack_weights(bsd, scb, di, false, &mut plane1_weights, &mut unused);
+    let tables = weight_tables(bsd, scb, di, false);
+    let mut plane1_weights = [0u8; BLOCK_MAX_TEXELS + SIMD_WIDTH];
+    let mut i = 0;
+    while i < bsd.texel_count as usize {
+        let w = unpack_weights_at(&tables, di, i, false).0;
+        if let Some(d) = plane1_weights.get_mut(i..).and_then(|d| d.first_chunk_mut::<8>()) {
+            *d = w.pack_bytes8();
+        }
+        i += SIMD_WIDTH;
+    }
 
     let u8_mask = get_u8_component_mask(config.profile, blk);
 
@@ -221,7 +265,8 @@ pub fn compute_symbolic_block_difference_1plane(
         let texel_count = pi.partition_texel_count[i] as usize;
         for j in 0..texel_count {
             let tix = pi.texels_of_partition[i][j] as usize;
-            let colori = lerp_color_int(u8_mask, ep0, ep1, Vint4::splat(plane1_weights[tix]));
+            let colori =
+                lerp_color_int(u8_mask, ep0, ep1, Vint4::splat(i32::from(plane1_weights[tix])));
 
             let mut color = colori.int_to_float();
             let mut old_color = blk.texel(tix);
@@ -260,10 +305,8 @@ pub fn compute_symbolic_block_difference_1plane_1partition(
     let bm = bsd.get_block_mode(scb.block_mode as usize);
     let di = bsd.get_decimation_info(bm.decimation_mode as usize);
 
-    // Unquantize and undecimate the weights
-    let mut plane1_weights = [0i32; BLOCK_MAX_TEXELS + SIMD_WIDTH];
-    let mut unused = [0i32; BLOCK_MAX_TEXELS + SIMD_WIDTH];
-    unpack_weights(bsd, scb, di, false, &mut plane1_weights, &mut unused);
+    // Unquantize and undecimate the weights (8 texels at a time)
+    let tables = weight_tables(bsd, scb, di, false);
 
     // Decode the color endpoints for this partition
     let (ep0, ep1, _, _) =
@@ -278,15 +321,14 @@ pub fn compute_symbolic_block_difference_1plane_1partition(
     let cw = blk.channel_weight;
     let mut i = 0;
     while i < texel_count {
-        let weight1 = Vint8::loada(&plane1_weights[i..]);
-        let weight0 = Vint8::splat(64) - weight1;
+        let weight = unpack_weights_at(&tables, di, i, false).0;
 
         let mut err = [Vfloat8::zero(); 4];
         for c in 0..4 {
-            // EP0 and EP1 contributions
-            let ep1_c = Vint8::splat(ep1.lane(c)) * weight1;
-            let ep0_c = Vint8::splat(ep0.lane(c)) * weight0;
-            let mut colori = (ep0_c + ep1_c + Vint8::splat(32)).asr(6);
+            // Interpolate the endpoint delta (`lerp_color_int`)
+            let ep0_c = Vint8::splat(ep0.lane(c));
+            let ep_delta = Vint8::splat(ep1.lane(c)) - ep0_c;
+            let mut colori = ep0_c + (ep_delta * weight + Vint8::splat(32)).asr(6);
 
             // If using a U8 decode mode bit replicate top 8 bits
             let colori8 = colori.asr(8) * Vint8::splat(257);

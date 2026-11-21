@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2011-2026 Arm Limited
 // SPDX-License-Identifier: Apache-2.0
 // Translated to Rust from astc-encoder and modified; see NOTICE.md.
-//! AVX2 + F16C + POPCNT copy (the astcenc build KTX-Software uses by default).
+//! AVX2 + BMI1 / BMI2 + F16C + POPCNT copy (the astcenc 6.0 AVX2 build).
 
 // The same `enc/` files are compiled once per instruction set copy on purpose.
 #![allow(clippy::duplicate_mod)]
@@ -13,7 +13,7 @@
 /// `sse` kernels.
 pub const ISA: u8 = 2;
 macro_rules! isa_fn {
-    ($($item:tt)*) => { #[target_feature(enable = "avx,avx2,sse4.1,sse4.2,popcnt,f16c")] $($item)* };
+    ($($item:tt)*) => { #[target_feature(enable = "avx,avx2,bmi1,bmi2,sse4.1,sse4.2,popcnt,f16c")] $($item)* };
 }
 pub use super::*;
 #[path = "enc/averages_and_directions.rs"]
