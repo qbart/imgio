@@ -25,6 +25,37 @@ fn read(format: Format, p: &[u8]) -> [f32; 4] {
         Format::Rg16Unorm => [un16(0), un16(2), 0.0, 1.0],
         Format::Rg16Snorm => [sn16(0), sn16(2), 0.0, 1.0],
         Format::Rgba8Unorm | Format::Rgba8Srgb => [un(p[0]), un(p[1]), un(p[2]), un(p[3])],
+        Format::Rgb565 | Format::Bgr565 | Format::Rgba4444 => {
+            let v = u16::from_le_bytes([p[0], p[1]]) as u32;
+            let n = |x: u32, max: f32| x as f32 / max;
+            match format {
+                Format::Rgb565 => [
+                    n(v >> 11, 31.0),
+                    n((v >> 5) & 63, 63.0),
+                    n(v & 31, 31.0),
+                    1.0,
+                ],
+                Format::Bgr565 => [
+                    n(v & 31, 31.0),
+                    n((v >> 5) & 63, 63.0),
+                    n(v >> 11, 31.0),
+                    1.0,
+                ],
+                _ => [
+                    n(v >> 12, 15.0),
+                    n((v >> 8) & 15, 15.0),
+                    n((v >> 4) & 15, 15.0),
+                    n(v & 15, 15.0),
+                ],
+            }
+        }
+        Format::Rgb16Float => [h(0), h(2), h(4), 1.0],
+        Format::Rgb9e5Float => {
+            let v = u32::from_le_bytes([p[0], p[1], p[2], p[3]]);
+            let scale = 2f32.powi((v >> 27) as i32 - 15 - 9);
+            let m = |s: u32| ((v >> s) & 511) as f32 * scale;
+            [m(0), m(9), m(18), 1.0]
+        }
         Format::Rgba16Float => [h(0), h(2), h(4), h(6)],
         Format::Rgba32Float => [f(0), f(4), f(8), f(12)],
         _ => [0.0; 4],
@@ -115,6 +146,31 @@ mod tests {
             let back = convert_to_buffer(&Surface::new(f, 64, 1, &mid)?, Format::Rgba8Unorm)?;
             assert_eq!(&back[..], &px[..]);
         }
+        Ok(())
+    }
+
+    #[test]
+    fn packed() -> Result<()> {
+        let b = 0xF81Fu16.to_le_bytes();
+        let s = Surface::new(Format::Rgb565, 1, 1, &b)?;
+        assert_eq!(
+            &convert_to_buffer(&s, Format::Rgba8Unorm)?[..],
+            &[255, 0, 255, 255]
+        );
+        let b = 0x0F80u16.to_le_bytes();
+        let s = Surface::new(Format::Rgba4444, 1, 1, &b)?;
+        assert_eq!(
+            &convert_to_buffer(&s, Format::Rgba8Unorm)?[..],
+            &[0, 255, 136, 0]
+        );
+        // 9e5: mantissa 256 with exponent 15 -> 0.5
+        let v: u32 = (15 << 27) | (256 << 18) | (256 << 9) | 256;
+        let b = v.to_le_bytes();
+        let s = Surface::new(Format::Rgb9e5Float, 1, 1, &b)?;
+        assert_eq!(
+            &convert_to_buffer(&s, Format::Rgba8Unorm)?[..],
+            &[128, 128, 128, 255]
+        );
         Ok(())
     }
 

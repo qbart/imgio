@@ -102,6 +102,16 @@ pub enum Format {
     Rgba8Unorm,
     /// 8-bit RGBA, sRGB color with linear alpha.
     Rgba8Srgb,
+    /// 16-bit packed RGB 5:6:5 (red in the high bits, little endian).
+    Rgb565,
+    /// 16-bit packed BGR 5:6:5 (blue in the high bits, little endian).
+    Bgr565,
+    /// 16-bit packed RGBA 4:4:4:4 (red in the high bits, little endian).
+    Rgba4444,
+    /// 16-bit float RGB (IEEE half, little endian).
+    Rgb16Float,
+    /// Shared-exponent RGB 9:9:9:5 (32-bit, little endian).
+    Rgb9e5Float,
     /// 16-bit float RGBA (IEEE half, little endian).
     Rgba16Float,
     /// 32-bit float RGBA (little endian).
@@ -158,6 +168,18 @@ pub enum Format {
     EacRg11Snorm,
     /// ASTC (16-byte blocks of the given footprint).
     Astc(AstcBlock, AstcKind),
+    /// PVRTC1 4 bpp RGB (power-of-two sizes).
+    Pvrtc1Rgb,
+    /// PVRTC1 4 bpp RGBA (power-of-two sizes).
+    Pvrtc1Rgba,
+    /// PVRTC2 4 bpp RGB.
+    Pvrtc2Rgb,
+    /// PVRTC2 4 bpp RGBA.
+    Pvrtc2Rgba,
+    /// ATC RGB.
+    AtcRgb,
+    /// ATC RGBA with interpolated alpha.
+    AtcRgba,
 }
 
 impl Format {
@@ -175,8 +197,11 @@ impl Format {
         use Format::*;
         match self {
             R8Unorm | R8Snorm => 1,
-            Rg8Unorm | Rg8Snorm | R16Unorm | R16Snorm => 2,
-            Rgba8Unorm | Rgba8Srgb | Rg16Unorm | Rg16Snorm => 4,
+            Rg8Unorm | Rg8Snorm | R16Unorm | R16Snorm | Rgb565 | Bgr565 | Rgba4444 => 2,
+            Rgb16Float => 6,
+            Rgba8Unorm | Rgba8Srgb | Rg16Unorm | Rg16Snorm | Rgb9e5Float => 4,
+            Pvrtc1Rgb | Pvrtc1Rgba | Pvrtc2Rgb | Pvrtc2Rgba | AtcRgb => 8,
+            AtcRgba => 16,
             Rgba16Float | Bc1Unorm | Bc1Srgb | Bc4Unorm | Bc4Snorm | Etc1Rgb | Etc2Rgb
             | Etc2Srgb | Etc2Rgba1 | Etc2Rgba1Srgb | EacR11Unorm | EacR11Snorm => 8,
             Rgba32Float | Bc2Unorm | Bc2Srgb | Bc3Unorm | Bc3Srgb | Bc5Unorm | Bc5Snorm
@@ -200,6 +225,11 @@ impl Format {
                 | Rg16Snorm
                 | Rgba8Unorm
                 | Rgba8Srgb
+                | Rgb565
+                | Bgr565
+                | Rgba4444
+                | Rgb16Float
+                | Rgb9e5Float
                 | Rgba16Float
                 | Rgba32Float
         )
@@ -226,7 +256,13 @@ impl Format {
         use Format::*;
         matches!(
             self,
-            Rgba16Float | Rgba32Float | Bc6hUfloat | Bc6hSfloat | Astc(_, AstcKind::Float)
+            Rgb16Float
+                | Rgb9e5Float
+                | Rgba16Float
+                | Rgba32Float
+                | Bc6hUfloat
+                | Bc6hSfloat
+                | Astc(_, AstcKind::Float)
         )
     }
 
@@ -243,6 +279,7 @@ impl Format {
             Astc(_, AstcKind::Unorm) => Rgba8Unorm,
             Astc(_, AstcKind::Srgb) => Rgba8Srgb,
             Astc(_, AstcKind::Float) => Rgba16Float,
+            Pvrtc1Rgb | Pvrtc1Rgba | Pvrtc2Rgb | Pvrtc2Rgba | AtcRgb | AtcRgba => Rgba8Unorm,
             EacR11Unorm => R16Unorm,
             EacR11Snorm => R16Snorm,
             EacRg11Unorm => Rg16Unorm,
