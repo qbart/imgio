@@ -105,5 +105,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             });
         }
     }
+
+    // Many images: every level and face, one by one vs `transcode_all` (parallel).
+    let data = std::fs::read(format!("{root}/testdata/bench/etc1s_cube_512.ktx2"))?;
+    let k = Ktx2File::parse(&data)?;
+    let opts = imgio::basis::TranscodeOptions::default();
+    let mut px = 0u64;
+    for level in 0..k.level_count() {
+        let (w, h) = k.level_dim(level);
+        px += u64::from(w * h) * u64::from(k.face_count());
+    }
+    println!(
+        "-- transcode etc1s_cube_512.ktx2 (6 faces, {} levels)",
+        k.level_count()
+    );
+    for (tname, f) in [("bc7", Format::Bc7Unorm), ("bc1", Format::Bc1Unorm)] {
+        bench(&format!("one by one -> {tname}"), px, || {
+            for level in 0..k.level_count() {
+                for face in 0..k.face_count() {
+                    k.transcode_to_buffer(level, 0, face, f)?;
+                }
+            }
+            Ok(())
+        });
+        bench(&format!("transcode_all -> {tname}"), px, || {
+            k.transcode_all(f, &opts).map(|_| ())
+        });
+    }
     Ok(())
 }

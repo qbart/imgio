@@ -25,6 +25,7 @@
 - `transcode(level, layer, face, format, dst)` reuses the container-independent
   `basis::transcode::transcode_slice`; `transcode_with` takes `basis::TranscodeOptions`
   (`Deblock::Auto` follows `DeblockFilterID`, `Off`/`Force` override it like C++).
+- `transcode_all(format, opts)`: every level x layer x face in parallel (see basis.md).
 
 Test: `tests/ktx2_transcode.rs`, 436 level/layer/target cases (XUBC7, ETC1S with mips and a 2-layer
 array, UASTC zstd and raw, HDR 4x4, ASTC HDR 6x6, 6x6i) bit-exact with the C++ `ktx2_transcoder`.

@@ -8,7 +8,10 @@
 use crate::basis::BasisTexFormat;
 use crate::basis::TranscodeOptions;
 use crate::basis::ll::etc1s::LowlevelEtc1sTranscoder;
-use crate::basis::transcode::{SliceRef, can_transcode, etc1s_transcoder, transcode_slice};
+use crate::basis::transcode::{
+    SliceRef, TranscodedImage, alloc_items, can_transcode, etc1s_transcoder, transcode_items,
+    transcode_slice,
+};
 use crate::{AstcBlock, Buffer, Error, Format, Result};
 use std::sync::OnceLock;
 use vas::Vector;
@@ -478,6 +481,29 @@ impl<'a> Ktx2File<'a> {
     ) -> Result<Buffer> {
         let opts = TranscodeOptions::default();
         self.transcode_to_buffer_with(level, layer, face, format, &opts)
+    }
+
+    /// Transcodes every level, layer and face to `format`, all in parallel (level-major, then
+    /// layer, then face; `TranscodedImage::image` is the layer). Fails if any image fails.
+    pub fn transcode_all(
+        &self,
+        format: Format,
+        opts: &TranscodeOptions,
+    ) -> Result<vas::Vector<TranscodedImage, vas::storage::Dynamic>> {
+        if !self.can_transcode_to(format) {
+            return Err(Error::Unsupported);
+        }
+        let (layers, faces) = (self.layers, self.faces);
+        let count = (self.level_count() * layers * faces) as usize;
+        let keys = (0..self.level_count()).flat_map(move |level| {
+            let (w, h) = self.level_dim(level);
+            (0..layers * faces).map(move |i| Ok((i / faces, i % faces, level, w, h)))
+        });
+        let mut items = alloc_items(format, keys, count)?;
+        transcode_items(self.tex_format, format, &mut items, |t| {
+            self.transcode_with(t.level, t.image, t.face, format, opts, &mut t.data)
+        })?;
+        Ok(items)
     }
 
     /// Like [`Ktx2File::transcode_with`] but allocates the output.

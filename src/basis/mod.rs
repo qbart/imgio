@@ -11,4 +11,4 @@ mod xuastc_bc7;
 mod xubc7;
 
 pub use file::{BasisFile, BasisTexFormat, BasisTexType, LevelInfo};
-pub use transcode::{Deblock, TranscodeOptions};
+pub use transcode::{Deblock, TranscodeOptions, TranscodedImage};

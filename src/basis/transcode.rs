@@ -130,6 +130,80 @@ impl TranscodeOptions {
     }
 }
 
+/// One transcoded image of a file (see `transcode_all`).
+#[derive(Debug)]
+pub struct TranscodedImage {
+    /// `.basis`: image index; KTX2: array layer.
+    pub image: u32,
+    /// KTX2 cube face (0 otherwise).
+    pub face: u32,
+    /// Mip level.
+    pub level: u32,
+    /// Width in pixels.
+    pub width: u32,
+    /// Height in pixels.
+    pub height: u32,
+    /// Tightly packed blocks or pixels of the target format.
+    pub data: Buffer,
+}
+
+/// Transcodes every item of `items` with `f`. Items whose payload parallelizes inside a
+/// slice and that are large enough run one by one (each using every core); the rest run
+/// concurrently, one item per thread (ETC1S, UASTC HDR 6x6i and ASTC HDR 6x6 slices, PVRTC1
+/// from UASTC and small levels are sequential inside).
+pub(crate) fn transcode_items(
+    tex: BasisTexFormat,
+    format: Format,
+    items: &mut [TranscodedImage],
+    f: impl Fn(&mut TranscodedImage) -> Result<()> + Sync,
+) -> Result<()> {
+    let serial_slice = matches!(
+        tex,
+        BasisTexFormat::Etc1s
+            | BasisTexFormat::UastcHdr6x6Intermediate
+            | BasisTexFormat::AstcHdr6x6
+    ) || (matches!(
+        tex,
+        BasisTexFormat::UastcLdr4x4 | BasisTexFormat::UastcHdr4x4
+    ) && matches!(format, Format::Pvrtc1Rgb | Format::Pvrtc1Rgba));
+    let big = |t: &TranscodedImage| {
+        !serial_slice
+            && (t.width as usize).saturating_mul(t.height as usize)
+                >= crate::parallel::MIN_PARALLEL_PIXELS
+    };
+    for t in items.iter_mut() {
+        if big(t) {
+            f(t)?;
+        }
+    }
+    crate::parallel::try_for_each_item(items, |t| if big(t) { Ok(()) } else { f(t) })
+}
+
+/// Allocates `items` (zeroed outputs of `format`) for `(image, face, level, width, height)`.
+pub(crate) fn alloc_items(
+    // (image, face, level, width, height)
+    format: Format,
+    keys: impl Iterator<Item = Result<(u32, u32, u32, u32, u32)>>,
+    count: usize,
+) -> Result<vas::Vector<TranscodedImage, vas::storage::Dynamic>> {
+    let mut v = vas::Vector::<TranscodedImage, vas::storage::Dynamic>::default();
+    v.reserve(count).map_err(|_| Error::OutOfMemory)?;
+    for key in keys {
+        let (image, face, level, width, height) = key?;
+        let data = crate::buffer::zeroed(format.surface_bytes(width, height)?)?;
+        v.push(TranscodedImage {
+            image,
+            face,
+            level,
+            width,
+            height,
+            data,
+        })
+        .map_err(|_| Error::OutOfMemory)?;
+    }
+    Ok(v)
+}
+
 /// The basisu target for `format` (sRGB variants share the unorm target: same bits).
 fn target(format: Format) -> Option<T> {
     use Format::*;
@@ -557,6 +631,32 @@ impl BasisFile<'_> {
     /// Like [`BasisFile::transcode`] but allocates the output.
     pub fn transcode_to_buffer(&self, image: u32, level: u32, format: Format) -> Result<Buffer> {
         self.transcode_to_buffer_with(image, level, format, &TranscodeOptions::default())
+    }
+
+    /// Transcodes every level of every image to `format`, levels and images in parallel
+    /// (image-major, then level order). Fails if any level fails.
+    pub fn transcode_all(
+        &self,
+        format: Format,
+        opts: &TranscodeOptions,
+    ) -> Result<vas::Vector<TranscodedImage, vas::storage::Dynamic>> {
+        if !self.can_transcode_to(format) {
+            return Err(Error::Unsupported);
+        }
+        let count = (0..self.image_count())
+            .map(|i| self.level_count(i) as usize)
+            .sum();
+        let keys = (0..self.image_count()).flat_map(|image| {
+            (0..self.level_count(image)).map(move |level| {
+                let info = self.level_info(image, level)?;
+                Ok((image, 0, level, info.width, info.height))
+            })
+        });
+        let mut items = alloc_items(format, keys, count)?;
+        transcode_items(self.tex_format, format, &mut items, |t| {
+            self.transcode_with(t.image, t.level, format, opts, &mut t.data)
+        })?;
+        Ok(items)
     }
 
     /// Like [`BasisFile::transcode_with`] but allocates the output.

@@ -25,6 +25,13 @@ Test data `testdata/basis/*.basis`: encoded by Basis Universal v2.50 (C++ CLI bu
 
 - `transcode(image, level, format, dst)`, `transcode_to_buffer`, `transcoded_size`,
   `can_transcode_to`. Output is tightly packed blocks/pixels of `format` for the level size.
+- `transcode_all(format, opts)` (also `Ktx2File`): every image x level (KTX2: level x layer x
+  face) into a vas `Vector<TranscodedImage>` (indices, size, `Buffer`), in order. Outputs are
+  allocated up front; levels of payloads with intra-slice parallelism (UASTC 4x4 except
+  PVRTC1, ASTC LDR, XUASTC, XUBC7) of >= 64K pixels run one by one using every core, the rest
+  run concurrently through `parallel::try_for_each_item` (one item per thread; a
+  thread-local flag makes nested `for_each_unit` calls inline). Results equal one-by-one
+  `transcode` (each call has its own transcoder state).
 - `transcode_with` / `transcode_to_buffer_with` take `TranscodeOptions` = basisu decode flags
   (`flags()` / `from_flags()`; `Default` = flags 0): `high_quality` (32), `alpha_to_opaque` (4),
   `bc1_forbid_three_color` (8), `etc1s_chroma_filtering` (off = 64), `deblock`
@@ -143,5 +150,7 @@ Test data `testdata/basis/*.basis`: encoded by Basis Universal v2.50 (C++ CLI bu
   .basis + 160 KTX2). New mosaic test images / files (`xuastc{6x6,8x6}_mosaic_{rgb,rgba}.basis`)
   reach every fast-path branch (checked with temporary counters).
 - 2026-11-21: ETC1S -> FXT1 (`ll/fxt1.rs`) bit-exact (8 .basis + 9 KTX2 cases).
+- 2026-11-21: `transcode_all` (parallel levels / images / faces): equal to one-by-one transcode
+  on every test file; ETC1S cubemap 512 + mips 4.4x faster to BC7 (bench).
 - 2026-11-21: `TranscodeOptions` (decode flags) bit-exact on 2520 .basis + 625 KTX2 flagged
   cases (557 / 302 differ from the default-flag output).

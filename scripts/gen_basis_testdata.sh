@@ -14,7 +14,7 @@ enc() {
     out=$1
     shift
     case "$out" in *"$ONLY"*) ;; *) return 0 ;; esac
-    case "$out" in *.ktx2) dir=ktx2 ;; *) dir=basis ;; esac
+    case "$out" in *_512*) dir=bench ;; *.ktx2) dir=ktx2 ;; *) dir=basis ;; esac
     "$B" -quiet "$@" -output_file "$ROOT/testdata/$dir/$out" >/dev/null
 }
 
@@ -65,3 +65,8 @@ enc xuastc4x4_array.ktx2 -ktx2 -ldr_4x4i -tex_array -file "$I/rgb_37x29.png" -fi
 enc xubc7_rgba.basis -basis -xubc7 -file "$I/rgba_64x48.png" -mipmap
 enc xubc7_rgb.basis -basis -xubc7 -file "$I/rgb_37x29.png"
 enc xubc7_rgba.ktx2 -ktx2 -xubc7 -file "$I/rgba_32x32.png" -mipmap
+
+# Benchmark files (testdata/bench; bench_512.png from scripts/gen_images.py)
+B512=$I/bench_512.png
+enc etc1s_cube_512.ktx2 -ktx2 -cubemap -mipmap -file "$B512" -file "$B512" -file "$B512" \
+    -file "$B512" -file "$B512" -file "$B512"

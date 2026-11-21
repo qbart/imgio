@@ -281,3 +281,41 @@ fn decode_flags() -> Result<(), Box<dyn Error>> {
     assert_eq!(check_file("golden_flags.txt", |_| true, false)?, 625);
     Ok(())
 }
+
+/// `transcode_all` (levels / layers / faces in parallel) equals one-by-one `transcode`.
+#[test]
+fn transcode_all_matches_single() -> Result<(), Box<dyn Error>> {
+    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/ktx2/");
+    let mut checked = 0;
+    for entry in std::fs::read_dir(dir)? {
+        let path = entry?.path();
+        if path.extension().is_none_or(|e| e != "ktx2") {
+            continue;
+        }
+        let data = std::fs::read(&path)?;
+        let file = Ktx2File::parse(&data)?;
+        let opts = TranscodeOptions::default();
+        for fmt in [Format::Bc7Unorm, Format::Rgba8Unorm, Format::Bc6hUfloat] {
+            if !file.can_transcode_to(fmt) {
+                continue;
+            }
+            let all = file.transcode_all(fmt, &opts)?;
+            let mut i = 0;
+            for level in 0..file.level_count() {
+                for layer in 0..file.layer_count().max(1) {
+                    for face in 0..file.face_count() {
+                        let t = &all[i];
+                        assert_eq!((t.image, t.face, t.level), (layer, face, level));
+                        let one = file.transcode_to_buffer(level, layer, face, fmt)?;
+                        assert_eq!(&t.data[..], &one[..], "{path:?} {fmt:?} {level} {layer}");
+                        i += 1;
+                        checked += 1;
+                    }
+                }
+            }
+            assert_eq!(i, all.len());
+        }
+    }
+    assert!(checked > 30, "{checked}");
+    Ok(())
+}
