@@ -39,3 +39,4 @@ ref:
 	test -d ref/ktx-rs || git clone --depth 1 https://github.com/qbart/ktx-rs ref/ktx-rs
 	test -d ref/basisu || git clone --depth 1 https://github.com/BinomialLLC/basis_universal ref/basisu
 	test -d ref/vas || git clone --depth 1 https://github.com/qbart/vas ref/vas
+	test -d ref/astcenc || git clone --depth 1 https://github.com/ARM-software/astc-encoder ref/astcenc

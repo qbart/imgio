@@ -17,7 +17,7 @@ use crate::parallel::try_for_each_unit;
 use crate::{Error, Result};
 
 /// basisu `pvrtc4_swizzle_uv`: twiddled index of block (`x`, `y`) in a `w` x `h` block grid.
-fn swizzle(w: usize, h: usize, x: usize, y: usize) -> usize {
+pub(crate) fn swizzle(w: usize, h: usize, x: usize, y: usize) -> usize {
     let (min_d, max_v) = if h < w { (h, x) } else { (w, y) };
     let (mut shift, mut out) = (0, 0);
     let mut bit = 1;

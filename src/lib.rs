@@ -26,6 +26,7 @@ mod fxt1;
 pub mod gpu;
 pub mod half;
 pub mod image;
+pub mod ktx1;
 pub mod ktx2;
 mod legacy_enc;
 pub mod mip;

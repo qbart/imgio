@@ -78,8 +78,8 @@ astcenc: 1024x1024 4x4 medium, imgio (KTX-Software's astcenc version, AVX2 copy)
 thread / 0.25 s on 16 vs C++ astcenc 6.0 AVX2 CLI 0.91 s / 0.13 s (incl. TGA load), about
 2x slower; profile when a profiler is available (no `perf` here).
 
-More texture work (in order): [x] `.astc` file reader / writer, [ ] KTX1 reader / writer
-(ktx-rs `texture1` / `writer1`), [ ] 3D textures (KTX2 depth, DDS volumes), [ ] one-call
+More texture work (in order): [x] `.astc` file reader / writer, [x] KTX1 reader / writer
+(own, byte identical with basisu `-export_ktx`), [ ] 3D textures (KTX2 depth, DDS volumes), [ ] one-call
 texture builder (mips -> encode -> KTX2 / DDS, per layer / face, normal map renormalization).
 
 ## Previous plan (done): basisu v2 payloads (XUASTC LDR, ASTC LDR, XUBC7)
