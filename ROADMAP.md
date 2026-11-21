@@ -38,7 +38,7 @@ transcoder via `tools/basisu-golden`.
 7. [ ] XUASTC LDR decompression, zstd syntax (+ DCT weight grids)
 8. [ ] XUASTC LDR arithmetic and hybrid syntaxes
 9. [ ] XUASTC direct BC7 fast path (default transcode path)
-10. [ ] XUBC7 transcoder
+10. [x] XUBC7 transcoder
 
 Previous plan (done): image types, conversion, ETC/ASTC decode, Basis core, ETC1S, UASTC LDR,
 UASTC HDR, KTX2 reader, golden tests and benches.

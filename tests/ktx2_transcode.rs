@@ -112,14 +112,12 @@ fn check_with(
 
 /// Payloads not transcodable yet (see ROADMAP.md).
 fn pending(line: &str) -> bool {
-    ["astc_ldr", "xuastc", "xubc7"]
-        .iter()
-        .any(|p| line.starts_with(p))
+    ["astc_ldr", "xuastc"].iter().any(|p| line.starts_with(p))
 }
 
 #[test]
 fn matches_basisu() -> Result<(), Box<dyn Error>> {
-    assert_eq!(check(|l| !pending(l))?, 349 - 9); // minus FXT1 lines
+    assert_eq!(check(|l| !pending(l))?, 349 - 9 + 96); // minus FXT1 lines, plus XUBC7
     Ok(())
 }
 
@@ -127,6 +125,13 @@ fn matches_basisu() -> Result<(), Box<dyn Error>> {
 fn astc_ldr() -> Result<(), Box<dyn Error>> {
     // Every target; astc_ldr10x10_rgb.ktx2 carries DeblockFilterID = 1.
     assert_eq!(check(|l| l.starts_with("astc_ldr"))?, 128);
+    Ok(())
+}
+
+#[test]
+fn xubc7() -> Result<(), Box<dyn Error>> {
+    // Every target incl. ASTC 4x4 and PVRTC1 (power-of-two), all mips.
+    assert_eq!(check(|l| l.starts_with("xubc7"))?, 96);
     Ok(())
 }
 

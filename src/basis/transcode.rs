@@ -64,6 +64,9 @@ pub(crate) fn can_transcode(tex: BasisTexFormat, format: Format) -> bool {
     if let BasisTexFormat::AstcLdr(b) = tex {
         return super::astc_ldr::can_transcode(b, format);
     }
+    if tex == BasisTexFormat::Xubc7 {
+        return super::xubc7::can_transcode(format);
+    }
     match (target(format), ll_format(tex)) {
         (Some(t), Some(l)) => basis_is_format_supported(t, l),
         _ => false,
@@ -135,6 +138,9 @@ pub(crate) fn transcode_slice(
     let dst = &mut dst[..needed];
     if let BasisTexFormat::AstcLdr(block) = s.tex {
         return transcode_astc_ldr(s, block, format, dst);
+    }
+    if s.tex == BasisTexFormat::Xubc7 {
+        return transcode_xubc7(s, format, dst);
     }
     let t = target(format).ok_or(Error::Unsupported)?;
     let units = if format.is_compressed() {
@@ -222,6 +228,27 @@ fn transcode_astc_ldr(
             height: s.height,
             srgb: s.srgb,
             deblock: s.deblock,
+        },
+        format,
+        dst,
+    )
+}
+
+/// XUBC7 (supercompressed BC7).
+fn transcode_xubc7(s: &SliceRef, format: Format, dst: &mut [u8]) -> Result<()> {
+    let start = usize::try_from(s.ofs).map_err(|_| Error::InvalidData)?;
+    let data = s
+        .data
+        .get(start..start.saturating_add(s.len as usize))
+        .ok_or(Error::InvalidData)?;
+    super::xubc7::transcode(
+        &super::xubc7::Xubc7Image {
+            data,
+            blocks_x: s.blocks_x,
+            blocks_y: s.blocks_y,
+            width: s.width,
+            height: s.height,
+            has_alpha: s.has_alpha,
         },
         format,
         dst,

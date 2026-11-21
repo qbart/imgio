@@ -151,6 +151,14 @@ fn preserve_tables() -> &'static PreserveTables {
     })
 }
 
+/// `g_quantize_tables_preserve2[ise_range][v]` (0 for ranges without a table).
+pub(crate) fn quantize_preserve2(ise_range: u32, v: u8) -> u8 {
+    preserve_tables()
+        .preserve2
+        .get(ise_range as usize)
+        .map_or(0, |t| t[v as usize])
+}
+
 #[inline]
 fn get_bit(src_val: i32, src_bit: i32) -> i32 {
     (src_val >> src_bit) & 1

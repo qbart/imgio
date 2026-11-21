@@ -50,6 +50,19 @@ Test data `testdata/basis/*.basis`: encoded by Basis Universal v2.50 (C++ CLI bu
 - PVRTC1 (power-of-two sizes only): `basis/pvrtc1_enc.rs` ports `encode_pvrtc1` (per-block
   min/max endpoints, floor/ceil quantized; modulation via the shared
   `ll::pvrtc::fixup_pvrtc1_4_modulation`).
+- XUBC7: `basis/xubc7/` after C++ `basisu_lowlevel_xubc7_transcoder::transcode_slice`.
+  `decoder.rs` ports `basisu_xbc7_decoder.{h,inl}`: blob container (0xB7, LEB128 sizes, zstd
+  blobs via `ruzstd` into one arena), tiny-mip streams (0xB8/0xB9: raw BC7), per-stripe seek
+  table; stripes decoded in parallel (references never leave a stripe). Per block: commands
+  (repeat, solid DPCM, new/reused config), endpoints raw or DPCM (`ll/bc7u.rs`, integer
+  `pack_endpoints_int`), weights raw/DPCM or fixed point Q15.16 4x4 DCT with 17 synthetic + 32
+  block-copy predictors and amplitude codes. Malformed streams are `InvalidData`.
+  Targets from the logical blocks (`ll/bc7u.rs`): BC7 = `pack_bc7`; ASTC 4x4 =
+  `ll/bc7f_astc.rs` (`bc7f::fast_pack_astc` latent to latent, unmappable 2/3-subset patterns
+  re-encoded with `bc7f` in ASTC compatible mode; includes the `astc_ldr_t` base+scale /
+  base+offset conversions); others decode to a padded RGBA8 image and reuse the ASTC LDR 4x4
+  output stage (stream `has_alpha` only matters for the C++ BC7 path, never taken). PVRTC1
+  RGBA falls back to RGB without the container alpha flag.
 - UASTC 4x4 (LDR/HDR): one row of source blocks per work unit, multithreaded through
   `parallel::for_each_unit` (PVRTC1 transcodes the whole image at once; ETC1S is sequential).
 - Golden test: `tests/basis_transcode.rs` vs `testdata/basis/golden.txt`, FNV-1a hashes of every
@@ -72,3 +85,6 @@ Test data `testdata/basis/*.basis`: encoded by Basis Universal v2.50 (C++ CLI bu
   `fast_pack_bc7_auto_rgba` bit-exact (196 + 98 cases; all 8 BC7 modes exercised).
 - 2026-11-21: deblocking filter + PVRTC1 encoder; every ASTC LDR golden line passes (240 .basis
   + 128 KTX2).
+- 2026-11-21: XUBC7 transcoder (all 16 targets incl. ASTC 4x4, PVRTC1) bit-exact: 128 .basis +
+  96 KTX2 golden cases; `bc7u`/`fast_pack_astc`/DPCM/DCT/predictors vs C++ on random blocks
+  (`tools/basisu-golden/xubc7_check.cpp`); offline multi-stripe / DCT / RGB files also matched.

@@ -21,12 +21,12 @@
   global data (offsets relative to the level); plain payloads are `(layer * faces + face)`
   images of `blocks * 16` bytes in the (inflated) level.
 - Zstandard levels are inflated with `ruzstd` (pure Rust) into a vas `Buffer`, once per level.
-- Not supported: depth > 0, non-Basis KTX2 (plain BCn etc.). XUASTC / ASTC LDR / XUBC7 parse
-  but do not transcode yet.
+- Not supported: depth > 0, non-Basis KTX2 (plain BCn etc.). XUASTC parses but does not
+  transcode yet.
 - `transcode(level, layer, face, format, dst)` reuses the container-independent
   `basis::transcode::transcode_slice`.
 
-Test: `tests/ktx2_transcode.rs`, 340 level/layer/target cases (ETC1S with mips and a 2-layer
+Test: `tests/ktx2_transcode.rs`, 436 level/layer/target cases (XUBC7, ETC1S with mips and a 2-layer
 array, UASTC zstd and raw, HDR 4x4, ASTC HDR 6x6, 6x6i) bit-exact with the C++ `ktx2_transcoder`.
 
 ## Audit

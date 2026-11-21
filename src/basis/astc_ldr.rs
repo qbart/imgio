@@ -125,7 +125,7 @@ fn mul_8(v: u8, q: u32) -> u16 {
 }
 
 /// Writes the uncompressed `format` for the `width` x `height` area of `img` (multithreaded).
-fn write_uncompressed(
+pub(crate) fn write_uncompressed(
     img: &Image,
     width: usize,
     height: usize,
@@ -222,7 +222,7 @@ fn encode_4x4(format: Format, px: &[[u8; 4]; 16], out: &mut [u8]) -> Result<()> 
 
 /// Encodes 4x4 blocks of `img` (`width` x `height` area) to `format`, rows in parallel.
 /// `max_y`: rows readable by the edge clamp.
-fn write_blocks(
+pub(crate) fn write_blocks(
     img: &Image,
     width: usize,
     height: usize,

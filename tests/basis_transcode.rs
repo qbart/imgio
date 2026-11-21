@@ -142,3 +142,9 @@ fn astc_ldr() -> Result<(), Box<dyn Error>> {
     assert_eq!(check("astc_ldr")?, 240); // every target, mips, deblocked 12x12, PVRTC1
     Ok(())
 }
+
+#[test]
+fn xubc7() -> Result<(), Box<dyn Error>> {
+    assert_eq!(check("xubc7")?, 128); // every target incl. ASTC 4x4, mips, PVRTC1 failures
+    Ok(())
+}
