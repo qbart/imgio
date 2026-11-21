@@ -34,4 +34,4 @@
 7. [x] UASTC LDR 4x4 transcoder -> all LDR targets
 8. [x] UASTC HDR (4x4, 6x6) transcoder -> BC6H, ASTC HDR, RGBA16F
 9. [x] KTX2 reader for Basis payloads (BasisLZ, zstd)
-10. [ ] Golden transcode tests and benches
+10. [x] Golden transcode tests and benches

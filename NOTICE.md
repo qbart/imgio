@@ -46,3 +46,4 @@ Not included in the published crate.
 | `testdata/basis/golden.txt` | hashes of C++ Basis Universal v2.50 transcoder output (`tools/basisu-golden`) | Apache-2.0 |
 | `testdata/ktx2/*.ktx2` | `testdata/images` encoded by the Basis Universal v2.50 CLI | Apache-2.0 |
 | `testdata/ktx2/golden.txt` | hashes of C++ Basis Universal v2.50 `ktx2_transcoder` output | Apache-2.0 |
+| `testdata/bench/*.ktx2` | `scripts/gen_images.py` bench image encoded by the Basis Universal v2.50 CLI | Apache-2.0 |

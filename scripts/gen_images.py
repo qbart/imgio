@@ -49,6 +49,8 @@ def main():
     os.makedirs(OUT, exist_ok=True)
     Image.fromarray(ldr(64, 48, 1, True), "RGBA").save(os.path.join(OUT, "rgba_64x48.png"))
     Image.fromarray(ldr(37, 29, 2, False), "RGB").save(os.path.join(OUT, "rgb_37x29.png"))
+    # Benchmark source.
+    Image.fromarray(ldr(512, 512, 4, True), "RGBA").save(os.path.join(OUT, "bench_512.png"))
     # HDR: LDR pattern scaled to a 0..16 range with a hot spot.
     base = ldr(40, 24, 3, False).astype(np.float32) / 255.0
     y, x = np.mgrid[0:24, 0:40].astype(np.float32)

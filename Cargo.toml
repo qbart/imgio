@@ -28,3 +28,7 @@ unimplemented = "deny"
 
 [dev-dependencies]
 bcdec_rs = "0.2.1"
+
+[[bench]]
+name = "bench"
+harness = false
