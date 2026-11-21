@@ -24,7 +24,25 @@
   ported by ktx-rs; `tools/ktx2-golden/gen.py`): every vkFormat, mips, arrays, cubemaps,
   cube arrays, zstd 1/3/19. Reader returns every image; writer output is byte-identical.
 
-## Basis payloads
+## Basis payloads: writing
+
+- `write_basis(basis_bytes, &BasisKtx2Options { zstd, key_values })`: port of basisu
+  `create_ktx2_file` / `get_dfd` driven by a parsed `.basis`: shape from the slices (images ->
+  layers, cubemap arrays -> faces, video frames -> layers with P-frame flags), basisu's DFD
+  templates (+ transfer from the sRGB flag, UASTC RGBA channel, ASTC block size), vkFormat
+  (ASTC 4x4 / 6x6 SFLOAT for UASTC HDR 4x4 / ASTC HDR 6x6, ASTC LDR UNORM / SRGB), BasisLZ global
+  data (ETC1S) or 12-byte offset / length / profile descriptors (6x6i scheme 4, XUASTC 5, XUBC7
+  6), optional Zstandard for UASTC LDR / HDR 4x4 / ASTC HDR 6x6 / ASTC LDR, key/values sorted
+  with basisu's dummy padding key (16-byte KVD end when not supercompressed), SGD at 8, levels
+  smallest first.
+- `encode_basis(images, &BasisEncodeOptions, &BasisKtx2Options)`: `basis::encode_basis` +
+  `write_basis`, adding `KTXwriter` "imgio <version>".
+- Golden test `write_basis_matches_basisu`: every `testdata/ktx2/*.ktx2` (basisu `-ktx2`) vs
+  `write_basis` of its `testdata/ktx2/basis/*.basis` twin (same CLI options): 13 files byte
+  identical (ETC1S incl. array, UASTC raw / zstd, UASTC HDR 4x4, ASTC HDR 6x6, 6x6i, ASTC LDR,
+  XUASTC, XUBC7). Round trip test: encode -> KTX2 -> transcode = `.basis` transcode.
+
+## Basis payloads: reading
 
 - Header (80 bytes), level index (24 bytes/level), DFD (44 or 60 bytes, one basic block),
   key/values (`KTXanimData` -> video), supercompression global data.
@@ -58,5 +76,7 @@ array, UASTC zstd and raw, HDR 4x4, ASTC HDR 6x6, 6x6i) bit-exact with the C++ `
 
 - 2026-11-21: initial reader written from the KTX 2.0 spec and basisu `ktx2_transcoder`.
 - 2026-11-21: DFD models 169 (XUASTC LDR), 170 (XUBC7) and ASTC LDR vkFormats parsed.
+- 2026-11-21: `write_basis` / `encode_basis` (basisu `create_ktx2_file` port), byte identical
+  with basisu `-ktx2` on 13 files; `Ktx2File::key_values`.
 - 2026-11-21: plain vkFormat reader + writer (raw / zstd), DFD generation; 94 KTX-Software
   reference files read and rewritten byte-identically.

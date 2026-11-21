@@ -319,3 +319,121 @@ fn transcode_all_matches_single() -> Result<(), Box<dyn Error>> {
     assert!(checked > 30, "{checked}");
     Ok(())
 }
+
+/// `ktx2::write_basis` vs basisu's own KTX2 writer: each testdata/ktx2/*.ktx2 (basisu `-ktx2`)
+/// has a twin testdata/ktx2/basis/*.basis made with the same options; repackaging the twin
+/// with the reference file's key/values (and zstd level) must give the same bytes.
+#[test]
+fn write_basis_matches_basisu() -> Result<(), Box<dyn Error>> {
+    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/ktx2/");
+    let mut n = 0;
+    for entry in std::fs::read_dir(format!("{dir}basis"))? {
+        let path = entry?.path();
+        let name = path.file_stem().and_then(|s| s.to_str()).ok_or("name")?;
+        let basis = std::fs::read(&path)?;
+        let want = std::fs::read(format!("{dir}{name}.ktx2"))?;
+        let reference = Ktx2File::parse(&want)?;
+        // Keys as written by basisu (the alignment padding key is recreated by the writer).
+        let kv: Vec<(String, Vec<u8>)> = reference
+            .key_values()
+            .filter(|(k, _)| k.first() != Some(&127))
+            .map(|(k, v)| (String::from_utf8_lossy(k).into_owned(), v.to_vec()))
+            .collect();
+        let kv: Vec<(&str, &[u8])> = kv.iter().map(|(k, v)| (k.as_str(), &v[..])).collect();
+        // basisu's default KTX2 Zstandard level.
+        let zstd = (u32::from_le_bytes([want[44], want[45], want[46], want[47]]) == 2).then_some(6);
+        let opts = imgio::ktx2::BasisKtx2Options {
+            zstd,
+            key_values: &kv,
+        };
+        let got = imgio::ktx2::write_basis(&basis, &opts)?;
+        assert!(
+            got[..] == want[..],
+            "{name}: {} vs {} bytes",
+            got.len(),
+            want.len()
+        );
+        n += 1;
+    }
+    assert!(n >= 13, "{n}");
+    Ok(())
+}
+
+/// Encode to KTX2 (every codec, with mips) and transcode back: same pixels as the `.basis`.
+#[test]
+fn encode_basis_ktx2_round_trip() -> Result<(), Box<dyn Error>> {
+    use imgio::basis::{BasisCodec, BasisEncodeOptions, BasisFile};
+    let raw = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/images/raw/");
+    let ldr = std::fs::read(format!("{raw}rgba_64x48.rgba"))?;
+    let hdr = std::fs::read(format!("{raw}hdr_40x24.rgba16f"))?;
+    for (codec, src, fmt, target) in [
+        (
+            BasisCodec::Etc1s,
+            imgio::Surface::new(Format::Rgba8Unorm, 64, 48, &ldr)?,
+            0,
+            Format::Rgba8Unorm,
+        ),
+        (
+            BasisCodec::UastcLdr4x4,
+            imgio::Surface::new(Format::Rgba8Unorm, 64, 48, &ldr)?,
+            1,
+            Format::Rgba8Unorm,
+        ),
+        (
+            BasisCodec::UastcHdr4x4,
+            imgio::Surface::new(Format::Rgba16Float, 40, 24, &hdr)?,
+            0,
+            Format::Rgba16Float,
+        ),
+        (
+            BasisCodec::AstcHdr6x6,
+            imgio::Surface::new(Format::Rgba16Float, 40, 24, &hdr)?,
+            1,
+            Format::Rgba16Float,
+        ),
+        (
+            BasisCodec::UastcHdr6x6Intermediate,
+            imgio::Surface::new(Format::Rgba16Float, 40, 24, &hdr)?,
+            0,
+            Format::Rgba16Float,
+        ),
+    ] {
+        let opts = BasisEncodeOptions {
+            codec,
+            mipmaps: true,
+            threads: 1,
+            ..BasisEncodeOptions::default()
+        };
+        let basis = imgio::basis::encode_basis(&[src], &opts)?;
+        let ktx2_opts = imgio::ktx2::BasisKtx2Options {
+            zstd: (fmt == 1).then_some(3),
+            key_values: &[],
+        };
+        let ktx2 = imgio::ktx2::write_basis(&basis, &ktx2_opts)?;
+        let enc = imgio::ktx2::encode_basis(&[src], &opts, &ktx2_opts)?;
+        let (b, k, e) = (
+            BasisFile::parse(&basis)?,
+            Ktx2File::parse(&ktx2)?,
+            Ktx2File::parse(&enc)?,
+        );
+        assert!(
+            e.key_values()
+                .any(|(k, v)| k == b"KTXwriter" && v.starts_with(b"imgio "))
+        );
+        assert_eq!(k.level_count(), b.level_count(0));
+        for level in 0..k.level_count() {
+            let want = b.transcode_to_buffer(0, level, target)?;
+            assert_eq!(
+                &k.transcode_to_buffer(level, 0, 0, target)?[..],
+                &want[..],
+                "{codec:?} {level}"
+            );
+            assert_eq!(
+                &e.transcode_to_buffer(level, 0, 0, target)?[..],
+                &want[..],
+                "{codec:?} {level}"
+            );
+        }
+    }
+    Ok(())
+}

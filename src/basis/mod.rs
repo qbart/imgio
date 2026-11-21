@@ -4,7 +4,7 @@
 pub(crate) mod astc_ldr;
 mod deblock;
 mod encode;
-mod file;
+pub(crate) mod file;
 pub(crate) mod ll;
 pub(crate) mod pvrtc1_enc;
 pub(crate) mod transcode;

@@ -16,6 +16,14 @@ enc() {
     case "$out" in *"$ONLY"*) ;; *) return 0 ;; esac
     case "$out" in *_512*) dir=bench ;; cli_*) dir=basisu_enc ;; *.ktx2) dir=ktx2 ;; *) dir=basis ;; esac
     "$B" -quiet "$@" -output_file "$ROOT/testdata/$dir/$out" >/dev/null
+    # Every .ktx2 gets a .basis twin made with the same options (KTX2 Basis writer golden).
+    case "$dir/$out" in ktx2/*.ktx2)
+        mkdir -p "$ROOT/testdata/ktx2/basis"
+        twin=$(echo "$*" | sed 's/-ktx2 /-basis /')
+        # shellcheck disable=SC2086
+        "$B" -quiet $twin -output_file "$ROOT/testdata/ktx2/basis/${out%.ktx2}.basis" >/dev/null
+        ;;
+    esac
 }
 
 # ETC1S / UASTC / HDR

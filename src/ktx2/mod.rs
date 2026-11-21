@@ -6,9 +6,12 @@
 //! Layout from the KTX 2.0 specification; Basis payload detection follows Basis Universal's
 //! `ktx2_transcoder` (DFD color model, vkFormat, supercompression scheme).
 
+mod basis_writer;
 mod dfd;
 mod vk;
 mod writer;
+
+pub use basis_writer::{BasisKtx2Options, encode_basis, write_basis};
 
 pub use dfd::{Dfd, dfd};
 pub use vk::{format_from_vk, vk_format};
@@ -76,6 +79,8 @@ struct ImageDesc {
 #[derive(Debug)]
 pub struct Ktx2File<'a> {
     data: &'a [u8],
+    /// Key/value data.
+    kvd: &'a [u8],
     /// Basis Universal payload (`None` for plain formats).
     tex_format: Option<BasisTexFormat>,
     /// Plain payload: the `VkFormat`'s imgio format when the DFD model is its standard one.
@@ -349,6 +354,7 @@ impl<'a> Ktx2File<'a> {
             .map_err(oom)?;
         Ok(Self {
             data,
+            kvd,
             tex_format,
             format: plain_format,
             vk_format,
@@ -378,6 +384,19 @@ impl<'a> Ktx2File<'a> {
     pub fn format(&self) -> Option<Format> {
         self.format
     }
+    /// The key/value pairs in file order (key without its NUL terminator, raw value).
+    pub fn key_values(&self) -> impl Iterator<Item = (&'a [u8], &'a [u8])> + 'a {
+        let kvd = self.kvd;
+        let mut at = 0usize;
+        core::iter::from_fn(move || {
+            let n = u32le(kvd, at).ok()? as usize;
+            let kv = kvd.get(at + 4..(at + 4).checked_add(n)?)?;
+            at += 4 + n.div_ceil(4) * 4;
+            let z = kv.iter().position(|&b| b == 0)?;
+            Some((&kv[..z], &kv[z + 1..]))
+        })
+    }
+
     /// The header's `VkFormat` (0 for Basis-specific payloads).
     pub fn vk_format(&self) -> u32 {
         self.vk_format
