@@ -13,6 +13,7 @@
 //! - ASTC (every 2D block size; LDR, sRGB, HDR): astcenc (ARM astc-encoder port, via ktx-rs),
 //!   presets fastest (0) / fast (10) / medium (60) / thorough (98) / exhaustive (100); its own
 //!   threads share one context.
+//! - PVRTC1 4bpp RGB / RGBA: basisu `encode_pvrtc1` (whole image; power-of-two block counts).
 //! - BC6H (unsigned): `fast_encode_bc6h` from RGB halves (source converted to RGBA32F;
 //!   negative / NaN -> 0, clamped to 65504); quality picks `FastBc6hParams`.
 
@@ -186,7 +187,11 @@ fn bc6h_half(v: f32) -> u16 {
 
 /// True when [`encode`] supports `format`.
 pub fn can_encode(format: Format) -> bool {
-    encoder(format).is_some() || matches!(format, Format::Astc(..))
+    encoder(format).is_some()
+        || matches!(
+            format,
+            Format::Astc(..) | Format::Pvrtc1Rgb | Format::Pvrtc1Rgba
+        )
 }
 
 fn astc_error(e: crate::astcenc::AstcencError) -> Error {
@@ -316,6 +321,36 @@ fn encode_astc(
 pub fn encode(src: &Surface, format: Format, opts: &EncodeOptions, dst: &mut [u8]) -> Result<()> {
     if !crate::convert::can_read(src.format()) {
         return Err(Error::Unsupported);
+    }
+    if matches!(format, Format::Pvrtc1Rgb | Format::Pvrtc1Rgba) {
+        let (w, h) = (src.width(), src.height());
+        let (bx, by) = format.block_count(w, h);
+        if !bx.is_power_of_two() || !by.is_power_of_two() {
+            return Err(Error::InvalidArgument);
+        }
+        let len = format.surface_bytes(w, h)?;
+        let got = dst.len();
+        let dst = dst
+            .get_mut(..len)
+            .ok_or(Error::BufferTooSmall { needed: len, got })?;
+        let converted;
+        let rgba: &[u8] = match src.format() {
+            Format::Rgba8Unorm | Format::Rgba8Srgb => src.data(),
+            _ => {
+                converted = crate::convert::convert_to_buffer(src, Format::Rgba8Unorm)?;
+                &converted
+            }
+        };
+        return crate::basis::pvrtc1_enc::encode_pvrtc1(
+            rgba,
+            w as usize,
+            h as usize,
+            format == Format::Pvrtc1Rgba,
+            false,
+            bx,
+            by,
+            dst,
+        );
     }
     if let Format::Astc(block, kind) = format {
         let len = format.surface_bytes(src.width(), src.height())?;

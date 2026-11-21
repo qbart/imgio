@@ -22,6 +22,9 @@
   input RGBA8 (LDR) or RGBA32F (HDR). Golden: `astcenc::tests::compress_matches_astcenc` (ktx-rs
   golden from C++ astcenc: 8 block sizes x 4 profiles x 3 qualities x 4 flag sets, every ISA
   copy) + PSNR round trips (also multithreaded).
+- PVRTC1 4bpp RGB / RGBA: basisu `encode_pvrtc1` (min/max endpoints + modulation fit against
+  the bilinear upsample), whole image, power-of-two block counts (`InvalidArgument`). No
+  encoders for ATC, PVRTC2, FXT1 (basisu has none outside ETC1S transcoding).
 - BC6H unsigned: `fast_encode_bc6h` (transcoder's encoder) on RGB halves; source -> RGBA32F,
   `v > 0 ? half(min(v, 65504)) : 0`. Presets `{diff endpoint modes, 2-subset patterns,
   hq_ls, brute force weights}`: Fastest {0,0,-,-}, Fast {2,0,-,-}, Default {2,1,hq,-} (basisu
@@ -30,11 +33,13 @@
   C++ basisu encoders with the same edge clamping) on `testdata/images/raw` (raw RGBA8 copies
   written by `scripts/gen_images.py`): BC1 x 3 qualities, BC3 x 3, BC4, BC5 on 3 images, all
   bit-exact; plus BC7 x 5 presets on the LDR images and BC6H x 5 on `raw/hdr_40x24.rgba16f`
-  ETC1, ETC2 RGBA, EAC R11 / RG11 (normal / high quality) (65 lines). Round trips (PSNR / relative error) for BC1/2/3/4/7, BC6H.
+  ETC1, ETC2 RGBA, EAC R11 / RG11 (normal / high quality), PVRTC1 RGB / RGBA on the
+  top-left power-of-two crop (71 lines). Round trips (PSNR / relative error) for BC1/2/3/4/7, BC6H.
 
 ## Audit
 
 - 2026-11-21: API + BC1-BC5 encoders (basisu real-time), bit-exact with C++ (24 cases).
+- 2026-11-21: PVRTC1 encoder exposed (`encode_pvrtc1`), 6 golden cases.
 - 2026-11-21: ASTC encoder (astcenc port from ktx-rs), C++ golden passes on every ISA copy.
 - 2026-11-21: ETC1 / ETC2 RGBA / EAC encoders (`etc1f`, `pack_eac[_high_quality]`), 65 cases.
 - 2026-11-21: BC7 (`bc7f` presets) and BC6H (`fast_encode_bc6h` presets), 44 cases bit-exact.

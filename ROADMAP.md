@@ -62,7 +62,7 @@ C++ / ktx-rs reference (golden hashes from offline builds, as for the transcoder
 5. [x] BC6H encoder (unsigned; `fast_encode_bc6h` presets)
 6. [x] ETC1 / ETC2 / EAC encoders: `etc1f`, EAC (normal / high quality)
 7. [x] ASTC LDR / HDR encoder: astcenc (ktx-rs port)
-8. [ ] PVRTC1 encoder exposure (and PVRTC2 / ATC where basisu has one)
+8. [x] PVRTC1 encoder exposure (PVRTC2 / ATC / FXT1: no basisu encoder, not planned)
 9. [ ] Basis Universal encoders: ETC1S, UASTC LDR 4x4 (+ RDO), UASTC HDR 4x4, ASTC HDR 6x6,
    UASTC HDR 6x6i (ktx-rs `basisu::comp` port) -> `.basis`
 10. [ ] KTX2 writer for Basis payloads (BasisLZ global data, UASTC, HDR, 6x6i)

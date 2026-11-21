@@ -7,6 +7,7 @@
 // (bc7f presets 0..4 = fastest, fast, default, partially / non analytical). Raw RGBA16F images
 // (NAME_WxH.rgba16f) are encoded to bc6h with imgio's 5 fast_bc6h_params presets. etc1
 // (etc1f), etc2rgba / eacr11 / eacrg11 (quality 0 = pack_eac, 1 = pack_eac_high_quality).
+// pvrtc1rgb / pvrtc1rgba (encode_pvrtc1) on the top-left power-of-two crop (largest w, h).
 // Build: see build.sh.
 // The transcoder source is included (not linked) to reach its static EAC packers.
 #include "basisu_transcoder.cpp"
@@ -113,6 +114,21 @@ int main(int argc, char** argv) {
                         else { eac(o, 3); basist::etc1f::pack_etc1(o + 8, px, st); }
                     }
                 printf("%s %s %u %016llx\n", name, t, hq, (unsigned long long)fnv(out.data(), out.size()));
+            }
+        }
+        {
+            unsigned pw = 1, ph = 1;
+            while (pw * 2 <= w) pw *= 2;
+            while (ph * 2 <= h) ph *= 2;
+            basisu::vector2D<basist::color32> timg(pw, ph);
+            for (unsigned y = 0; y < ph; y++)
+                for (unsigned x = 0; x < pw; x++)
+                    memcpy(&timg(x, y), &img[(y * w + x) * 4], 4);
+            for (unsigned rgba = 0; rgba < 2; rgba++) {
+                std::vector<uint8_t> out((pw / 4) * (ph / 4) * 8);
+                basist::encode_pvrtc1(rgba ? basist::block_format::cPVRTC1_4_RGBA : basist::block_format::cPVRTC1_4_RGB,
+                    out.data(), timg, pw / 4, ph / 4, false);
+                printf("%s %s 0 %016llx\n", name, rgba ? "pvrtc1rgba" : "pvrtc1rgb", (unsigned long long)fnv(out.data(), out.size()));
             }
         }
         const uint32_t bc7_presets[5] = { basist::bc7f::cPackBC7FlagDefaultFastest, basist::bc7f::cPackBC7FlagDefaultFast,

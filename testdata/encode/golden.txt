@@ -13,6 +13,8 @@ mosaic_rgba_50x38.rgba eacr11 0 4e84177d061b2974
 mosaic_rgba_50x38.rgba eacr11 1 74b9e33dcfa61fdd
 mosaic_rgba_50x38.rgba eacrg11 0 c7b0ae8b11ca7a7b
 mosaic_rgba_50x38.rgba eacrg11 1 9e0888574f31a9e8
+mosaic_rgba_50x38.rgba pvrtc1rgb 0 47de033af592144e
+mosaic_rgba_50x38.rgba pvrtc1rgba 0 8bc5a93ac9185067
 mosaic_rgba_50x38.rgba bc7 0 e8ea39284e160c52
 mosaic_rgba_50x38.rgba bc7 1 4cf8f71fd97455f4
 mosaic_rgba_50x38.rgba bc7 2 5ad748772c91c1ee
@@ -33,6 +35,8 @@ rgb_37x29.rgba eacr11 0 6140bfc50e407a9f
 rgb_37x29.rgba eacr11 1 c5334d1abfd950cb
 rgb_37x29.rgba eacrg11 0 c6d3d5ce4ad5ceb5
 rgb_37x29.rgba eacrg11 1 e89e98bcd41aaebe
+rgb_37x29.rgba pvrtc1rgb 0 95b229adf8f20dd3
+rgb_37x29.rgba pvrtc1rgba 0 6b1e0f288d1347bf
 rgb_37x29.rgba bc7 0 3859d3e406950233
 rgb_37x29.rgba bc7 1 940045f0caa4ffb9
 rgb_37x29.rgba bc7 2 fe07fd940c96dc2e
@@ -53,6 +57,8 @@ rgba_64x48.rgba eacr11 0 5dfbb865d1129352
 rgba_64x48.rgba eacr11 1 03ef2893a8e6f648
 rgba_64x48.rgba eacrg11 0 5942d679ec6e0126
 rgba_64x48.rgba eacrg11 1 2a75c640edd5d4c2
+rgba_64x48.rgba pvrtc1rgb 0 6d79250f4f146f25
+rgba_64x48.rgba pvrtc1rgba 0 55de60e50608c879
 rgba_64x48.rgba bc7 0 81ca341835596c32
 rgba_64x48.rgba bc7 1 7cbc2bc4e530b117
 rgba_64x48.rgba bc7 2 7820cc9eda9dcf3f

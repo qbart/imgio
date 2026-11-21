@@ -44,6 +44,8 @@ fn matches_basisu() -> Result<(), Box<dyn Error>> {
             "etc2rgba" => Format::Etc2Rgba,
             "eacr11" => Format::EacR11Unorm,
             "eacrg11" => Format::EacRg11Unorm,
+            "pvrtc1rgb" => Format::Pvrtc1Rgb,
+            "pvrtc1rgba" => Format::Pvrtc1Rgba,
             _ => Format::Bc6hUfloat,
         };
         let all = [
@@ -65,12 +67,22 @@ fn matches_basisu() -> Result<(), Box<dyn Error>> {
         } else {
             Format::Rgba8Unorm
         };
+        // PVRTC1: the top-left power-of-two crop.
+        let (w, h, px) = if f[1].starts_with("pvrtc") {
+            let (pw, ph) = (1 << w.ilog2(), 1 << h.ilog2());
+            let crop: Vec<u8> = (0..ph as usize)
+                .flat_map(|y| px[y * w as usize * 4..(y * w as usize + pw as usize) * 4].to_vec())
+                .collect();
+            (pw, ph, crop)
+        } else {
+            (w, h, px)
+        };
         let src = Surface::new(src_format, w, h, &px)?;
         let out = imgio::encode_to_buffer(&src, format, &EncodeOptions { quality })?;
         assert_eq!(format!("{:016x}", fnv(&out)), f[3], "{line}");
         n += 1;
     }
-    assert_eq!(n, 65);
+    assert_eq!(n, 71);
     Ok(())
 }
 
