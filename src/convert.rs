@@ -1,6 +1,6 @@
 //! Conversion between uncompressed formats.
 //!
-//! Values are converted numerically per channel: unorm `v / 255`, snorm `max(v / 127, -1)`,
+//! Values are converted numerically per channel: unorm `v / max`, snorm `max(v / max, -1)`,
 //! floats as is; to 8-bit unorm by clamping to [0, 1] and rounding. Missing channels become
 //! green/blue 0 and alpha 1. sRGB transfer functions are not applied (sRGB and unorm only
 //! differ in the label).
@@ -11,6 +11,8 @@ use crate::{Buffer, Error, Format, Result, Surface, half};
 fn read(format: Format, p: &[u8]) -> [f32; 4] {
     let un = |v: u8| v as f32 / 255.0;
     let sn = |v: u8| (v as i8 as f32 / 127.0).max(-1.0);
+    let un16 = |i: usize| u16::from_le_bytes([p[i], p[i + 1]]) as f32 / 65535.0;
+    let sn16 = |i: usize| (i16::from_le_bytes([p[i], p[i + 1]]) as f32 / 32767.0).max(-1.0);
     let h = |i: usize| half::to_f32(u16::from_le_bytes([p[i], p[i + 1]]));
     let f = |i: usize| f32::from_le_bytes([p[i], p[i + 1], p[i + 2], p[i + 3]]);
     match format {
@@ -18,6 +20,10 @@ fn read(format: Format, p: &[u8]) -> [f32; 4] {
         Format::R8Snorm => [sn(p[0]), 0.0, 0.0, 1.0],
         Format::Rg8Unorm => [un(p[0]), un(p[1]), 0.0, 1.0],
         Format::Rg8Snorm => [sn(p[0]), sn(p[1]), 0.0, 1.0],
+        Format::R16Unorm => [un16(0), 0.0, 0.0, 1.0],
+        Format::R16Snorm => [sn16(0), 0.0, 0.0, 1.0],
+        Format::Rg16Unorm => [un16(0), un16(2), 0.0, 1.0],
+        Format::Rg16Snorm => [sn16(0), sn16(2), 0.0, 1.0],
         Format::Rgba8Unorm | Format::Rgba8Srgb => [un(p[0]), un(p[1]), un(p[2]), un(p[3])],
         Format::Rgba16Float => [h(0), h(2), h(4), h(6)],
         Format::Rgba32Float => [f(0), f(4), f(8), f(12)],

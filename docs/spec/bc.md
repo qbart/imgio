@@ -1,10 +1,6 @@
 # BC1-BC7 decode
 
-API (`imgio::bc`):
-- `decode(format, src, width, height, dst) -> Result<()>`: writes tightly packed rows of
-  `format.decoded()`; partial edge blocks are cropped. Errors: `Unsupported` (not a BC format),
-  `BufferTooSmall` (src or dst), `InvalidArgument` (size overflow).
-- `decode_to_buffer(format, src, width, height) -> Result<Buffer>`: same, allocates a vas buffer.
+API: `imgio::decode` / `decode_to_buffer`, see [decode.md](decode.md).
 
 Behavior:
 - BC1: 4-color when c0 > c1, else 3-color + transparent black. BC2/BC3 color is always 4-color (D3D10).
@@ -26,3 +22,4 @@ Tests (`tests/bc_decode.rs`, data from `scripts/gen_bc_testdata.py`): random blo
 
 - 2026-11-21: BC1-BC5 written from the D3D spec; BC6H/BC7 decoders and tables from Basis
   Universal via ktx-rs `src/basisu/gpu_texture.rs`, `uastc_tables.rs`, `hdr_tables.rs`.
+- 2026-11-21: surface driver moved to `block.rs`, public API is now `imgio::decode`.

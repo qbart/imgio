@@ -14,6 +14,14 @@ pub enum Format {
     Rg8Unorm,
     /// 8-bit red/green, signed normalized.
     Rg8Snorm,
+    /// 16-bit red, unsigned normalized (little endian).
+    R16Unorm,
+    /// 16-bit red, signed normalized (little endian).
+    R16Snorm,
+    /// 16-bit red/green, unsigned normalized (little endian).
+    Rg16Unorm,
+    /// 16-bit red/green, signed normalized (little endian).
+    Rg16Snorm,
     /// 8-bit RGBA, unsigned normalized.
     Rgba8Unorm,
     /// 8-bit RGBA, sRGB color with linear alpha.
@@ -50,6 +58,28 @@ pub enum Format {
     Bc7Unorm,
     /// BC7, sRGB.
     Bc7Srgb,
+    /// ETC1 RGB.
+    Etc1Rgb,
+    /// ETC2 RGB.
+    Etc2Rgb,
+    /// ETC2 RGB, sRGB.
+    Etc2Srgb,
+    /// ETC2 RGB with 1-bit punch-through alpha.
+    Etc2Rgba1,
+    /// ETC2 RGB with 1-bit alpha, sRGB.
+    Etc2Rgba1Srgb,
+    /// ETC2 RGB with EAC alpha.
+    Etc2Rgba,
+    /// ETC2 RGB with EAC alpha, sRGB.
+    Etc2RgbaSrgb,
+    /// EAC single channel, unsigned.
+    EacR11Unorm,
+    /// EAC single channel, signed.
+    EacR11Snorm,
+    /// EAC two channels, unsigned.
+    EacRg11Unorm,
+    /// EAC two channels, signed.
+    EacRg11Snorm,
 }
 
 impl Format {
@@ -63,11 +93,13 @@ impl Format {
         use Format::*;
         match self {
             R8Unorm | R8Snorm => 1,
-            Rg8Unorm | Rg8Snorm => 2,
-            Rgba8Unorm | Rgba8Srgb => 4,
-            Rgba16Float | Bc1Unorm | Bc1Srgb | Bc4Unorm | Bc4Snorm => 8,
+            Rg8Unorm | Rg8Snorm | R16Unorm | R16Snorm => 2,
+            Rgba8Unorm | Rgba8Srgb | Rg16Unorm | Rg16Snorm => 4,
+            Rgba16Float | Bc1Unorm | Bc1Srgb | Bc4Unorm | Bc4Snorm | Etc1Rgb | Etc2Rgb
+            | Etc2Srgb | Etc2Rgba1 | Etc2Rgba1Srgb | EacR11Unorm | EacR11Snorm => 8,
             Rgba32Float | Bc2Unorm | Bc2Srgb | Bc3Unorm | Bc3Srgb | Bc5Unorm | Bc5Snorm
-            | Bc6hUfloat | Bc6hSfloat | Bc7Unorm | Bc7Srgb => 16,
+            | Bc6hUfloat | Bc6hSfloat | Bc7Unorm | Bc7Srgb | Etc2Rgba | Etc2RgbaSrgb
+            | EacRg11Unorm | EacRg11Snorm => 16,
         }
     }
 
@@ -80,6 +112,10 @@ impl Format {
                 | R8Snorm
                 | Rg8Unorm
                 | Rg8Snorm
+                | R16Unorm
+                | R16Snorm
+                | Rg16Unorm
+                | Rg16Snorm
                 | Rgba8Unorm
                 | Rgba8Srgb
                 | Rgba16Float
@@ -90,7 +126,17 @@ impl Format {
     /// True when color channels are sRGB encoded.
     pub const fn is_srgb(self) -> bool {
         use Format::*;
-        matches!(self, Rgba8Srgb | Bc1Srgb | Bc2Srgb | Bc3Srgb | Bc7Srgb)
+        matches!(
+            self,
+            Rgba8Srgb
+                | Bc1Srgb
+                | Bc2Srgb
+                | Bc3Srgb
+                | Bc7Srgb
+                | Etc2Srgb
+                | Etc2Rgba1Srgb
+                | Etc2RgbaSrgb
+        )
     }
 
     /// True for HDR (float) formats.
@@ -104,8 +150,15 @@ impl Format {
     pub const fn decoded(self) -> Format {
         use Format::*;
         match self {
-            Bc1Unorm | Bc2Unorm | Bc3Unorm | Bc7Unorm => Rgba8Unorm,
-            Bc1Srgb | Bc2Srgb | Bc3Srgb | Bc7Srgb => Rgba8Srgb,
+            Bc1Unorm | Bc2Unorm | Bc3Unorm | Bc7Unorm | Etc1Rgb | Etc2Rgb | Etc2Rgba1
+            | Etc2Rgba => Rgba8Unorm,
+            Bc1Srgb | Bc2Srgb | Bc3Srgb | Bc7Srgb | Etc2Srgb | Etc2Rgba1Srgb | Etc2RgbaSrgb => {
+                Rgba8Srgb
+            }
+            EacR11Unorm => R16Unorm,
+            EacR11Snorm => R16Snorm,
+            EacRg11Unorm => Rg16Unorm,
+            EacRg11Snorm => Rg16Snorm,
             Bc4Unorm => R8Unorm,
             Bc4Snorm => R8Snorm,
             Bc5Unorm => Rg8Unorm,

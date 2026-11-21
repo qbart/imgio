@@ -6,6 +6,7 @@
 - [x] Raw RGBA conversion (8-bit, 16F, 32F)
 - [x] BC1-BC5 decode
 - [x] BC6H / BC7 decode (multithreaded, tested vs Pillow and bcdec_rs)
+- [x] ETC1 / ETC2 / EAC decode
 - [ ] ASTC decode (LDR, HDR)
 - [ ] Basis Universal transcoder: ETC1S, UASTC LDR, UASTC HDR -> all targets
 - [ ] BCn / ASTC encoders (multithreaded)
@@ -17,7 +18,7 @@
 
 1. [x] Image types: `Surface`, mip chain helpers
 2. [x] Raw conversion: half/f32, R8/RG8/RGBA8/RGBA16F/RGBA32F -> RGBA8/RGBA32F
-3. [ ] ETC1/ETC2/EAC decode
+3. [x] ETC1/ETC2/EAC decode
 4. [ ] ASTC decode (LDR, HDR)
 5. [ ] Basis core: .basis file, bit reader, Huffman, tables
 6. [ ] ETC1S transcoder -> all LDR targets

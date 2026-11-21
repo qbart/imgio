@@ -1,6 +1,6 @@
 //! BC decoders against Pillow's independent decoders (see scripts/gen_bc_testdata.py).
 
-use imgio::{Format, bc};
+use imgio::Format;
 use std::error::Error;
 
 type R = Result<(), Box<dyn Error>>;
@@ -36,7 +36,7 @@ fn check(
     map: impl Fn(&[u8]) -> Vec<u8>,
 ) -> R {
     let (src, expected) = load(name)?;
-    let out = bc::decode_to_buffer(format, &src, w, h)?;
+    let out = imgio::decode_to_buffer(format, &src, w, h)?;
     let px = format.decoded().block_bytes();
     assert_eq!(out.len(), (w * h) as usize * px);
     let mut mismatches = 0;
@@ -124,7 +124,7 @@ fn bc6h() -> R {
 /// Bit-exact comparison with bcdec_rs (a second, independent decoder).
 fn check_bcdec(name: &str, format: Format, w: u32, h: u32) -> R {
     let (src, _) = load(name)?;
-    let out = bc::decode_to_buffer(format, &src, w, h)?;
+    let out = imgio::decode_to_buffer(format, &src, w, h)?;
     let px = format.decoded().block_bytes();
     let bw = (w / 4) as usize;
     let mut mismatches = 0;
@@ -181,9 +181,9 @@ fn bc7() -> R {
 #[test]
 fn errors() {
     let mut dst = [0u8; 64];
-    assert!(bc::decode(Format::Rgba8Unorm, &[0; 16], 4, 4, &mut dst).is_err());
-    assert!(bc::decode(Format::Bc7Unorm, &[0; 15], 4, 4, &mut dst).is_err());
-    assert!(bc::decode(Format::Bc7Unorm, &[0; 16], 4, 4, &mut dst[..63]).is_err());
-    assert!(bc::decode(Format::Bc7Unorm, &[0; 16], 4, 4, &mut dst).is_ok());
+    assert!(imgio::decode(Format::Rgba8Unorm, &[0; 16], 4, 4, &mut dst).is_err());
+    assert!(imgio::decode(Format::Bc7Unorm, &[0; 15], 4, 4, &mut dst).is_err());
+    assert!(imgio::decode(Format::Bc7Unorm, &[0; 16], 4, 4, &mut dst[..63]).is_err());
+    assert!(imgio::decode(Format::Bc7Unorm, &[0; 16], 4, 4, &mut dst).is_ok());
     assert!(dst.iter().all(|&b| b == 0)); // invalid mode -> transparent black
 }
