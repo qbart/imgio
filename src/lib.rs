@@ -4,8 +4,10 @@
 
 pub mod bc;
 mod buffer;
+pub mod convert;
 mod error;
 mod format;
+pub mod half;
 pub mod image;
 mod parallel;
 

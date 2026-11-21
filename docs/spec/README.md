@@ -7,3 +7,4 @@ One file per subsystem. Write the spec before implementing; append audit entries
 - [format.md](format.md): pixel/texture formats
 - [bc.md](bc.md): BC1-BC7 decode
 - [image.md](image.md): surfaces and mip chains
+- [convert.md](convert.md): half floats and uncompressed conversion
