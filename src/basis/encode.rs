@@ -2,8 +2,8 @@
 //!
 //! Drives the ported `basis_compressor` (`ll::comp`, bit-exact with the C++ encoder) for
 //! ETC1S, UASTC LDR 4x4 (optionally RDO), UASTC HDR 4x4, ASTC HDR 6x6, UASTC HDR 6x6
-//! intermediate, ASTC LDR and XUASTC LDR (4x4..12x12). Defaults follow the `basisu` command
-//! line tool.
+//! intermediate, ASTC LDR and XUASTC LDR (4x4..12x12) and XUBC7. Defaults follow the `basisu`
+//! command line tool.
 
 use super::file::{BasisTexFormat, BasisTexType};
 use super::ll::comp::{
@@ -15,6 +15,7 @@ use super::ll::frontend::{
     C_BASIS_TEX_TYPE_VIDEO_FRAMES, C_BASIS_TEX_TYPE_VOLUME,
 };
 use super::xuastc::enc::XuastcSyntax as EncSyntax;
+use super::xubc7::encoder::Bc7Encoder;
 use crate::convert::{ConvertOptions, convert_to_buffer, convert_with};
 use crate::mip::Filter;
 use crate::{AstcBlock, Buffer, Error, Format, Result, Surface};
@@ -38,6 +39,8 @@ pub enum BasisCodec {
     /// XUASTC LDR: supercompressed ASTC LDR of the given block size (`-ldr_4x4i` ..
     /// `-ldr_12x12i`; basisu v2). See the `xuastc_*` options.
     XuastcLdr(AstcBlock),
+    /// XUBC7: supercompressed BC7 (`-xubc7`; basisu v2.50). See the `xubc7_*` options.
+    Xubc7,
 }
 
 impl BasisCodec {
@@ -49,6 +52,7 @@ impl BasisCodec {
                 | BasisCodec::UastcLdr4x4
                 | BasisCodec::AstcLdr(_)
                 | BasisCodec::XuastcLdr(_)
+                | BasisCodec::Xubc7
         )
     }
 
@@ -62,6 +66,7 @@ impl BasisCodec {
             BasisCodec::UastcHdr6x6Intermediate => BasisTexFormat::UastcHdr6x6Intermediate,
             BasisCodec::AstcLdr(b) => BasisTexFormat::AstcLdr(b),
             BasisCodec::XuastcLdr(b) => BasisTexFormat::XuastcLdr(b),
+            BasisCodec::Xubc7 => BasisTexFormat::Xubc7,
         }
     }
 }
@@ -98,6 +103,17 @@ pub enum XuastcDeblocking {
     FilterLargest,
     /// Filter on all block sizes, no SCD (`-xuastc_ldr_deblocking_no_scd_filtering_all`).
     FilterAll,
+}
+
+/// XUBC7 BC7 base encoder (basisu `xbc7::bc7_encoder_type`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum Xubc7Encoder {
+    /// Real-time analytical bc7f (`-xubc7_bc7f`, default).
+    #[default]
+    Bc7f,
+    /// bc7e_scalar at level 0 (fastest)..=6 (slowest) (`-xubc7_bc7e_scalar_level L`;
+    /// `-xubc7_bc7e` = level 2): higher quality, slower.
+    Bc7e(u32),
 }
 
 /// Options of [`encode_basis`]. [`Default`] matches the `basisu` tool defaults.
@@ -147,9 +163,23 @@ pub struct BasisEncodeOptions {
     pub xuastc_syntax: XuastcSyntax,
     /// ASTC LDR / XUASTC LDR deblocking (default [`XuastcDeblocking::ScdFilterLargest`]).
     pub xuastc_deblocking: XuastcDeblocking,
-    /// ASTC LDR / XUASTC LDR channel error weights, each 1..=256 (`-weights`; `astc_ldr::compress_image` rejects larger); `None` = by
-    /// `srgb`: 9, 11, 1, 11 (sRGB) or 1, 1, 1, 1 (linear), like `-srgb` / `-linear`.
+    /// ASTC LDR / XUASTC LDR / XUBC7 channel error weights, each 1..=256 (`-weights`;
+    /// `astc_ldr::compress_image` rejects larger); `None` = by `srgb`: 9, 11, 1, 11 (sRGB) or
+    /// 1, 1, 1, 1 (linear), like `-srgb` / `-linear`.
     pub ldr_channel_weights: Option<[u32; 4]>,
+    /// XUBC7 quality 1..=100 (`-quality`, default 100 = lossless BC7 weights). Below 100 the
+    /// weights are DCT coded at this quality (smaller, lossier).
+    pub xubc7_quality: u32,
+    /// XUBC7 effort 0 (fastest)..=10 (`-effort`, default 3).
+    pub xubc7_effort: u32,
+    /// XUBC7 RDO level 0..=100 (`-xubc7_rdo`, default 0 = off): block reuse / endpoint / weight
+    /// RDO trading quality for size.
+    pub xubc7_rdo_level: u32,
+    /// XUBC7 BC7 base encoder (default [`Xubc7Encoder::Bc7f`]).
+    pub xubc7_encoder: Xubc7Encoder,
+    /// XUBC7 desired stripe count 1..=16 (`-xubc7_stripes`, default 8): transcoding parallelism
+    /// vs size. Images under 128 rows use one stripe, others at least 16 block rows per stripe.
+    pub xubc7_stripes: u32,
     /// Write the key/value header extension of basisu v2.x (`BasisULibVers` = "2.50", plus
     /// `KTXmapRange` for HDR codecs) as the `basisu` 2.50 tool does (default true). false = the
     /// pre-2.0 layout (KTX-Software / libktx `basis_compressor`) for ETC1S / UASTC / HDR. Keys
@@ -181,6 +211,11 @@ impl Default for BasisEncodeOptions {
             xuastc_syntax: XuastcSyntax::Zstd,
             xuastc_deblocking: XuastcDeblocking::ScdFilterLargest,
             ldr_channel_weights: None,
+            xubc7_quality: 100,
+            xubc7_effort: 3,
+            xubc7_rdo_level: 0,
+            xubc7_encoder: Xubc7Encoder::Bc7f,
+            xubc7_stripes: 8,
             basisu_v2_keys: true,
         }
     }
@@ -307,8 +342,55 @@ fn compressor_params(opts: &BasisEncodeOptions) -> Result<BasisCompressorParams>
             p.astc_hdr_6x6_options.lambda = opts.hdr_6x6_lambda;
         }
         BasisCodec::AstcLdr(_) | BasisCodec::XuastcLdr(_) => set_astc_ldr_params(&mut p, opts)?,
+        BasisCodec::Xubc7 => set_xubc7_params(&mut p, opts)?,
     }
     Ok(p)
+}
+
+/// The XUBC7 part of [`compressor_params`], as the `basisu` tool sets it for `-xubc7 [-srgb |
+/// -linear] [-weights ..] [-xubc7_rdo R] [-xubc7_stripes S] [-xubc7_bc7f | -xubc7_bc7e |
+/// -xubc7_bc7e_scalar_level L] -effort E -quality Q`.
+fn set_xubc7_params(p: &mut BasisCompressorParams, opts: &BasisEncodeOptions) -> Result<()> {
+    let bc7e_level = match opts.xubc7_encoder {
+        Xubc7Encoder::Bc7f => None,
+        Xubc7Encoder::Bc7e(l) => Some(l),
+    };
+    if !(1..=100).contains(&opts.xubc7_quality)
+        || opts.xubc7_effort > 10
+        || opts.xubc7_rdo_level > 100
+        || !(1..=16).contains(&opts.xubc7_stripes)
+        || bc7e_level.is_some_and(|l| l > 6)
+    {
+        return Err(Error::InvalidArgument);
+    }
+    if let Some(w) = opts.ldr_channel_weights
+        && w.iter().any(|&c| !(1..=256).contains(&c))
+    {
+        return Err(Error::InvalidArgument);
+    }
+    p.set_format_mode(BasisTexFormat::Xubc7);
+    p.set_ldr_srgb_channel_weights(opts.srgb);
+    if let Some(w) = opts.ldr_channel_weights {
+        p.ldr_channel_weights = w;
+    }
+    p.xubc7_rdo_level.set(opts.xubc7_rdo_level as i32);
+    p.xubc7_num_stripes.set(opts.xubc7_stripes as i32);
+    match bc7e_level {
+        None => p.xubc7_encoder = Bc7Encoder::Bc7f,
+        Some(l) => {
+            p.xubc7_encoder = Bc7Encoder::Bc7eScalar;
+            p.xubc7_bc7e_scalar_level.set(l as i32);
+        }
+    }
+    if !p.set_format_mode_and_quality_effort(
+        BasisTexFormat::Xubc7,
+        opts.xubc7_quality as i32,
+        opts.xubc7_effort as i32,
+        false,
+    ) {
+        return Err(Error::InvalidArgument);
+    }
+    Ok(())
 }
 
 /// The ASTC LDR / XUASTC LDR part of [`compressor_params`], as the `basisu` tool sets it for
@@ -860,6 +942,59 @@ mod tests {
         )?;
         assert_eq!(c.weights, [2, 3, 4, 5]);
         assert_eq!(c.syntax, EncSyntax::HybridArithZstd);
+        Ok(())
+    }
+
+    #[test]
+    fn xubc7_config_mapping() -> R<()> {
+        use crate::basis::xubc7::encoder::{BasisuParams, EncodeParams, Stripes};
+        let pack = |opts: &BasisEncodeOptions| -> R<EncodeParams> {
+            let p = compressor_params(opts)?;
+            assert_eq!(p.format_mode, BasisTexFormat::Xubc7);
+            Ok(BasisCompressor::xubc7_pack_options(&p))
+        };
+        let x = BasisEncodeOptions {
+            codec: BasisCodec::Xubc7,
+            ..Default::default()
+        };
+        // CLI `-xubc7` defaults: Q 100, effort 3 (weight re-optimization), bc7f, 8 stripes,
+        // sRGB weights + perceptual.
+        let d = pack(&x)?;
+        assert_eq!(d, EncodeParams::default());
+        assert!(d.optimize_weights_after_bc7f && d.perceptual && d.dct_q == 100);
+        assert_eq!(d.stripes, Stripes::Desired(8));
+        // Every knob, as `encode_slices_to_xubc7` replays it.
+        let o = BasisEncodeOptions {
+            xubc7_quality: 60,
+            xubc7_effort: 10,
+            xubc7_rdo_level: 40,
+            xubc7_encoder: Xubc7Encoder::Bc7e(5),
+            xubc7_stripes: 3,
+            srgb: false,
+            ..x
+        };
+        let mut b = BasisuParams {
+            quality: 60,
+            effort_level: 10,
+            rdo_level: 40,
+            num_stripes: 3,
+            encoder: Bc7Encoder::Bc7eScalar,
+            bc7e_level: 5,
+            ..Default::default()
+        };
+        b.set_srgb(false);
+        assert_eq!(pack(&o)?, EncodeParams::from_basisu(&b));
+        let w = pack(&BasisEncodeOptions {
+            ldr_channel_weights: Some([2, 3, 4, 5]),
+            xubc7_effort: 1,
+            ..x
+        })?;
+        assert_eq!(w.weights, [2, 3, 4, 5]);
+        assert!(!w.optimize_weights_after_bc7f);
+        assert_eq!(
+            w.bc7_pack_flags,
+            crate::basis::ll::bc7f::PACK_BC7_FLAG_DEFAULT
+        );
         Ok(())
     }
 

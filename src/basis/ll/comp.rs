@@ -10,14 +10,15 @@
 //! `image_resample` on the basisu resampler in `crate::mip`).
 //!
 //! basisu v2.50 additions: XUASTC LDR / ASTC LDR 4x4..12x12 (`encode_slices_to_xuastc_or_astc_ldr`
-//! on `crate::basis::xuastc::enc`, `set_format_mode`, the XUASTC / ASTC LDR part of
-//! `set_format_mode_and_quality_effort`) and the `.basis` key/value data (`m_key_values`,
+//! on `crate::basis::xuastc::enc`), XUBC7 (`encode_slices_to_xubc7` on
+//! `crate::basis::xubc7::encoder`), `set_format_mode`, the XUASTC / ASTC LDR / XUBC7 part of
+//! `set_format_mode_and_quality_effort` and the `.basis` key/value data (`m_key_values`,
 //! `BasisULibVers`, `KTXmapRange`; the latter two only with `add_basisu_v2_keys`, so the default
 //! output stays that of the pre-2.0 KTX-Software `basis_compressor`).
 //!
 //! Not ported: source file / DDS / alpha file loading, source resampling, normal map
 //! renormalization, user mipmap chains, `m_compute_stats` / `m_validate_output_data` transcode
-//! checks, KTX2 output, debug images, OpenCL, `m_status_output` / warning prints, XUBC7,
+//! checks, KTX2 output, debug images, OpenCL, `m_status_output` / warning prints,
 //! astcenc (`cASTCENC` selections behave as with `BASISU_SUPPORT_ASTCENC` = 0).
 
 use super::astc_hdr_6x6_enc::{AstcHdr6x6GlobalConfig, compress_photo};
@@ -59,6 +60,10 @@ use crate::astc::helpers::pack_astc_block;
 use crate::basis::xuastc::enc::{
     AstcLdrEncodeConfig, CompressOutput, DCT_QUALITY_MAX, DCT_QUALITY_MIN, EFFORT_LEVEL_DEF,
     EFFORT_LEVEL_MAX, EFFORT_LEVEL_MIN, XuastcSyntax,
+};
+use crate::basis::xubc7::encoder::{
+    self as xbc7, BC7E_MAX_LEVEL, Bc7Encoder, DEFAULT_BC7E_LEVEL,
+    DEFAULT_EFFORT_LEVEL as XBC7_DEFAULT_EFFORT_LEVEL,
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -121,6 +126,11 @@ fn basis_tex_format_is_xuastc_ldr(f: BasisTexFormat) -> bool {
 /// `basis_tex_format_is_astc_ldr`.
 fn basis_tex_format_is_astc_ldr(f: BasisTexFormat) -> bool {
     matches!(f, BasisTexFormat::AstcLdr(_))
+}
+
+/// `basis_tex_format_is_xubc7`.
+fn basis_tex_format_is_xubc7(f: BasisTexFormat) -> bool {
+    f == BasisTexFormat::Xubc7
 }
 
 pub const BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION: u32 = 16384;
@@ -661,6 +671,18 @@ pub struct BasisCompressorParams {
     pub ls_thresh_edge_psnr: Param<f32>,
     pub ls_thresh_edge_alpha_psnr: Param<f32>,
     pub xuastc_ldr_astc_comp_selection: XuastcLdrAstcCompSelection,
+    /// `m_format_mode` (set by `set_format_mode`; only XUBC7 is selected through it).
+    pub format_mode: BasisTexFormat,
+    /// `m_xubc7_effort_level` [0,10].
+    pub xubc7_effort_level: Param<i32>,
+    /// `m_xubc7_rdo_level` [0,100], 0 = no RDO.
+    pub xubc7_rdo_level: Param<i32>,
+    /// `m_xubc7_num_stripes` [1,16]: desired encode stripes (re-clamped per image).
+    pub xubc7_num_stripes: Param<i32>,
+    /// `m_xubc7_encoder`: the BC7 base encoder.
+    pub xubc7_encoder: Bc7Encoder,
+    /// `m_xubc7_bc7e_scalar_level` [0,6].
+    pub xubc7_bc7e_scalar_level: Param<i32>,
 }
 
 impl Default for BasisCompressorParams {
@@ -777,6 +799,16 @@ impl Default for BasisCompressorParams {
             ls_thresh_edge_psnr: Param::new(1.0, 0.0, 100.0),
             ls_thresh_edge_alpha_psnr: Param::new(0.5, 0.0, 100.0),
             xuastc_ldr_astc_comp_selection: XuastcLdrAstcCompSelection::Auto,
+            format_mode: BasisTexFormat::Etc1s,
+            xubc7_effort_level: Param::new(XBC7_DEFAULT_EFFORT_LEVEL as i32, 0, 10),
+            xubc7_rdo_level: Param::new(0, 0, 100),
+            xubc7_num_stripes: Param::new(8, 1, 16),
+            xubc7_encoder: Bc7Encoder::Bc7f,
+            xubc7_bc7e_scalar_level: Param::new(
+                DEFAULT_BC7E_LEVEL as i32,
+                0,
+                BC7E_MAX_LEVEL as i32,
+            ),
         }
     }
 }
@@ -802,8 +834,9 @@ impl BasisCompressorParams {
         };
     }
 
-    /// `set_format_mode` (`m_format_mode` itself only matters for XUBC7, not ported).
+    /// `set_format_mode` (`m_format_mode` itself only matters for XUBC7).
     pub fn set_format_mode(&mut self, mode: BasisTexFormat) {
+        self.format_mode = mode;
         self.xuastc_or_astc_ldr_basis_tex_format = None;
         self.hdr_mode = HdrModes::UastcHdr4x4;
         match mode {
@@ -837,9 +870,9 @@ impl BasisCompressorParams {
         }
     }
 
-    /// `set_format_mode_and_quality_effort` for the XUASTC LDR / ASTC LDR modes (`quality` and
-    /// `effort` -1 = unset); false for the other modes (not ported: `encode_basis` sets their
-    /// options directly).
+    /// `set_format_mode_and_quality_effort` for the XUASTC LDR / ASTC LDR / XUBC7 modes
+    /// (`quality` and `effort` -1 = unset); false for the other modes (not ported:
+    /// `encode_basis` sets their options directly).
     pub fn set_format_mode_and_quality_effort(
         &mut self,
         mode: BasisTexFormat,
@@ -847,11 +880,12 @@ impl BasisCompressorParams {
         effort: i32,
         set_defaults: bool,
     ) -> bool {
-        let (xuastc, astc) = (
+        let (xuastc, astc, xubc7) = (
             basis_tex_format_is_xuastc_ldr(mode),
             basis_tex_format_is_astc_ldr(mode),
+            basis_tex_format_is_xubc7(mode),
         );
-        if !xuastc && !astc {
+        if !xuastc && !astc && !xubc7 {
             return false;
         }
         // set_format_mode_and_effort
@@ -861,7 +895,14 @@ impl BasisCompressorParams {
         } else {
             effort
         };
-        if effort >= 0 {
+        if xubc7 {
+            if effort >= 0 {
+                self.xubc7_effort_level.set(effort.clamp(0, 10));
+            } else if set_defaults {
+                self.xubc7_effort_level
+                    .set(XBC7_DEFAULT_EFFORT_LEVEL as i32);
+            }
+        } else if effort >= 0 {
             self.xuastc_ldr_effort_level.set(effort);
         } else if set_defaults {
             self.xuastc_ldr_effort_level.set(EFFORT_LEVEL_DEF as i32);
@@ -872,6 +913,13 @@ impl BasisCompressorParams {
         } else {
             quality
         };
+        if xubc7 {
+            if (0..=100).contains(&quality) {
+                self.quality_level = quality.clamp(1, 100);
+            } else if set_defaults {
+                self.quality_level = -1;
+            }
+        }
         // ASTC LDR 4x4-12x12: nothing to do for quality, it doesn't support RDO.
         if xuastc {
             if (0..100).contains(&quality) {
@@ -1039,10 +1087,20 @@ impl BasisCompressor {
         self.sanity_check_input_params()
     }
 
-    /// `pick_format_mode` (XUBC7 is not ported).
+    /// `pick_format_mode`.
     fn pick_format_mode(&mut self) -> bool {
         self.fmt_mode_block_width = 4;
         self.fmt_mode_block_height = 4;
+        if self.params.format_mode == BasisTexFormat::Xubc7 {
+            // XUBC7 - must be set using the new format API.
+            self.fmt_mode = Some(BasisTexFormat::Xubc7);
+            let p = &mut self.params;
+            p.xuastc_or_astc_ldr_basis_tex_format = None;
+            p.hdr = false;
+            p.uastc = true;
+            p.hdr_mode = HdrModes::UastcHdr4x4; // doesn't matter
+            return true;
+        }
         let p = &self.params;
         let mode = if p.hdr {
             match p.hdr_mode {
@@ -1069,6 +1127,10 @@ impl BasisCompressor {
     fn is_xuastc_or_astc_ldr(&self) -> bool {
         self.fmt_mode
             .is_some_and(|m| basis_tex_format_is_xuastc_ldr(m) || basis_tex_format_is_astc_ldr(m))
+    }
+
+    fn is_xubc7(&self) -> bool {
+        self.fmt_mode.is_some_and(basis_tex_format_is_xubc7)
     }
 
     /// `basis_compressor::process`.
@@ -1099,7 +1161,9 @@ impl BasisCompressor {
                 return ec;
             }
         } else if self.params.uastc {
-            let ec = if self.is_xuastc_or_astc_ldr() {
+            let ec = if self.is_xubc7() {
+                self.encode_slices_to_xubc7()
+            } else if self.is_xuastc_or_astc_ldr() {
                 self.encode_slices_to_xuastc_or_astc_ldr()
             } else {
                 self.encode_slices_to_uastc_4x4_ldr()
@@ -1463,6 +1527,89 @@ impl BasisCompressor {
                 // Plain ASTC LDR 4x4-12x12
                 tex
             };
+            out.slice_image_crcs[slice_index] = crc16(&dst_buf, 0);
+            out.slice_image_data[slice_index] = dst_buf;
+        }
+        Ec::Success
+    }
+
+    /// The `xbc7::pack_options` `encode_slices_to_xubc7` derives from the params (the stripe
+    /// count is the desired one, `set_num_stripes_for_image` clamps it per slice).
+    pub fn xubc7_pack_options(params: &BasisCompressorParams) -> xbc7::EncodeParams {
+        let p = params;
+        // Params are clamped on assignment: effort [0,10], RDO [0,100], stripes [1,16],
+        // bc7e level [0,6].
+        xbc7::EncodeParams::from_basisu(&xbc7::BasisuParams {
+            quality: p.quality_level,
+            effort_level: p.xubc7_effort_level.get().clamp(0, 10) as u32,
+            rdo_level: p.xubc7_rdo_level.get().clamp(0, 100) as u32,
+            num_stripes: p.xubc7_num_stripes.get().clamp(1, 16) as u32,
+            encoder: p.xubc7_encoder,
+            bc7e_level: p
+                .xubc7_bc7e_scalar_level
+                .get()
+                .clamp(0, BC7E_MAX_LEVEL as i32) as u32,
+            weights: p.ldr_channel_weights,
+            perceptual: p.perceptual,
+        })
+    }
+
+    /// `encode_slices_to_xubc7`: every slice to an XBC7 stream (`xbc7::pack_image`); the coded
+    /// logical BC7 blocks must pack to physical BC7 blocks.
+    fn encode_slices_to_xubc7(&mut self) -> BasisCompressorErrorCode {
+        let Some(fmt_mode) = self.fmt_mode else {
+            return Ec::FailedInvalidParameters;
+        };
+        let out = &mut self.uastc_backend_output;
+        out.tex_format = fmt_mode;
+        out.etc1s = false;
+        out.srgb = self.params.ktx2_and_basis_srgb_transfer_function;
+        out.slice_desc = self.slice_descs.clone();
+        out.slice_image_data = vec![Vec::new(); self.slice_descs.len()];
+        out.slice_image_crcs = vec![0; self.slice_descs.len()];
+
+        let options = Self::xubc7_pack_options(&self.params);
+
+        for (slice_index, slice_desc) in self.slice_descs.iter().enumerate() {
+            let slice_source_image = &self.slice_images[slice_index];
+            let (w, h) = (slice_desc.orig_width, slice_desc.orig_height);
+            // Copy to the original dimensions (no need to pad to block multiples), tightly packed.
+            let pitch = slice_source_image.get_pitch() as usize;
+            let mut rgba = Vec::with_capacity((w * h * 4) as usize);
+            for y in 0..h as usize {
+                let Some(row) = slice_source_image
+                    .get_pixels()
+                    .get(y * pitch..y * pitch + w as usize)
+                else {
+                    return Ec::FailedEncodeUastc;
+                };
+                rgba.extend_from_slice(row.as_flattened());
+            }
+
+            let enc = match xbc7::encode_blocks(&rgba, w, h, &options) {
+                Ok(e) => e,
+                Err(e) => {
+                    self.encode_error = Some(e);
+                    return Ec::FailedEncodeUastc;
+                }
+            };
+
+            // gpu_image::init(cBC7, orig_width, orig_height)
+            let total_blocks = (w.div_ceil(4) * h.div_ceil(4)) as usize;
+            if enc.blocks.len() != total_blocks {
+                return Ec::FailedEncodeUastc;
+            }
+            let mut phys = [0u8; 16];
+            for log_blk in enc.blocks.iter() {
+                if !super::bc7u::pack_bc7(log_blk, &mut phys) {
+                    return Ec::FailedEncodeUastc;
+                }
+            }
+
+            if enc.data.is_empty() {
+                return Ec::FailedEncodeUastc;
+            }
+            let dst_buf = enc.data.to_vec();
             out.slice_image_crcs[slice_index] = crc16(&dst_buf, 0);
             out.slice_image_data[slice_index] = dst_buf;
         }
@@ -1900,8 +2047,8 @@ impl BasisCompressor {
 
     /// `extract_source_blocks`.
     fn extract_source_blocks(&mut self) -> bool {
-        // No need to extract blocks in XUASTC/ASTC LDR modes either.
-        if self.is_xuastc_or_astc_ldr() {
+        // No need to extract blocks in XUASTC/ASTC LDR/XUBC7 modes either.
+        if self.is_xuastc_or_astc_ldr() || self.is_xubc7() {
             return true;
         }
         if self.params.hdr {

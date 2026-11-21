@@ -115,6 +115,7 @@ def main():
     raw("rgba", ldr(64, 48, 1, True))
     raw("rgb", ldr(37, 29, 2, False))
     raw("mosaic_rgba", mosaic(50, 38, 7, True))
+    raw("mosaic_rgb", mosaic(50, 38, 8, False))
     # HDR source as raw RGBA16F (alpha 1) for the BC6H encoder tests.
     hdr = hdr_image()
     with open(os.path.join(OUT, "raw", "hdr_40x24.rgba16f"), "wb") as f:

@@ -12,6 +12,8 @@ pub(crate) mod xuastc;
 mod xuastc_bc7;
 mod xubc7;
 
-pub use encode::{BasisCodec, BasisEncodeOptions, XuastcDeblocking, XuastcSyntax, encode_basis};
+pub use encode::{
+    BasisCodec, BasisEncodeOptions, XuastcDeblocking, XuastcSyntax, Xubc7Encoder, encode_basis,
+};
 pub use file::{BasisFile, BasisTexFormat, BasisTexType, LevelInfo};
 pub use transcode::{Deblock, TranscodeOptions, TranscodedImage};

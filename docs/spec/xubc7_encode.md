@@ -2,7 +2,9 @@
 
 Port of Basis Universal v2.50 `encoder/basisu_xbc7_encode.cpp` (`xbc7::pack_image`) in
 `src/basis/xubc7/encoder.rs` (crate-private, reachable from `crate::basis`). Output: the XBC7
-slice stream of one image, byte-identical to C++, decodable by `xubc7::decoder`.
+slice stream of one image, byte-identical to C++, decodable by `xubc7::decoder`. Public entry:
+`encode_basis` / `ktx2::encode_basis` with `BasisCodec::Xubc7` (`basis_compressor::
+encode_slices_to_xubc7`, see `basis_encode.md`).
 
 ## API
 
@@ -91,3 +93,6 @@ Stats dashboard (`xbc7_pack_stats`, `xbc7_dct_stats`), debug printing, debug ima
 - 2026-11-21: ported `basisu_xbc7_encode.cpp` + `encode_slices_to_xubc7` option setup; golden
   tool and 84-line golden; byte-exact on the first build (plus 96 offline lines on larger
   images).
+- 2026-11-21: wired into `basis_compressor` (`encode_slices_to_xubc7` via
+  `EncodeParams::from_basisu`) and `BasisCodec::Xubc7`: `.basis` and KTX2 files byte-identical
+  to the 2.50 CLI (`tests/basis_encode_xubc7.rs`, 9 + 1 goldens).

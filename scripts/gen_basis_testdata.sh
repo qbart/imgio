@@ -70,6 +70,25 @@ enc cli_xuastc12x12_rgba_64x48.basis -basis -ldr_12x12i -file "$I/rgba_64x48.png
 enc cli_xuastc12x12_nodeblock_rgba_64x48.basis -basis -ldr_12x12i -xuastc_ldr_no_deblocking \
     -file "$I/rgba_64x48.png"
 
+# XUBC7 encoder references (tests/basis_encode_xubc7.rs): byte-exact files. The noisy
+# rgba_64x48 / rgb_37x29 mostly hit the raw BC7 fallback (incompressible); the mosaics code streams.
+enc cli_xubc7_mip_rgba_64x48.basis -basis -xubc7 -mipmap -file "$I/rgba_64x48.png"
+enc cli_xubc7_rgb_37x29.basis -basis -xubc7 -file "$I/rgb_37x29.png"
+enc cli_xubc7_mosaic_rgba_50x38.basis -basis -xubc7 -file "$I/mosaic_rgba_50x38.png"
+enc cli_xubc7_q60_rgba_64x48.basis -basis -xubc7 -quality 60 -file "$I/rgba_64x48.png"
+enc cli_xubc7_e0_mosaic_rgb_50x38.basis -basis -xubc7 -effort 0 -file "$I/mosaic_rgb_50x38.png"
+enc cli_xubc7_e10_mip_mosaic_rgb_50x38.basis -basis -xubc7 -effort 10 -mipmap \
+    -file "$I/mosaic_rgb_50x38.png"
+enc cli_xubc7_rdo60_mosaic_rgba_50x38.basis -basis -xubc7 -xubc7_rdo 60 \
+    -file "$I/mosaic_rgba_50x38.png"
+enc cli_xubc7_bc7e4_linear_rgba_64x48.basis -basis -xubc7 -xubc7_bc7e_scalar_level 4 -linear \
+    -file "$I/rgba_64x48.png"
+enc cli_xubc7_bc7e_q80_e5_mosaic_rgba_50x38.basis -basis -xubc7 -xubc7_bc7e -quality 80 -effort 5 \
+    -file "$I/mosaic_rgba_50x38.png"
+# KTX2 twin of cli_xubc7_rdo60_mosaic_rgba_50x38 (imgio::ktx2::encode_basis).
+enc cli_xubc7_rdo60_mosaic_rgba_50x38.ktx2 -ktx2 -xubc7 -xubc7_rdo 60 \
+    -file "$I/mosaic_rgba_50x38.png"
+
 # Plain ASTC LDR (basisu v2 tex formats 19..32)
 enc astc_ldr4x4_rgba.basis -basis -ldr_4x4 -file "$I/rgba_64x48.png" -mipmap
 enc astc_ldr6x5_rgb.basis -basis -ldr_6x5 -linear -file "$I/rgb_37x29.png"

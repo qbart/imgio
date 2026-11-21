@@ -8,7 +8,8 @@ and with the basisu v2.50 tool including its `.basis` key/value data).
 
 - `BasisCodec`: `Etc1s` (default), `UastcLdr4x4`, `UastcHdr4x4`, `AstcHdr6x6`,
   `UastcHdr6x6Intermediate`, `AstcLdr(AstcBlock)` (`-ldr_WxH`), `XuastcLdr(AstcBlock)`
-  (`-ldr_WxHi`); all 14 `AstcBlock` sizes are basisu formats. `is_hdr()`, `tex_format()`.
+  (`-ldr_WxHi`), `Xubc7` (`-xubc7`); all 14 `AstcBlock` sizes are basisu formats. `is_hdr()`,
+  `tex_format()`.
 - `BasisEncodeOptions` (`Default` = `basisu` tool defaults):
   `codec`, `tex_type: BasisTexType` (Tex2D), `etc1s_quality` 1..=255 (128, `-q`),
   `etc1s_level` 0..=6 (1, `-comp_level`), `uastc_level` 0..=4 (2), `uastc_rdo_lambda` (0 = no
@@ -25,10 +26,18 @@ and with the basisu v2.50 tool including its `.basis` key/value data).
   (`ScdFilterLargest` default = SCD + `DeblockFilterID` for blocks >= 80 texels; `Off`,
   `ScdFilterAll`, `ScdOnly`, `FilterLargest`, `FilterAll` = basisu `xuastc_ldr_deblocking_mode`
   1, 0, 2..5), `ldr_channel_weights: Option<[u32; 4]>` (1..=256; `None` = 9,11,1,11 if `srgb`
-  else 1,1,1,1, as `-srgb` / `-linear`). `srgb` also sets the ASTC sRGB decode mode and the file
-  flag. Not exposed: blurring, sharpening, heavy subset usage, SCD pass count, lossy
+  else 1,1,1,1, as `-srgb` / `-linear`; also used by XUBC7). `srgb` also sets the ASTC sRGB
+  decode mode and the file flag. Not exposed: blurring, sharpening, heavy subset usage, SCD pass count, lossy
   supercompression thresholds, encoder selection (`cAuto`), subset / dual plane disabling.
   Out-of-range values: `InvalidArgument`.
+  XUBC7 (CLI `-xubc7 -quality Q -effort E -xubc7_rdo R -xubc7_stripes S -xubc7_bc7f |
+  -xubc7_bc7e_scalar_level L`, mapped like the tool: `set_format_mode(cXUBC7)`, params, then
+  `set_format_mode_and_quality_effort(cXUBC7, Q, E, false)`): `xubc7_quality` 1..=100 (100 =
+  lossless weights, default), `xubc7_effort` 0..=10 (3), `xubc7_rdo_level` 0..=100 (0),
+  `xubc7_encoder: Xubc7Encoder` (`Bc7f` default / `Bc7e(level 0..=6)`; `-xubc7_bc7e` = level 2),
+  `xubc7_stripes` 1..=16 (8, desired; one stripe below 128 rows), `ldr_channel_weights`, and
+  `srgb` -> `m_perceptual` (bc7e perceptual mode). The XUBC7 encoder runs on all cores
+  (`crate::parallel`) whatever `threads` is; its output does not depend on it.
 - Inputs: LDR codecs take RGBA8 (`Rgba8Unorm` / `Rgba8Srgb` as is; other uncompressed formats
   via `convert`, labels only; block-compressed ones decoded first). HDR codecs take linear
   float RGB (`convert` to RGBA32F with `srgb_transfer`, so sRGB 8-bit inputs are linearized);
@@ -85,9 +94,19 @@ as UASTC (no alpha slices; per-slice `has_alpha` flag, header `HasAlphaSlices`);
 `BasisTexFormat` (all 34 formats). astcenc selections behave as with `BASISU_SUPPORT_ASTCENC`
 = 0 (ignored).
 
+XUBC7 in `comp`: `m_format_mode` (`format_mode`, set by `set_format_mode`) and the
+`m_xubc7_{effort_level, rdo_level, num_stripes, encoder, bc7e_scalar_level}` params (C++
+defaults 3, 0, 8, bc7f, 2; clamped on assignment), the XUBC7 branches of
+`set_format_mode_and_quality_effort` (effort clamp, quality -> `m_quality_level` in [1, 100]),
+`pick_format_mode` (XUBC7 first: `uastc`, no HDR, 4x4), `extract_source_blocks` skipped,
+`encode_slices_to_xubc7`: `xubc7_pack_options` = `xbc7::EncodeParams::from_basisu` (the
+`pack_options` setup), per slice: crop to the original size, `xubc7::encoder::encode_blocks`,
+every coded block must `pack_bc7` (C++ fills the BC7 `gpu_image`; unused without KTX2 / stats),
+payload = the XBC7 stream, CRC16. Alpha and sRGB flags as XUASTC.
+
 Not ported (also absent in ktx-rs): source file loading, source resampling, user mip chains,
 normal map renormalization, stats / output validation, KTX2 output (separate step), debug
-images, OpenCL, XUBC7 encoder. `miniz.rs` (KTX2 zlib) and `ssim.rs`
+images, OpenCL. `miniz.rs` (KTX2 zlib) and `ssim.rs`
 (statistics) are not copied: nothing in the encoder uses them.
 
 ## Tests
@@ -147,6 +166,30 @@ ASTC LDR / XUASTC LDR goldens (`testdata/basisu_enc/cli_{astc,xuastc}*.basis`, b
   sources, mipmaps, alpha / sRGB flags, config -> `DeblockFilterID`, ASTC repacking, writer.
   `writer_without_v2_keys`, `config_mapping` (effort -> encoders / SCD passes, deblocking modes,
   DCT / lossy rules, weights, syntax), `encoder_errors_propagate`.
+XUBC7 goldens (`testdata/basisu_enc/cli_xubc7_*.basis`, basisu 2.50 `-basis -xubc7` +
+options; mosaic RGB = `mosaic_rgb_50x38`, raw copy added to `testdata/images/raw`). The noisy
+`rgba_64x48` / `rgb_37x29` default files mostly use the raw BC7 "tiny mip" fallback; the mosaics
+and Q < 100 code real XBC7 streams:
+
+| File | Options | Bytes | Level 0 RGB / A dB |
+|---|---|---|---|
+| cli_xubc7_mip_rgba_64x48 | `-mipmap` | 4338 | 36.6 / 39.0 |
+| cli_xubc7_rgb_37x29 | defaults | 1414 | 35.7 / 72.4 |
+| cli_xubc7_mosaic_rgba_50x38 | defaults | 775 | 56.7 / 55.2 |
+| cli_xubc7_q60_rgba_64x48 | `-quality 60` | 2703 | 31.6 / 39.3 |
+| cli_xubc7_e0_mosaic_rgb_50x38 | `-effort 0` | 1032 | 34.4 / 54.8 |
+| cli_xubc7_e10_mip_mosaic_rgb_50x38 | `-effort 10 -mipmap` | 2057 | 34.2 / 61.7 |
+| cli_xubc7_rdo60_mosaic_rgba_50x38 (+ `.ktx2`) | `-xubc7_rdo 60` | 757 | 54.1 / 59.9 |
+| cli_xubc7_bc7e4_linear_rgba_64x48 | `-xubc7_bc7e_scalar_level 4 -linear` | 3118 | 37.6 / 39.3 |
+| cli_xubc7_bc7e_q80_e5_mosaic_rgba_50x38 | `-xubc7_bc7e -quality 80 -effort 5` | 796 | 55.8 / 53.6 |
+
+(Opaque sources decode with alpha < 255 in places: the coded BC7 blocks use alpha modes there too; identical bytes to C++, and the transcoder is golden-checked against C++.)
+
+- `tests/basis_encode_xubc7.rs`: `matches_basisu_tool` (all 9 byte-exact, 1 and 4 threads),
+  `ktx2_matches_basisu_tool` (`ktx2::encode_basis` with the CLI's key/values = the `-ktx2`
+  file), `round_trip` (PSNR >= golden - 0.5 dB, RGBA8 transcode = BC7 transcode decoded, all
+  levels, Q 30 and RDO 80 shrink), `bad_options`. Unit test
+  `basis::encode::tests::xubc7_config_mapping` (options -> `xbc7::EncodeParams`).
 - `tests/basis_encode_xuastc.rs`: `goldens_decode` (golden PSNRs, calibrates the thresholds),
   `bad_options`; `matches_basisu_tool` (byte-exact `encode_basis`, 1 and 4 threads) and
   `round_trip` (PSNR >= golden - 0.5 dB, all levels transcode, quality 30 < 100 in size) are
@@ -160,3 +203,6 @@ ASTC LDR / XUASTC LDR goldens (`testdata/basisu_enc/cli_{astc,xuastc}*.basis`, b
 - 2026-11-21: basisu 2.50 `.basis` key/value data (default on: ETC1S / UASTC files now equal
   the 2.50 tool's byte for byte), ASTC LDR / XUASTC LDR in `basis_compressor` + API + 14 CLI
   goldens; everything around the block encoder verified byte-exact by payload injection.
+- 2026-11-21: XUBC7 wired into `basis_compressor` (`encode_slices_to_xubc7`, `format_mode`,
+  `m_xubc7_*` params) + `BasisCodec::Xubc7` API; 9 CLI goldens + 1 KTX2 twin byte-exact on the
+  first run.

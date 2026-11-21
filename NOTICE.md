@@ -74,7 +74,7 @@ Not included in the published crate.
 | `testdata/basisu_enc/scd_*` | crops of `testdata/images` (`rgba_64x48` 36x24 at (10,8), `mosaic_rgba_50x38` 22x15 at (5,5)) and the zstd-compressed candidate dumps of the Basis Universal v2.50 XUASTC LDR encoder before SCD, from a debug-hooked build (`docs/spec/xuastc_encode.md`) | Apache-2.0 |
 | `testdata/basis/*.basis` | `testdata/images` encoded by the Basis Universal v2.50 CLI (`scripts/gen_basis_testdata.sh`) | Apache-2.0 |
 | `testdata/basis/golden*.txt` | hashes of C++ Basis Universal v2.50 transcoder output (also with decode flags) and of its `gpu_image::unpack` decodes (`tools/basisu-golden`) | Apache-2.0 |
-| `testdata/basisu_enc/cli_*.basis` | `testdata/images` encoded by the Basis Universal v2.50 CLI (`scripts/gen_basis_testdata.sh`): ETC1S / UASTC and ASTC LDR / XUASTC LDR (`cli_astc*`, `cli_xuastc*`) encoder references | Apache-2.0 |
+| `testdata/basisu_enc/cli_*.basis`, `testdata/basisu_enc/cli_*.ktx2` | `testdata/images` encoded by the Basis Universal v2.50 CLI (`scripts/gen_basis_testdata.sh`): ETC1S / UASTC, ASTC LDR / XUASTC LDR (`cli_astc*`, `cli_xuastc*`) and XUBC7 (`cli_xubc7*`, incl. one `-ktx2` twin) encoder references | Apache-2.0 |
 | `testdata/ktx2/*.ktx2` | `testdata/images` encoded by the Basis Universal v2.50 CLI (`scripts/gen_basis_testdata.sh`) | Apache-2.0 |
 | `testdata/ktx2/golden*.txt` | hashes of C++ Basis Universal v2.50 `ktx2_transcoder` output (also with decode flags) | Apache-2.0 |
 | `testdata/ktx2/mips/*` | `testdata/images` PNGs mipmapped by `ktx create --generate-mipmap` (ktx-rs port; `tools/ktx2-golden/gen.py`) | Apache-2.0 |

@@ -17,8 +17,6 @@
 //! follows the C++ `f32` operation order (`log10f` / `sqrtf` from the platform libm, as C++).
 //! Statistics, debug output and debug images are not ported (they never affect the output).
 
-// Crate-private encoder; it is wired into the .basis / .ktx2 writers separately.
-#![allow(dead_code)]
 #![allow(clippy::needless_range_loop)]
 
 use super::decoder::{
@@ -90,6 +88,7 @@ pub(crate) enum Stripes {
     /// stripe, one stripe below 128 texel rows.
     Desired(u32),
     /// `m_num_stripes = n` (0 = `Auto`): clamped to [1, min(block rows, 16)] only.
+    #[cfg_attr(not(test), allow(dead_code))] // used by the golden tests
     Exact(u32),
 }
 
@@ -256,6 +255,7 @@ pub(crate) struct BasisuParams {
 
 impl BasisuParams {
     /// `-srgb` (true, the default) or `-linear` channel weights and perceptual flag.
+    #[cfg_attr(not(test), allow(dead_code))] // used by the golden tests
     pub(crate) fn set_srgb(&mut self, srgb: bool) {
         self.weights = if srgb { [9, 11, 1, 11] } else { [1; 4] };
         self.perceptual = srgb;
@@ -284,6 +284,7 @@ pub(crate) struct Encoded {
 }
 
 /// Encodes a tightly packed RGBA8 image to an XBC7 slice stream (`xbc7::pack_image`).
+#[cfg_attr(not(test), allow(dead_code))] // used by the golden tests
 pub(crate) fn encode(
     rgba: &[u8],
     width: u32,
