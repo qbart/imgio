@@ -1,7 +1,7 @@
 //! `.basis` transcoding vs. the C++ Basis Universal transcoder: FNV-1a hashes of every image
 //! level transcoded to every supported target (testdata/basis/golden.txt, tools/basisu-golden).
 
-use imgio::basis::BasisFile;
+use imgio::basis::{BasisFile, TranscodeOptions};
 use imgio::{AstcBlock, AstcKind, Format};
 use std::error::Error;
 
@@ -80,12 +80,28 @@ fn check_where(
     filter: impl Fn(&str) -> bool,
     only_supported: bool,
 ) -> Result<usize, Box<dyn Error>> {
+    check_file("golden.txt", filter, only_supported)
+}
+
+/// Checks the lines of `golden` (in testdata/basis) matching `filter`. golden_flags.txt lines
+/// start with the basisu decode flags.
+fn check_file(
+    golden: &str,
+    filter: impl Fn(&str) -> bool,
+    only_supported: bool,
+) -> Result<usize, Box<dyn Error>> {
     let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/basis/");
-    let golden = std::fs::read_to_string(format!("{dir}golden.txt"))?;
+    let flagged = golden == "golden_flags.txt";
+    let golden = std::fs::read_to_string(format!("{dir}{golden}"))?;
     let mut failures = Vec::new();
     let mut n = 0;
     for line in golden.lines().filter(|l| filter(l)) {
-        let f: Vec<&str> = line.split(' ').collect();
+        let mut f: Vec<&str> = line.split(' ').collect();
+        let opts = if flagged {
+            TranscodeOptions::from_flags(f.remove(0).parse()?)
+        } else {
+            TranscodeOptions::default()
+        };
         let (name, id, level) = (f[0], f[1].parse::<u32>()?, f[2].parse::<u32>()?);
         let data = std::fs::read(format!("{dir}{name}"))?;
         let file = BasisFile::parse(&data)?;
@@ -93,7 +109,7 @@ fn check_where(
         if only_supported && !file.can_transcode_to(fmt) {
             continue;
         }
-        let got = file.transcode_to_buffer(0, level, fmt);
+        let got = file.transcode_to_buffer_with(0, level, fmt, &opts);
         let ok = match (f.get(3), &got) {
             (Some(&"fail"), Err(_)) => true,
             (Some(size), Ok(buf)) => {
@@ -164,4 +180,29 @@ fn xuastc_ldr() -> Result<(), Box<dyn Error>> {
     // BC7 (id 6) from 4x4, 6x6 and 8x6 uses the direct ASTC -> BC7 fast paths.
     assert_eq!(check_where(|l| l.starts_with("xuastc"), false)?, 704);
     Ok(())
+}
+
+#[test]
+fn decode_flags() -> Result<(), Box<dyn Error>> {
+    assert_eq!(check_file("golden_flags.txt", |_| true, false)?, 2520);
+    Ok(())
+}
+
+#[test]
+fn options_flags_roundtrip() {
+    for flags in [
+        0,
+        4,
+        8,
+        32,
+        64,
+        128,
+        512,
+        1024,
+        1056,
+        4 | 8 | 32 | 64 | 128 | 1024,
+    ] {
+        assert_eq!(TranscodeOptions::from_flags(flags).flags(), flags);
+    }
+    assert_eq!(TranscodeOptions::default().flags(), 0);
 }

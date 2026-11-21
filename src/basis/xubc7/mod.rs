@@ -11,8 +11,7 @@
 
 mod decoder;
 
-use super::astc_ldr::{Image, write_blocks, write_uncompressed};
-use super::ll::bc7f::PACK_BC7_FLAG_DEFAULT;
+use super::astc_ldr::{BlockOpts, Image, write_blocks, write_uncompressed};
 use super::ll::bc7f_astc::fast_pack_astc;
 use super::ll::bc7u::{self, LogBc7Block};
 use crate::parallel::try_for_each_unit;
@@ -57,6 +56,8 @@ pub(crate) struct Xubc7Image<'a> {
     pub height: u32,
     /// Container alpha flag (PVRTC1 RGBA falls back to RGB without it).
     pub has_alpha: bool,
+    /// Decode flag effects.
+    pub opts: BlockOpts,
 }
 
 /// Transcodes `src` to `format` into `dst` (tightly packed, size checked by the caller).
@@ -88,7 +89,7 @@ pub(crate) fn transcode(src: &Xubc7Image, format: Format, dst: &mut [u8]) -> Res
                         return Err(Error::InvalidData);
                     }
                     if astc {
-                        if !fast_pack_astc(o, &bc7, PACK_BC7_FLAG_DEFAULT) {
+                        if !fast_pack_astc(o, &bc7, src.opts.bc7_flags()) {
                             return Err(Error::InvalidData);
                         }
                     } else {
@@ -109,12 +110,13 @@ pub(crate) fn transcode(src: &Xubc7Image, format: Format, dst: &mut [u8]) -> Res
                     img.width,
                     img.height,
                     format == Format::Pvrtc1Rgba && src.has_alpha,
+                    src.opts.from_alpha,
                     src.blocks_x,
                     src.blocks_y,
                     dst,
                 )
             } else {
-                write_blocks(&img, w, h, img.height, format, true, dst)
+                write_blocks(&img, w, h, img.height, format, true, src.opts, dst)
             }
         }
     }

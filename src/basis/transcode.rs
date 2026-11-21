@@ -10,6 +10,126 @@ use super::ll::{TranscoderState, TranscoderTextureFormat as T, basis_is_format_s
 use crate::parallel::try_for_each_unit;
 use crate::{AstcBlock, AstcKind, Buffer, Error, Format, Result};
 
+/// Deblocking of ASTC LDR / XUASTC payloads when transcoding to non-ASTC targets.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Deblock {
+    /// Container default: `.basis` deblocks block sizes of 80 texels (10x8) or more, KTX2
+    /// follows the file's `DeblockFilterID` key.
+    #[default]
+    Auto,
+    /// Never deblock (basisu `cDecodeFlagsNoDeblockFiltering`).
+    Off,
+    /// Always deblock (basisu `cDecodeFlagsForceDeblockFiltering`).
+    Force,
+}
+
+impl Deblock {
+    /// The decision for a payload whose container default is `auto`.
+    pub(crate) fn resolve(self, auto: bool) -> bool {
+        match self {
+            Deblock::Auto => auto,
+            Deblock::Off => false,
+            Deblock::Force => true,
+        }
+    }
+}
+
+/// Transcoder options (basisu decode flags). `Default` matches basisu's defaults (flags 0).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TranscodeOptions {
+    /// Slower, higher quality encoders where available: UASTC -> ETC/EAC/BC1/PVRTC, ASTC LDR /
+    /// XUASTC / XUBC7 -> BC1/EAC/BC7 (partially analytical) / ASTC 4x4, HDR -> BC6H
+    /// (`cDecodeFlagsHighQuality`).
+    pub high_quality: bool,
+    /// For files with alpha: transcode the alpha channel instead of color to opaque targets
+    /// (ETC1, BC1 from ETC1S, BC4, EAC R11, PVRTC1 RGB, ...)
+    /// (`cDecodeFlagsTranscodeAlphaDataToOpaqueFormats`).
+    pub alpha_to_opaque: bool,
+    /// Never emit BC1 3-color blocks (`cDecodeFlagsBC1ForbidThreeColorBlocks`).
+    pub bc1_forbid_three_color: bool,
+    /// ETC1S -> BC7 adaptive chroma filtering; off is much faster
+    /// (inverse of `cDecodeFlagsNoETC1SChromaFiltering`).
+    pub etc1s_chroma_filtering: bool,
+    /// ASTC LDR / XUASTC deblocking (`cDecodeFlagsNoDeblockFiltering`,
+    /// `cDecodeFlagsForceDeblockFiltering`).
+    pub deblock: Deblock,
+    /// XUASTC 4x4 / 6x6 / 8x6 -> BC7 direct fast paths (inverse of
+    /// `cDecodeFlagXUASTCLDRDisableFastBC7Transcoding`).
+    pub xuastc_fast_bc7: bool,
+}
+
+impl Default for TranscodeOptions {
+    fn default() -> Self {
+        TranscodeOptions {
+            high_quality: false,
+            alpha_to_opaque: false,
+            bc1_forbid_three_color: false,
+            etc1s_chroma_filtering: true,
+            deblock: Deblock::Auto,
+            xuastc_fast_bc7: true,
+        }
+    }
+}
+
+impl TranscodeOptions {
+    /// The basisu `decode_flags` value.
+    pub fn flags(&self) -> u32 {
+        use super::ll::decode_flags as f;
+        let mut v = 0;
+        let mut set = |on: bool, bit: u32| {
+            if on {
+                v |= bit;
+            }
+        };
+        set(self.high_quality, f::HIGH_QUALITY);
+        set(
+            self.alpha_to_opaque,
+            f::TRANSCODE_ALPHA_DATA_TO_OPAQUE_FORMATS,
+        );
+        set(
+            self.bc1_forbid_three_color,
+            f::BC1_FORBID_THREE_COLOR_BLOCKS,
+        );
+        set(!self.etc1s_chroma_filtering, f::NO_ETC1S_CHROMA_FILTERING);
+        set(self.deblock == Deblock::Off, f::NO_DEBLOCK_FILTERING);
+        set(self.deblock == Deblock::Force, f::FORCE_DEBLOCK_FILTERING);
+        set(
+            !self.xuastc_fast_bc7,
+            f::XUASTC_LDR_DISABLE_FAST_BC7_TRANSCODING,
+        );
+        v
+    }
+
+    /// Options from basisu `decode_flags` (unknown and internal bits ignored).
+    pub fn from_flags(flags: u32) -> Self {
+        use super::ll::decode_flags as f;
+        let on = |bit: u32| flags & bit != 0;
+        TranscodeOptions {
+            high_quality: on(f::HIGH_QUALITY),
+            alpha_to_opaque: on(f::TRANSCODE_ALPHA_DATA_TO_OPAQUE_FORMATS),
+            bc1_forbid_three_color: on(f::BC1_FORBID_THREE_COLOR_BLOCKS),
+            etc1s_chroma_filtering: !on(f::NO_ETC1S_CHROMA_FILTERING),
+            deblock: if on(f::NO_DEBLOCK_FILTERING) {
+                Deblock::Off
+            } else if on(f::FORCE_DEBLOCK_FILTERING) {
+                Deblock::Force
+            } else {
+                Deblock::Auto
+            },
+            xuastc_fast_bc7: !on(f::XUASTC_LDR_DISABLE_FAST_BC7_TRANSCODING),
+        }
+    }
+
+    /// The 4x4 block encoder options for a payload with (container) alpha `has_alpha`.
+    pub(crate) fn block(&self, has_alpha: bool) -> super::astc_ldr::BlockOpts {
+        super::astc_ldr::BlockOpts {
+            high_quality: self.high_quality,
+            from_alpha: has_alpha && self.alpha_to_opaque,
+            fast_bc7: self.xuastc_fast_bc7,
+        }
+    }
+}
+
 /// The basisu target for `format` (sRGB variants share the unorm target: same bits).
 fn target(format: Format) -> Option<T> {
     use Format::*;
@@ -115,8 +235,10 @@ pub(crate) struct SliceRef<'a> {
     pub video: bool,
     /// ASTC LDR / XUASTC: sRGB decode profile.
     pub srgb: bool,
-    /// ASTC LDR / XUASTC: apply the deblocking filter for non-ASTC targets.
+    /// ASTC LDR / XUASTC: apply the deblocking filter for non-ASTC targets (options applied).
     pub deblock: bool,
+    /// Transcoder options.
+    pub opts: TranscodeOptions,
 }
 
 /// Transcodes one slice to `format` into `dst` (tightly packed). `etc1s` is required for ETC1S.
@@ -167,7 +289,7 @@ pub(crate) fn transcode_slice(
             s.len,
             s.alpha.0,
             s.alpha.1,
-            0,
+            s.opts.flags(),
             s.has_alpha,
             s.video,
             0,
@@ -190,7 +312,7 @@ pub(crate) fn transcode_slice(
                 s.level,
                 s.ofs,
                 s.len,
-                0,
+                s.opts.flags(),
                 s.has_alpha,
                 s.video,
                 0,
@@ -201,7 +323,17 @@ pub(crate) fn transcode_slice(
             ),
         ),
         BasisTexFormat::AstcHdr6x6 => status(LowlevelAstcHdr6x6Transcoder::new().transcode_image(
-            t, dst, units, s.data, s.blocks_x, s.blocks_y, s.width, s.height, s.ofs, s.len, 0,
+            t,
+            dst,
+            units,
+            s.data,
+            s.blocks_x,
+            s.blocks_y,
+            s.width,
+            s.height,
+            s.ofs,
+            s.len,
+            s.opts.flags(),
         )),
         BasisTexFormat::AstcLdr(_) | BasisTexFormat::XuastcLdr(_) | BasisTexFormat::Xubc7 => {
             Err(Error::Unsupported)
@@ -235,6 +367,7 @@ fn transcode_astc_ldr(
             srgb: s.srgb,
             deblock: s.deblock,
             has_alpha: true,
+            opts: s.opts.block(s.has_alpha),
         },
         format,
         dst,
@@ -261,6 +394,7 @@ fn transcode_xuastc_ldr(
             srgb: img.srgb,
             deblock: s.deblock,
             has_alpha: img.has_alpha,
+            opts: s.opts.block(s.has_alpha),
         },
         format,
         dst,
@@ -282,6 +416,7 @@ fn transcode_xubc7(s: &SliceRef, format: Format, dst: &mut [u8]) -> Result<()> {
             width: s.width,
             height: s.height,
             has_alpha: s.has_alpha,
+            opts: s.opts.block(s.has_alpha),
         },
         format,
         dst,
@@ -302,15 +437,15 @@ fn transcode_uastc_4x4(s: &SliceRef, t: T, format: Format, dst: &mut [u8]) -> Re
             s.width * height
         };
         let mut state = TranscoderState::new();
-        let (w, a, v, l) = (s.width, s.has_alpha, s.video, s.level);
+        let (w, a, v, l, f) = (s.width, s.has_alpha, s.video, s.level, s.opts.flags());
         if hdr {
             LowlevelUastcHdr4x4Transcoder::new().transcode_image(
-                t, out, units, s.data, bx, rows, w, height, l, ofs, len, 0, a, v, 0, &mut state, 0,
+                t, out, units, s.data, bx, rows, w, height, l, ofs, len, f, a, v, 0, &mut state, 0,
                 -1, -1,
             )
         } else {
             LowlevelUastcLdr4x4Transcoder::new().transcode_image(
-                t, out, units, s.data, bx, rows, w, height, l, ofs, len, 0, a, v, 0, &mut state, 0,
+                t, out, units, s.data, bx, rows, w, height, l, ofs, len, f, a, v, 0, &mut state, 0,
                 -1, -1,
             )
         }
@@ -363,11 +498,24 @@ impl BasisFile<'_> {
             .ok_or(Error::InvalidData)
     }
 
-    /// Transcodes `image`/`level` to `format` into `dst` (tightly packed blocks or pixels).
+    /// Transcodes `image`/`level` to `format` into `dst` (tightly packed blocks or pixels)
+    /// with the default [`TranscodeOptions`].
     ///
     /// PVRTC1 needs power-of-two sizes. Errors: `Unsupported` (target not available for this
     /// payload), `BufferTooSmall`, `InvalidArgument` (no such image/level), `InvalidData`.
     pub fn transcode(&self, image: u32, level: u32, format: Format, dst: &mut [u8]) -> Result<()> {
+        self.transcode_with(image, level, format, &TranscodeOptions::default(), dst)
+    }
+
+    /// Like [`BasisFile::transcode`], with transcoder options.
+    pub fn transcode_with(
+        &self,
+        image: u32,
+        level: u32,
+        format: Format,
+        opts: &TranscodeOptions,
+        dst: &mut [u8],
+    ) -> Result<()> {
         if !self.can_transcode_to(format) {
             return Err(Error::Unsupported);
         }
@@ -398,8 +546,9 @@ impl BasisFile<'_> {
             // basisu default: deblock block sizes of 80 texels (10x8) or more.
             deblock: {
                 let (bw, bh) = self.tex_format.block_dim();
-                bw * bh >= 80
+                opts.deblock.resolve(bw * bh >= 80)
             },
+            opts: *opts,
         };
         let e = if etc1s { Some(self.etc1s()?) } else { None };
         transcode_slice(&s, e, format, dst)
@@ -407,8 +556,19 @@ impl BasisFile<'_> {
 
     /// Like [`BasisFile::transcode`] but allocates the output.
     pub fn transcode_to_buffer(&self, image: u32, level: u32, format: Format) -> Result<Buffer> {
+        self.transcode_to_buffer_with(image, level, format, &TranscodeOptions::default())
+    }
+
+    /// Like [`BasisFile::transcode_with`] but allocates the output.
+    pub fn transcode_to_buffer_with(
+        &self,
+        image: u32,
+        level: u32,
+        format: Format,
+        opts: &TranscodeOptions,
+    ) -> Result<Buffer> {
         let mut buf = crate::buffer::zeroed(self.transcoded_size(image, level, format)?)?;
-        self.transcode(image, level, format, &mut buf)?;
+        self.transcode_with(image, level, format, opts, &mut buf)?;
         Ok(buf)
     }
 }

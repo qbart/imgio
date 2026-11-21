@@ -4,9 +4,11 @@
 // the given .basis / .ktx2 files to every supported transcoder_texture_format (0..40) with the
 // C++ Basis Universal transcoder and prints "file format level size fnv1a64" (.basis, image 0)
 // or "file format level layer face size fnv1a64" (.ktx2, every layer and face).
+// `-f N` (first argument) transcodes with basisu decode flags N and prefixes every line with N.
 // Build: see build.sh (needs ../../ref/basisu).
 #include "basisu_transcoder.h"
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <vector>
 
@@ -20,7 +22,10 @@ static uint64_t fnv(const uint8_t* p, size_t n) {
 
 int main(int argc, char** argv) {
     basisu_transcoder_init();
-    for (int a = 1; a < argc; a++) {
+    uint32_t flags = 0;
+    int first = 1;
+    if (argc > 2 && !strcmp(argv[1], "-f")) { flags = (uint32_t)strtoul(argv[2], nullptr, 0); first = 3; }
+    for (int a = first; a < argc; a++) {
         FILE* f = fopen(argv[a], "rb");
         if (!f) return 1;
         std::vector<uint8_t> d;
@@ -49,7 +54,8 @@ int main(int argc, char** argv) {
                         size = units * basis_get_bytes_per_block_or_pixel(tf);
                     }
                     std::vector<uint8_t> out(size);
-                    if (k.transcode_image_level(l, layer, face, out.data(), units, tf, 0))
+                    if (first > 1) printf("%u ", flags);
+                    if (k.transcode_image_level(l, layer, face, out.data(), units, tf, flags))
                         printf("%s %d %u %u %u %u %016llx\n", name, fmt, l, layer, face, size, (unsigned long long)fnv(out.data(), size));
                     else printf("%s %d %u %u %u fail\n", name, fmt, l, layer, face);
                 }
@@ -76,7 +82,8 @@ int main(int argc, char** argv) {
                 }
                 std::vector<uint8_t> out(size);
                 uint32_t units = basis_transcoder_format_is_uncompressed(tf) ? w * h : size / basis_get_bytes_per_block_or_pixel(tf);
-                bool ok = t.transcode_image_level(d.data(), (uint32_t)d.size(), 0, l, out.data(), units, tf, 0);
+                bool ok = t.transcode_image_level(d.data(), (uint32_t)d.size(), 0, l, out.data(), units, tf, flags);
+                if (first > 1) printf("%u ", flags);
                 if (ok) printf("%s %d %u %u %016llx\n", name, fmt, l, size, (unsigned long long)fnv(out.data(), size));
                 else printf("%s %d %u fail\n", name, fmt, l);
             }

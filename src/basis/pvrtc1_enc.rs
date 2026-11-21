@@ -15,24 +15,38 @@ use vas::Vector;
 use vas::storage::Dynamic;
 
 /// The 4x4 block at block (`bx`, `by`) of `img` (`width` x `height` RGBA8), clamped reads.
-fn block(img: &[u8], width: usize, height: usize, bx: usize, by: usize) -> [[u8; 4]; 16] {
+/// With `gray_alpha`, every pixel becomes (A, A, A, 255).
+fn block(
+    img: &[u8],
+    width: usize,
+    height: usize,
+    bx: usize,
+    by: usize,
+    gray_alpha: bool,
+) -> [[u8; 4]; 16] {
     let mut out = [[0u8; 4]; 16];
     for (i, o) in out.iter_mut().enumerate() {
         let x = (bx * 4 + (i & 3)).min(width - 1);
         let y = (by * 4 + (i >> 2)).min(height - 1);
         let at = (y * width + x) * 4;
         o.copy_from_slice(&img[at..at + 4]);
+        if gray_alpha {
+            *o = [o[3], o[3], o[3], 255];
+        }
     }
     out
 }
 
 /// Encodes `img` (`width` x `height` RGBA8, at least 1x1) to PVRTC1 4bpp RGB or RGBA with
-/// `blocks_x` x `blocks_y` blocks into `dst` (8 bytes per block, twiddled order).
+/// `blocks_x` x `blocks_y` blocks into `dst` (8 bytes per block, twiddled order). RGB with
+/// `from_alpha` encodes the alpha channel as gray.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn encode_pvrtc1(
     img: &[u8],
     width: usize,
     height: usize,
     rgba: bool,
+    from_alpha: bool,
     blocks_x: u32,
     blocks_y: u32,
     dst: &mut [u8],
@@ -41,13 +55,14 @@ pub(crate) fn encode_pvrtc1(
         return Err(Error::InvalidArgument);
     }
     let (bxs, bys) = (blocks_x as usize, blocks_y as usize);
+    let gray = from_alpha && !rgba;
     let mut endpoints = Vector::<u32, Dynamic>::default();
     endpoints
         .reserve(bxs * bys)
         .map_err(|_| Error::OutOfMemory)?;
     for by in 0..bys {
         for bx in 0..bxs {
-            let px = block(img, width, height, bx, by);
+            let px = block(img, width, height, bx, by, gray);
             let (mut low, mut high) = ([255u8; 4], [0u8; 4]);
             for p in &px {
                 for c in 0..4 {
@@ -69,7 +84,7 @@ pub(crate) fn encode_pvrtc1(
     let mut cache: Option<(usize, [[u8; 4]; 16])> = None;
     let pixel = |bi: usize, lx: u32, ly: u32| -> Option<i32> {
         if cache.as_ref().map(|c| c.0) != Some(bi) {
-            cache = Some((bi, block(img, width, height, bi % bxs, bi / bxs)));
+            cache = Some((bi, block(img, width, height, bi % bxs, bi / bxs, gray)));
         }
         let (_, px) = cache.as_ref()?;
         let p = px[(ly * 4 + lx) as usize].map(i32::from);

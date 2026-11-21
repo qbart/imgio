@@ -14,10 +14,8 @@
 //!
 //! Each pair of ASTC block rows emits its own 3 rows of BC7 blocks, so pairs run in parallel.
 
-use super::astc_ldr::decode_log;
-use super::ll::bc7f::{
-    PACK_BC7_FLAG_DEFAULT, fast_pack_bc7_auto_rgb, fast_pack_bc7_auto_rgba, pack_mode5_solid,
-};
+use super::astc_ldr::{BlockOpts, decode_log};
+use super::ll::bc7f::{fast_pack_bc7_auto_rgb, fast_pack_bc7_auto_rgba, pack_mode5_solid};
 use super::ll::bc7f_xuastc as fx;
 use crate::astc::helpers::LogAstcBlock;
 use crate::parallel::try_for_each_unit;
@@ -39,6 +37,10 @@ struct Ctx<'a> {
     dbx: usize,
     srgb: bool,
     has_alpha: bool,
+    /// `bc7f` flags of the analytical fallback.
+    bc7_flags: u32,
+    /// 4x4 single-subset single-plane blocks straight to mode 6 (fast, not high quality).
+    direct_4x4: bool,
 }
 
 impl Ctx<'_> {
@@ -55,9 +57,9 @@ impl Ctx<'_> {
     fn encode(&self, px: &[Px; 16], out: &mut [u8]) {
         let mut b = [0u8; 16];
         if self.has_alpha {
-            fast_pack_bc7_auto_rgba(&mut b, px, PACK_BC7_FLAG_DEFAULT);
+            fast_pack_bc7_auto_rgba(&mut b, px, self.bc7_flags);
         } else {
-            fast_pack_bc7_auto_rgb(&mut b, px, PACK_BC7_FLAG_DEFAULT);
+            fast_pack_bc7_auto_rgb(&mut b, px, self.bc7_flags);
         }
         out.copy_from_slice(&b);
     }
@@ -74,7 +76,7 @@ impl Ctx<'_> {
             let b = self.blk(bx, by)?;
             if b.solid_color_flag_ldr {
                 pack_mode5_solid(o, &fx::solid_px(b));
-            } else if !b.dual_plane && b.num_partitions == 1 {
+            } else if self.direct_4x4 && !b.dual_plane && b.num_partitions == 1 {
                 if !fx::pack_from_astc_4x4_single_subset(o, b) {
                     return Err(Error::InvalidData);
                 }
@@ -384,6 +386,7 @@ pub(crate) fn transcode(
     height: u32,
     srgb: bool,
     has_alpha: bool,
+    opts: BlockOpts,
     dst: &mut [u8],
 ) -> Result<()> {
     let (bxs, bys) = (blocks_x as usize, blocks_y as usize);
@@ -401,6 +404,8 @@ pub(crate) fn transcode(
         dbx,
         srgb,
         has_alpha,
+        bc7_flags: opts.bc7_flags(),
+        direct_4x4: opts.fast_bc7 && !opts.high_quality,
     };
     let pixels = w.saturating_mul(h);
     match block {

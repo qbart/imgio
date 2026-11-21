@@ -2,7 +2,7 @@
 //! hashes of every level/layer/face transcoded to every supported target
 //! (testdata/ktx2/golden.txt, tools/basisu-golden).
 
-use imgio::basis::BasisTexFormat;
+use imgio::basis::{BasisTexFormat, TranscodeOptions};
 use imgio::ktx2::Ktx2File;
 use imgio::{AstcBlock, AstcKind, Format};
 use std::error::Error;
@@ -76,11 +76,27 @@ fn check_with(
     filter: impl Fn(&str) -> bool,
     only_supported: bool,
 ) -> Result<usize, Box<dyn Error>> {
+    check_file("golden.txt", filter, only_supported)
+}
+
+/// Checks the lines of `golden` (in testdata/ktx2) matching `filter`. golden_flags.txt lines
+/// start with the basisu decode flags.
+fn check_file(
+    golden: &str,
+    filter: impl Fn(&str) -> bool,
+    only_supported: bool,
+) -> Result<usize, Box<dyn Error>> {
     let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/ktx2/");
-    let golden = std::fs::read_to_string(format!("{dir}golden.txt"))?;
+    let flagged = golden == "golden_flags.txt";
+    let golden = std::fs::read_to_string(format!("{dir}{golden}"))?;
     let (mut failures, mut checked) = (Vec::new(), 0);
     for line in golden.lines().filter(|l| filter(l)) {
-        let f: Vec<&str> = line.split(' ').collect();
+        let mut f: Vec<&str> = line.split(' ').collect();
+        let opts = if flagged {
+            TranscodeOptions::from_flags(f.remove(0).parse()?)
+        } else {
+            TranscodeOptions::default()
+        };
         let n = |i: usize| f[i].parse::<u32>();
         let (id, level, layer, face) = (n(1)?, n(2)?, n(3)?, n(4)?);
         let Some(fmt) = format(id) else { continue };
@@ -89,7 +105,7 @@ fn check_with(
         if only_supported && !file.can_transcode_to(fmt) {
             continue;
         }
-        let got = file.transcode_to_buffer(level, layer, face, fmt);
+        let got = file.transcode_to_buffer_with(level, layer, face, fmt, &opts);
         let ok = match (f[5], &got) {
             ("fail", Err(_)) => true,
             (size, Ok(buf)) => {
@@ -257,5 +273,11 @@ fn header_info_astc_ldr_xuastc_xubc7() -> Result<(), Box<dyn Error>> {
         assert_eq!(f.has_alpha(), alpha, "{name}");
         assert_eq!(f.is_srgb(), srgb, "{name}");
     }
+    Ok(())
+}
+
+#[test]
+fn decode_flags() -> Result<(), Box<dyn Error>> {
+    assert_eq!(check_file("golden_flags.txt", |_| true, false)?, 625);
     Ok(())
 }

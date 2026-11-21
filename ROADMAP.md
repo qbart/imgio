@@ -20,6 +20,7 @@
 ## Follow-ups
 
 - [x] FXT1 transcode target (ETC1S; other payloads unsupported in C++ too)
+- [x] Transcoder options (basisu decode flags: high quality, alpha to opaque, deblock, ...)
 - [ ] PVRTC1/2 and ATC decoders
 - [ ] Parallel transcode of many levels/images
 

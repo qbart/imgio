@@ -25,6 +25,16 @@ Test data `testdata/basis/*.basis`: encoded by Basis Universal v2.50 (C++ CLI bu
 
 - `transcode(image, level, format, dst)`, `transcode_to_buffer`, `transcoded_size`,
   `can_transcode_to`. Output is tightly packed blocks/pixels of `format` for the level size.
+- `transcode_with` / `transcode_to_buffer_with` take `TranscodeOptions` = basisu decode flags
+  (`flags()` / `from_flags()`; `Default` = flags 0): `high_quality` (32), `alpha_to_opaque` (4),
+  `bc1_forbid_three_color` (8), `etc1s_chroma_filtering` (off = 64), `deblock`
+  `Auto`/`Off`/`Force` (128 / 512; `Auto` = container rule), `xuastc_fast_bc7` (off = 1024).
+  ETC1S / UASTC / HDR get the raw flags (ported low-level transcoders). ASTC LDR / XUASTC /
+  XUBC7 map them to `astc_ldr::BlockOpts` like C++ `transcode_4x4_block`: high quality = HQ
+  EAC (`pack_eac_high_quality`), HQ BC1, partially analytical `bc7f` (BC7, XUBC7 -> ASTC);
+  alpha to opaque (needs container alpha) = ETC1 via `pack_etc1_grayscale(A)`, BC4 / R11 from
+  A, PVRTC1 RGB on gray alpha. XUASTC 6x6 / 8x6 -> BC7 fast paths need fast on and not high
+  quality; 4x4 always packs solid blocks to mode 5, its mode 6 shortcut needs the same.
 - Targets map to basisu `transcoder_texture_format` (sRGB variants share the unorm target):
   ETC1, ETC2 RGBA, BC1/3/4/5/7, PVRTC1/2, ASTC 4x4 LDR/HDR, ATC, RGBA32, 565, 4444, EAC
   R11/RG11, BC6H, RGB/RGBA half, RGB9E5, ASTC 6x6 HDR, FXT1 (`Format::Fxt1Rgb`, 8x4 blocks).
@@ -100,7 +110,8 @@ Test data `testdata/basis/*.basis`: encoded by Basis Universal v2.50 (C++ CLI bu
 - Golden test: `tests/basis_transcode.rs` vs `testdata/basis/golden.txt`, FNV-1a hashes of every
   level x supported target from the C++ transcoder (`tools/basisu-golden/dump.cpp`, offline
   dev tool, not part of the crate; targets 0..40). PVRTC1 on non-power-of-two sizes fails in
-  both.
+  both. `golden_flags.txt` (`dump -f N`): selected files with decode flags 4, 8, 32, 64, 128,
+  512, 1024, 1056 (`decode_flags` tests).
 
 ## Audit
 
@@ -131,3 +142,6 @@ Test data `testdata/basis/*.basis`: encoded by Basis Universal v2.50 (C++ CLI bu
 - 2026-11-21: XUASTC -> BC7 fast paths (4x4 / 6x6 / 8x6): every XUASTC golden line passes (704
   .basis + 160 KTX2). New mosaic test images / files (`xuastc{6x6,8x6}_mosaic_{rgb,rgba}.basis`)
   reach every fast-path branch (checked with temporary counters).
+- 2026-11-21: ETC1S -> FXT1 (`ll/fxt1.rs`) bit-exact (8 .basis + 9 KTX2 cases).
+- 2026-11-21: `TranscodeOptions` (decode flags) bit-exact on 2520 .basis + 625 KTX2 flagged
+  cases (557 / 302 differ from the default-flag output).

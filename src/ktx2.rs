@@ -6,6 +6,7 @@
 //! `ktx2_transcoder` (DFD color model, vkFormat, supercompression scheme).
 
 use crate::basis::BasisTexFormat;
+use crate::basis::TranscodeOptions;
 use crate::basis::ll::etc1s::LowlevelEtc1sTranscoder;
 use crate::basis::transcode::{SliceRef, can_transcode, etc1s_transcoder, transcode_slice};
 use crate::{AstcBlock, Buffer, Error, Format, Result};
@@ -403,6 +404,20 @@ impl<'a> Ktx2File<'a> {
         format: Format,
         dst: &mut [u8],
     ) -> Result<()> {
+        let opts = TranscodeOptions::default();
+        self.transcode_with(level, layer, face, format, &opts, dst)
+    }
+
+    /// Like [`Ktx2File::transcode`], with transcoder options.
+    pub fn transcode_with(
+        &self,
+        level: u32,
+        layer: u32,
+        face: u32,
+        format: Format,
+        opts: &TranscodeOptions,
+        dst: &mut [u8],
+    ) -> Result<()> {
         if level >= self.level_count() || layer >= self.layers || face >= self.faces {
             return Err(Error::InvalidArgument);
         }
@@ -425,7 +440,8 @@ impl<'a> Ktx2File<'a> {
             has_alpha: self.has_alpha,
             video: self.video,
             srgb: self.astc_srgb,
-            deblock: self.deblock,
+            deblock: opts.deblock.resolve(self.deblock),
+            opts: *opts,
         };
         match self.tex_format {
             BasisTexFormat::Etc1s
@@ -460,8 +476,21 @@ impl<'a> Ktx2File<'a> {
         face: u32,
         format: Format,
     ) -> Result<Buffer> {
+        let opts = TranscodeOptions::default();
+        self.transcode_to_buffer_with(level, layer, face, format, &opts)
+    }
+
+    /// Like [`Ktx2File::transcode_with`] but allocates the output.
+    pub fn transcode_to_buffer_with(
+        &self,
+        level: u32,
+        layer: u32,
+        face: u32,
+        format: Format,
+        opts: &TranscodeOptions,
+    ) -> Result<Buffer> {
         let mut buf = crate::buffer::zeroed(self.transcoded_size(level, format)?)?;
-        self.transcode(level, layer, face, format, &mut buf)?;
+        self.transcode_with(level, layer, face, format, opts, &mut buf)?;
         Ok(buf)
     }
 }

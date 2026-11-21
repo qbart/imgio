@@ -8,13 +8,16 @@
 //! the C++ transcoder is used (deblocking, PVRTC1). XUASTC 4x4 / 6x6 / 8x6 -> BC7 without
 //! deblocking takes the direct ASTC -> BC7 fast paths in `xuastc_bc7.rs` instead.
 
-use super::ll::bc7f::{PACK_BC7_FLAG_DEFAULT, fast_pack_bc7_auto_rgb, fast_pack_bc7_auto_rgba};
+use super::ll::bc7f::{
+    PACK_BC7_FLAG_DEFAULT, PACK_BC7_FLAG_DEFAULT_PARTIALLY_ANALYTICAL, fast_pack_bc7_auto_rgb,
+    fast_pack_bc7_auto_rgba,
+};
 use super::ll::dxt::Dxt1Block;
 use super::ll::eac::EacBlock;
 use super::ll::etc::Color32;
-use super::ll::etc1f::pack_etc1;
-use super::ll::uastc_bc1::{encode_bc1, encode_bc4};
-use super::ll::uastc_etc::pack_eac;
+use super::ll::etc1f::{pack_etc1, pack_etc1_grayscale};
+use super::ll::uastc_bc1::{ENCODE_BC1_HIGH_QUALITY, encode_bc1, encode_bc4};
+use super::ll::uastc_etc::{pack_eac, pack_eac_high_quality};
 use crate::astc::helpers::{
     DecodePixels, LogAstcBlock, decode_block, pack_astc_block, unpack_block,
 };
@@ -43,6 +46,39 @@ impl Image {
     }
 }
 
+/// basisu decode-flag effects on `transcode_4x4_block` and the BC7 fast paths.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct BlockOpts {
+    /// `cDecodeFlagsHighQuality`: high quality EAC / BC1, partially analytical BC7.
+    pub high_quality: bool,
+    /// Alpha to opaque targets (container alpha and `cDecodeFlagsTranscodeAlphaDataToOpaque
+    /// Formats`): ETC1 from gray alpha, BC4 / EAC R11 from A, PVRTC1 RGB from gray alpha.
+    pub from_alpha: bool,
+    /// XUASTC direct BC7 fast paths enabled.
+    pub fast_bc7: bool,
+}
+
+impl Default for BlockOpts {
+    fn default() -> Self {
+        BlockOpts {
+            high_quality: false,
+            from_alpha: false,
+            fast_bc7: true,
+        }
+    }
+}
+
+impl BlockOpts {
+    /// `bc7f` flags.
+    pub fn bc7_flags(self) -> u32 {
+        if self.high_quality {
+            PACK_BC7_FLAG_DEFAULT_PARTIALLY_ANALYTICAL
+        } else {
+            PACK_BC7_FLAG_DEFAULT
+        }
+    }
+}
+
 /// ASTC blocks of one image, row major.
 pub(crate) enum Blocks<'a> {
     /// Physical 16-byte blocks (plain ASTC LDR).
@@ -66,6 +102,8 @@ pub(crate) struct AstcLdrImage<'a> {
     /// `transcode_4x4_block`'s `has_alpha` for BC7: the XUASTC stream alpha flag; true for
     /// plain ASTC LDR (C++ passes -1, "unknown", which packs RGBA like 1).
     pub has_alpha: bool,
+    /// Decode flag effects.
+    pub opts: BlockOpts,
 }
 
 /// True when ASTC LDR payloads with `block` size can be transcoded to `format`.
@@ -196,10 +234,14 @@ fn channel(px: &[[u8; 4]; 16], c: usize) -> [u8; 16] {
     px.map(|p| p[c])
 }
 
-fn bc1(px: &[[u8; 4]; 16], out: &mut [u8]) {
+fn bc1(px: &[[u8; 4]; 16], hq: bool, out: &mut [u8]) {
     let colors = px.map(|c| Color32 { c });
     let mut b = Dxt1Block::default();
-    encode_bc1(&mut b, &colors, 0);
+    encode_bc1(
+        &mut b,
+        &colors,
+        if hq { ENCODE_BC1_HIGH_QUALITY } else { 0 },
+    );
     out.copy_from_slice(&b.bytes);
 }
 
@@ -209,33 +251,50 @@ fn bc4(px: &[[u8; 4]; 16], c: usize, out: &mut [u8]) {
     out.copy_from_slice(&b);
 }
 
-fn eac(px: &[[u8; 4]; 16], c: usize, out: &mut [u8]) {
+fn eac(px: &[[u8; 4]; 16], c: usize, hq: bool, out: &mut [u8]) {
     let mut b = EacBlock::default();
-    pack_eac(&mut b, &channel(px, c));
+    if hq {
+        pack_eac_high_quality(&mut b, &channel(px, c));
+    } else {
+        pack_eac(&mut b, &channel(px, c));
+    }
     out.copy_from_slice(&b.bytes);
 }
 
-/// basisu `transcode_4x4_block` for block targets (default channels: R, and R+A for two).
-fn encode_4x4(format: Format, px: &[[u8; 4]; 16], has_alpha: bool, out: &mut [u8]) -> Result<()> {
+/// basisu `transcode_4x4_block` for block targets (default channels: R, and R+A for two;
+/// A for one with `from_alpha`).
+fn encode_4x4(
+    format: Format,
+    px: &[[u8; 4]; 16],
+    has_alpha: bool,
+    o: BlockOpts,
+    out: &mut [u8],
+) -> Result<()> {
     use Format::*;
+    let hq = o.high_quality;
+    let single = if o.from_alpha { 3 } else { 0 };
     match format {
-        Bc1Unorm | Bc1Srgb => bc1(px, out),
+        Bc1Unorm | Bc1Srgb => bc1(px, hq, out),
         Bc3Unorm | Bc3Srgb => {
             bc4(px, 3, &mut out[..8]);
-            bc1(px, &mut out[8..]);
+            bc1(px, hq, &mut out[8..]);
         }
-        Bc4Unorm => bc4(px, 0, out),
+        Bc4Unorm => bc4(px, single, out),
         Bc5Unorm => {
             bc4(px, 0, &mut out[..8]);
             bc4(px, 3, &mut out[8..]);
         }
         Etc1Rgb => {
             let mut b = [0u8; 8];
-            pack_etc1(&mut b, px);
+            if o.from_alpha {
+                pack_etc1_grayscale(&mut b, &channel(px, 3));
+            } else {
+                pack_etc1(&mut b, px);
+            }
             out.copy_from_slice(&b);
         }
         Etc2Rgba | Etc2RgbaSrgb => {
-            eac(px, 3, &mut out[..8]);
+            eac(px, 3, hq, &mut out[..8]);
             let mut b = [0u8; 8];
             pack_etc1(&mut b, px);
             out[8..].copy_from_slice(&b);
@@ -243,16 +302,16 @@ fn encode_4x4(format: Format, px: &[[u8; 4]; 16], has_alpha: bool, out: &mut [u8
         Bc7Unorm | Bc7Srgb => {
             let mut b = [0u8; 16];
             if has_alpha {
-                fast_pack_bc7_auto_rgba(&mut b, px, PACK_BC7_FLAG_DEFAULT);
+                fast_pack_bc7_auto_rgba(&mut b, px, o.bc7_flags());
             } else {
-                fast_pack_bc7_auto_rgb(&mut b, px, PACK_BC7_FLAG_DEFAULT);
+                fast_pack_bc7_auto_rgb(&mut b, px, o.bc7_flags());
             }
             out.copy_from_slice(&b);
         }
-        EacR11Unorm => eac(px, 0, out),
+        EacR11Unorm => eac(px, single, hq, out),
         EacRg11Unorm => {
-            eac(px, 0, &mut out[..8]);
-            eac(px, 3, &mut out[8..]);
+            eac(px, 0, hq, &mut out[..8]);
+            eac(px, 3, hq, &mut out[8..]);
         }
         _ => return Err(Error::Unsupported),
     }
@@ -261,6 +320,7 @@ fn encode_4x4(format: Format, px: &[[u8; 4]; 16], has_alpha: bool, out: &mut [u8
 
 /// Encodes 4x4 blocks of `img` (`width` x `height` area) to `format`, rows in parallel.
 /// `max_y`: rows readable by the edge clamp.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn write_blocks(
     img: &Image,
     width: usize,
@@ -268,6 +328,7 @@ pub(crate) fn write_blocks(
     max_y: usize,
     format: Format,
     has_alpha: bool,
+    opts: BlockOpts,
     dst: &mut [u8],
 ) -> Result<()> {
     let bb = format.block_bytes();
@@ -275,7 +336,13 @@ pub(crate) fn write_blocks(
     let rows = height.div_ceil(4);
     try_for_each_unit(&mut dst[..row * rows], row, width * height, |by, out| {
         for (bx, o) in out.chunks_exact_mut(bb).enumerate() {
-            encode_4x4(format, &img.block(bx * 4, by * 4, max_y), has_alpha, o)?;
+            encode_4x4(
+                format,
+                &img.block(bx * 4, by * 4, max_y),
+                has_alpha,
+                opts,
+                o,
+            )?;
         }
         Ok(())
     })
@@ -304,11 +371,13 @@ pub(crate) fn transcode(src: &AstcLdrImage, format: Format, dst: &mut [u8]) -> R
         }
         return Ok(());
     }
-    // XUASTC 4x4 / 6x6 / 8x6 -> BC7 (no deblocking): direct ASTC -> BC7 fast paths.
+    // XUASTC 4x4 / 6x6 / 8x6 -> BC7 (no deblocking): direct ASTC -> BC7 fast paths (4x4
+    // always: only its single-subset shortcut depends on the options).
     if let Blocks::Logical(blocks) = src.blocks
         && matches!(format, Format::Bc7Unorm | Format::Bc7Srgb)
         && !src.deblock
         && super::xuastc_bc7::has_fast_path(src.block)
+        && (src.block == AstcBlock::B4x4 || (src.opts.fast_bc7 && !src.opts.high_quality))
     {
         return super::xuastc_bc7::transcode(
             blocks,
@@ -319,6 +388,7 @@ pub(crate) fn transcode(src: &AstcLdrImage, format: Format, dst: &mut [u8]) -> R
             src.height,
             src.srgb,
             src.has_alpha,
+            src.opts,
             dst,
         );
     }
@@ -350,6 +420,7 @@ pub(crate) fn transcode(src: &AstcLdrImage, format: Format, dst: &mut [u8]) -> R
             img.width,
             img.height,
             format == Format::Pvrtc1Rgba,
+            src.opts.from_alpha,
             src.width.div_ceil(4),
             src.height.div_ceil(4),
             dst,
@@ -363,5 +434,5 @@ pub(crate) fn transcode(src: &AstcLdrImage, format: Format, dst: &mut [u8]) -> R
     } else {
         h.min(img.height)
     };
-    write_blocks(&img, w, h, max_y, format, src.has_alpha, dst)
+    write_blocks(&img, w, h, max_y, format, src.has_alpha, src.opts, dst)
 }

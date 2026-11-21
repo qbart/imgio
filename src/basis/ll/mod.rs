@@ -46,6 +46,9 @@ pub(crate) mod transcode_flags {
     pub const TRANSCODE_ALPHA_DATA_TO_OPAQUE_FORMATS: u32 = 4;
     pub const HIGH_QUALITY: u32 = 32;
     pub const NO_ETC1S_CHROMA_FILTERING: u32 = 64;
+    pub const NO_DEBLOCK_FILTERING: u32 = 128;
+    pub const FORCE_DEBLOCK_FILTERING: u32 = 512;
+    pub const XUASTC_LDR_DISABLE_FAST_BC7_TRANSCODING: u32 = 1024;
 }
 /// Port of `transcoder_texture_format`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -146,6 +149,9 @@ pub mod decode_flags {
     pub const OUTPUT_HAS_ALPHA_INDICES: u32 = 16;
     pub const HIGH_QUALITY: u32 = 32;
     pub const NO_ETC1S_CHROMA_FILTERING: u32 = 64;
+    pub const NO_DEBLOCK_FILTERING: u32 = 128;
+    pub const FORCE_DEBLOCK_FILTERING: u32 = 512;
+    pub const XUASTC_LDR_DISABLE_FAST_BC7_TRANSCODING: u32 = 1024;
 }
 
 use TranscoderTextureFormat as F;
