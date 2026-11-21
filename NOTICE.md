@@ -13,6 +13,9 @@ state that they were modified (Apache-2.0 §4(b)).
 | `src/bc/bc6h.rs`, `src/bc/bc7.rs`, `src/bc/tables.rs`, `src/astc/helpers.rs`, `src/astc/tables.rs` | [Basis Universal](https://github.com/BinomialLLC/basis_universal) `basisu_gpu_texture.cpp` and tables, via [ktx-rs](https://github.com/qbart/ktx-rs) `src/basisu` | Binomial LLC | Apache-2.0 |
 
 | `src/basis/ll/*` | Basis Universal transcoder, via ktx-rs `src/basisu`; `etc1f*.rs`, `bc7f*.rs`, `bc7u.rs`, `fxt1.rs` directly from `basisu_transcoder.cpp` / `basisu_etc1_mods.inl` | Binomial LLC | Apache-2.0 |
+| `src/basis/ll/{astc_hdr_6x6_enc,astc_hdr_downsample_tables,astc_hdr_enc,backend,basis_file,bc7enc,comp,enc,etc_enc,etc_enc_tables,frontend,gpu_texture,huffman_enc,job_pool,uastc_enc,uastc_hdr_4x4_enc,vq}.rs` | Basis Universal encoder (`encoder/basisu_*.cpp`), via ktx-rs `src/basisu` | Binomial LLC | Apache-2.0 |
+| `src/basis/ll/scoped.rs` | ktx-rs `src/scoped.rs` | KTX Rust port contributors | Apache-2.0 |
+| `src/basis/ll/tests/*`, `testdata/basisu_enc/basisu_*.txt` | ktx-rs `tests/basisu_*.rs` and their golden data (hashes of C++ basisu encoder output) | Mark Callow, The Khronos Group Inc. and KTX-Software contributors | Apache-2.0 |
 | `src/basis/xubc7/*`, `src/basis/deblock.rs`, `src/basis/pvrtc1_enc.rs` | Basis Universal `basisu_transcoder.cpp`, `basisu_xbc7_decoder.{h,inl}` | Binomial LLC | Apache-2.0 |
 | `src/basis/xuastc/*` | Basis Universal `basisu_transcoder.cpp` (`astc_ldr_t`), `basisu_transcoder_internal.h` (`arith`), `basisu_idct.h`, `basisu_astc_cfgs.inl` | Binomial LLC | Apache-2.0 |
 | `src/atc.rs`, `src/fxt1.rs`, `src/pvrtc.rs` | Basis Universal `basisu_gpu_texture.cpp`, `basisu_pvrtc1_4.{h,cpp}` (encoder library) | Binomial LLC | Apache-2.0 |
@@ -56,6 +59,7 @@ Not included in the published crate.
 | `testdata/encode/bc7e_golden.txt` | hashes of C++ Basis Universal v2.50 `bc7e_scalar` output (`tools/basisu-golden/bc7e.cpp`) | Apache-2.0 |
 | `testdata/basis/*.basis` | `testdata/images` encoded by the Basis Universal v2.50 CLI (`scripts/gen_basis_testdata.sh`) | Apache-2.0 |
 | `testdata/basis/golden*.txt` | hashes of C++ Basis Universal v2.50 transcoder output (also with decode flags) and of its `gpu_image::unpack` decodes (`tools/basisu-golden`) | Apache-2.0 |
+| `testdata/basisu_enc/cli_*.basis` | `testdata/images` encoded by the Basis Universal v2.50 CLI (`scripts/gen_basis_testdata.sh`) | Apache-2.0 |
 | `testdata/ktx2/*.ktx2` | `testdata/images` encoded by the Basis Universal v2.50 CLI (`scripts/gen_basis_testdata.sh`) | Apache-2.0 |
 | `testdata/ktx2/golden*.txt` | hashes of C++ Basis Universal v2.50 `ktx2_transcoder` output (also with decode flags) | Apache-2.0 |
 | `testdata/ktx2/mips/*` | `testdata/images` PNGs mipmapped by `ktx create --generate-mipmap` (ktx-rs port; `tools/ktx2-golden/gen.py`) | Apache-2.0 |

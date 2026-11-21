@@ -10,8 +10,8 @@
 - [x] ASTC decode (LDR, HDR), 2D blocks
 - [x] Basis Universal transcoder (.basis): ETC1S, UASTC LDR, UASTC HDR 4x4/6x6i, ASTC HDR 6x6 -> all targets (incl. FXT1 from ETC1S)
 - [x] Basis Universal v2 payloads: XUASTC LDR, ASTC LDR, XUBC7 -> all targets (bit-exact vs C++)
-- [ ] BCn / ASTC encoders (multithreaded)
-- [ ] Basis Universal encoders: ETC1S, UASTC LDR/HDR
+- [x] BCn / ASTC / ETC / PVRTC1 encoders (multithreaded)
+- [x] Basis Universal encoders -> `.basis`: ETC1S, UASTC LDR 4x4 (+ RDO), UASTC HDR 4x4, ASTC HDR 6x6, UASTC HDR 6x6i
 - [x] KTX2 reader for Basis payloads (BasisLZ, zstd, arrays, cubemaps)
 - [x] KTX2 plain formats, KTX2 writer (raw / zstd; Basis payload writing still open)
 - [x] DDS reader and writer (own implementation: legacy FourCC and DX10 headers, mips, arrays,
@@ -63,8 +63,8 @@ C++ / ktx-rs reference (golden hashes from offline builds, as for the transcoder
 6. [x] ETC1 / ETC2 / EAC encoders: `etc1f`, EAC (normal / high quality)
 7. [x] ASTC LDR / HDR encoder: astcenc (ktx-rs port)
 8. [x] PVRTC1 encoder exposure (PVRTC2 / ATC / FXT1: no basisu encoder, not planned)
-9. [ ] Basis Universal encoders: ETC1S, UASTC LDR 4x4 (+ RDO), UASTC HDR 4x4, ASTC HDR 6x6,
-   UASTC HDR 6x6i (ktx-rs `basisu::comp` port) -> `.basis`
+9. [x] Basis Universal encoders: ETC1S, UASTC LDR 4x4 (+ RDO), UASTC HDR 4x4, ASTC HDR 6x6,
+   UASTC HDR 6x6i (ktx-rs `basisu::comp` port, + mipmaps / y flip) -> `.basis`
 10. [ ] KTX2 writer for Basis payloads (BasisLZ global data, UASTC, HDR, 6x6i)
 11. [ ] Basis Universal v2 encoders: ASTC LDR, XUASTC LDR, XUBC7 (basisu v2.50)
 12. [x] DDS reader and writer

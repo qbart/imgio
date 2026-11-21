@@ -1,7 +1,8 @@
 // SPDX-FileCopyrightText: 2019-2026 Binomial LLC
 // SPDX-License-Identifier: Apache-2.0
 // Translated to Rust from Basis Universal via ktx-rs src/basisu/mod.rs; modified.
-//! Low-level Basis Universal transcoder (ETC1S, UASTC LDR 4x4, UASTC HDR 4x4, 6x6 intermediate).
+//! Low-level Basis Universal transcoder and encoder (ETC1S, UASTC LDR 4x4, UASTC HDR 4x4,
+//! ASTC HDR 6x6, UASTC HDR 6x6 intermediate).
 //!
 //! The low-level modules keep basisu's `bool` success convention internally; the public API
 //! maps failures to [`crate::Error`].
@@ -10,35 +11,53 @@
 pub(crate) mod astc;
 pub(crate) mod astc_6x6_hdr;
 pub(crate) mod astc_hdr_6x6;
+pub(crate) mod astc_hdr_6x6_enc;
+pub(crate) mod astc_hdr_downsample_tables;
+pub(crate) mod astc_hdr_enc;
 pub(crate) use crate::astc::helpers as astc_helpers;
 pub(crate) mod atc;
+pub(crate) mod backend;
+pub(crate) mod basis_file;
 pub(crate) mod bc6h;
+pub(crate) mod bc7enc;
 pub(crate) mod bc7f;
 pub(crate) mod bc7f_astc;
 pub(crate) mod bc7f_xuastc;
 pub(crate) mod bc7m5;
 pub(crate) mod bc7u;
 pub(crate) mod bitreader;
+pub(crate) mod comp;
 pub(crate) mod dxt;
 pub(crate) mod eac;
+pub(crate) mod enc;
 pub(crate) mod etc;
 pub(crate) mod etc1f;
 pub(crate) mod etc1f_tables;
 pub(crate) mod etc1s;
+pub(crate) mod etc_enc;
+pub(crate) mod etc_enc_tables;
+pub(crate) mod frontend;
 pub(crate) mod fxt1;
+pub(crate) mod gpu_texture;
 pub(crate) mod hdr_tables;
+pub(crate) mod huffman_enc;
+pub(crate) mod job_pool;
 pub(crate) mod pvrtc;
 pub(crate) mod pvrtc2;
+pub(crate) mod scoped;
 pub(crate) mod tables;
 pub(crate) mod uastc;
 pub(crate) mod uastc_bc1;
 pub(crate) mod uastc_bc7;
+pub(crate) mod uastc_enc;
 pub(crate) mod uastc_etc;
 pub(crate) mod uastc_hdr;
+pub(crate) mod uastc_hdr_4x4_enc;
 pub(crate) mod uastc_hdr_6x6i;
 pub(crate) mod uastc_ldr;
 pub(crate) mod uastc_pvrtc;
 pub(crate) mod uastc_tables;
+pub(crate) mod vq;
 
 /// `basist::basisu_decode_flags` / KTX `transcode_flags` values.
 pub(crate) mod transcode_flags {
@@ -385,3 +404,6 @@ impl Default for TranscoderState {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests;

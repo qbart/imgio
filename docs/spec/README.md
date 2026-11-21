@@ -12,6 +12,7 @@ One file per subsystem. Write the spec before implementing; append audit entries
 - [etc.md](etc.md): ETC1/ETC2/EAC decode
 - [astc.md](astc.md): ASTC decode
 - [basis.md](basis.md): Basis Universal container and transcoder
+- [basis_encode.md](basis_encode.md): Basis Universal encoder (`.basis` output)
 - [ktx2.md](ktx2.md): KTX2 container with Basis payloads
 - [bc7e.md](bc7e.md): basisu bc7e_scalar BC7 encoder port
 - [bench.md](bench.md): benchmarks

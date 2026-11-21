@@ -3,8 +3,8 @@
 //! resampled from the base image, sRGB channels are linearized first (alpha never), unorm
 //! results are clamped to [0, 1] and rounded, float results are not clamped.
 
-mod filters;
-mod resampler;
+pub(crate) mod filters;
+pub(crate) mod resampler;
 
 use crate::parallel::try_for_each_item;
 use crate::{Buffer, Error, Format, Result, Surface, half};

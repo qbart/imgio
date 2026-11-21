@@ -14,7 +14,7 @@ enc() {
     out=$1
     shift
     case "$out" in *"$ONLY"*) ;; *) return 0 ;; esac
-    case "$out" in *_512*) dir=bench ;; *.ktx2) dir=ktx2 ;; *) dir=basis ;; esac
+    case "$out" in *_512*) dir=bench ;; cli_*) dir=basisu_enc ;; *.ktx2) dir=ktx2 ;; *) dir=basis ;; esac
     "$B" -quiet "$@" -output_file "$ROOT/testdata/$dir/$out" >/dev/null
 }
 
@@ -33,6 +33,12 @@ enc uastc_rgb_raw.ktx2 -ktx2 -uastc -ktx2_no_zstandard -file "$I/rgb_37x29.png"
 enc uastc_hdr4x4.ktx2 -ktx2 -hdr -file "$I/hdr_40x24.hdr"
 enc astc_hdr6x6.ktx2 -ktx2 -hdr_6x6 -file "$I/hdr_40x24.hdr"
 enc uastc_hdr6x6i.ktx2 -ktx2 -hdr_6x6i -file "$I/hdr_40x24.hdr"
+
+# Encoder references (tests/basis_encode.rs `matches_basisu_tool`: mipmaps, y flip)
+enc cli_uastc_mipmap_rgba_64x48.basis -basis -uastc -no_multithreading -mipmap -file "$I/rgba_64x48.png"
+enc cli_etc1s_mipmap_rgba_64x48.basis -basis -etc1s -q 128 -no_multithreading -mipmap \
+    -file "$I/rgba_64x48.png"
+enc cli_uastc_yflip_rgb_37x29.basis -basis -uastc -no_multithreading -y_flip -file "$I/rgb_37x29.png"
 
 # Plain ASTC LDR (basisu v2 tex formats 19..32)
 enc astc_ldr4x4_rgba.basis -basis -ldr_4x4 -file "$I/rgba_64x48.png" -mipmap
