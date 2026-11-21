@@ -11,6 +11,7 @@ mod bc;
 mod block;
 mod buffer;
 pub mod convert;
+pub mod dds;
 mod decode;
 mod encode;
 mod error;

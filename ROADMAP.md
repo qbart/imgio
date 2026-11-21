@@ -14,7 +14,7 @@
 - [ ] Basis Universal encoders: ETC1S, UASTC LDR/HDR
 - [x] KTX2 reader for Basis payloads (BasisLZ, zstd, arrays, cubemaps)
 - [x] KTX2 plain formats, KTX2 writer (raw / zstd; Basis payload writing still open)
-- [ ] DDS reader and writer (own implementation: legacy FourCC and DX10 headers, mips, arrays,
+- [x] DDS reader and writer (own implementation: legacy FourCC and DX10 headers, mips, arrays,
   cubemaps; every `Format` with a DXGI equivalent)
 - [ ] Image file formats (encode/decode API on byte slices, pure Rust; table = target scope,
   crate = reference for the feature set):
@@ -67,7 +67,7 @@ C++ / ktx-rs reference (golden hashes from offline builds, as for the transcoder
    UASTC HDR 6x6i (ktx-rs `basisu::comp` port) -> `.basis`
 10. [ ] KTX2 writer for Basis payloads (BasisLZ global data, UASTC, HDR, 6x6i)
 11. [ ] Basis Universal v2 encoders: ASTC LDR, XUASTC LDR, XUBC7 (basisu v2.50)
-12. [ ] DDS reader and writer
+12. [x] DDS reader and writer
 13. [ ] Optional Vulkan / OpenGL upload features (ktx-rs `vkloader` / `glloader`)
 
 Texture follow-ups found on the way: high-quality ETC1 (basisu `etc1_optimizer` flip / diff
