@@ -3,6 +3,6 @@
 One file per subsystem. Write the spec before implementing; append audit entries
 (date, change, reference used) as work lands.
 
-## error.md
-
-See [error.md](error.md).
+- [error.md](error.md): error handling
+- [format.md](format.md): pixel/texture formats
+- [bc.md](bc.md): BC1-BC7 decode

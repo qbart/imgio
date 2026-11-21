@@ -10,6 +10,8 @@ pub enum Error {
     InvalidArgument,
     /// The output buffer is too small for the result.
     BufferTooSmall { needed: usize, got: usize },
+    /// Memory allocation failed.
+    OutOfMemory,
     /// The format or feature is not supported (yet).
     Unsupported,
 }
@@ -25,6 +27,7 @@ impl fmt::Display for Error {
             Error::BufferTooSmall { needed, got } => {
                 write!(f, "buffer too small: needed {needed} bytes, got {got}")
             }
+            Error::OutOfMemory => f.write_str("out of memory"),
             Error::Unsupported => f.write_str("unsupported"),
         }
     }
