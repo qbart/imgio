@@ -56,6 +56,9 @@ Copyright © 2016–2026 Binomial LLC.
 | [hayro-jpeg2000](https://crates.io/crates/hayro-jpeg2000) | optional (feature `jpeg2000`): JPEG 2000 decoding (with `fearless_simd`) | Apache-2.0 OR MIT |
 | [miniz_oxide](https://crates.io/crates/miniz_oxide) | optional (feature `vdb`): zlib streams of OpenVDB grids; tests: inflates the stored uncompressed VDB file | MIT OR Zlib OR Apache-2.0 |
 | [khronos-egl](https://crates.io/crates/khronos-egl) | tests only: surfaceless EGL contexts for the GL upload tests | MIT OR Apache-2.0 |
+| [png](https://crates.io/crates/png) | optional (feature `png`): PNG / APNG decoding and encoding | MIT OR Apache-2.0 |
+| [gif](https://crates.io/crates/gif) | optional (feature `gif`): GIF decoding and encoding | MIT OR Apache-2.0 |
+| [color_quant](https://crates.io/crates/color_quant) | optional (feature `gif`): NeuQuant color quantization for the GIF encoder | MIT |
 | [bcdec_rs](https://crates.io/crates/bcdec_rs) | tests only: reference BC6H/BC7 decoder | MIT |
 | Basis Universal C++ (`ref/basisu`) | `tools/basisu-golden` only (offline generator, not linked into the crate) | Apache-2.0 |
 | [ktx-rs](https://crates.io/crates/ktx-rs) | `tools/astc-golden` only (not a crate dependency): astcenc reference | Apache-2.0 AND BSD-3-Clause AND MIT AND Zlib |
@@ -95,6 +98,8 @@ Not included in the published crate.
 | `testdata/astcenc/cli/*.astc` | `testdata/images/raw` images encoded by the ARM astc-encoder 6.0.0 CLI (`astcenc-avx2`, `scripts/gen_astcenc_testdata.py`); `*_rdo*.astc` with `-rdo-lambda`, `tiled_rgba_320x240_*` from a 320x240 tiling of `rgba_64x48` made by the script; `cutout_96x64_*` with `-a <radius>` (alpha scaling) from `cutout_rgba_96x64` (`*_H_*` as FP16 DDS); `vol_26x22x14_*` 3D blocks from a `-zdim 14` TGA slice stack cut from `cutout_rgba_96x64` by the script | Apache-2.0 |
 | `testdata/ktx1/*` | KTX2 test files exported by the Basis Universal v2.50 CLI (`basisu -export_ktx`; `cube_32.ktx2` from `testdata/images/rgba_32x32.png`) | Apache-2.0 |
 | `testdata/dds/*.dds` | `testdata/images` PNGs written by the Basis Universal v2.50 CLI (`basisu -dds`) | Apache-2.0 |
+| `testdata/file/png/*.png` | synthetic images written by `scripts/gen_file_testdata_pnggif.py` (own PNG / APNG writer, Pillow 13, ffmpeg 6.1 and imagecodecs encoders); `expected.txt`: hashes of the libpng (imagecodecs), ffmpeg, imagecodecs APNG and Pillow decodes; `encoded_verified.txt`: hashes of imgio encoder output decoded exactly by Pillow / libpng | Apache-2.0 |
+| `testdata/file/gif/*.gif` | synthetic images written by `scripts/gen_file_testdata_pnggif.py` (own GIF writer, Pillow 13 and ffmpeg 6.1 encoders); `expected.txt`: hashes of Pillow's composited frames; `encoded_verified.txt`: hashes of imgio encoder output decoded exactly by Pillow | Apache-2.0 |
 | `testdata/bench/*.ktx2` | `scripts/gen_images.py` bench image encoded by the Basis Universal v2.50 CLI | Apache-2.0 |
 | `testdata/file/jxl/*` | `testdata/images/raw` images and crops / gray / 16-bit / float derivatives encoded by libjxl via imagecodecs 2026.11.11 (`jpegxl_encode`), `*.raw` = libjxl decodes (`scripts/gen_file_testdata_jxlj2kvdb.py`) | Apache-2.0 |
 | `testdata/file/jpeg2000/*` | `testdata/images/raw` images and derived gray / 12- / 16-bit / YCbCr variants encoded by OpenJPEG (imagecodecs `jpeg2k`, Pillow 13 with OpenJPEG 2.5.4, `opj_compress` 2.5.0 CLI), expected pixels from the source or OpenJPEG's decode (`scripts/gen_file_testdata_jxlj2kvdb.py`) | Apache-2.0 |

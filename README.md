@@ -149,6 +149,8 @@ GPU format the device supports (BC1-7, ETC, ASTC, PVRTC, ATC, FXT1, RGBA ...).
 | JPEG XL (`.jxl`) | `zune-jpegxl` (feature `jxl`; lossless, 8/16-bit gray, gray+alpha, RGB, RGBA) | `jxl-oxide` (conformant: VarDCT, modular, 8/16-bit, float, alpha, animation, container; sRGB / linear sRGB out) | Modern lossy / lossless photos and HDR, lossless archival of 16-bit sources |
 | JPEG 2000 (`.jp2`, `.j2k`) | - (no pure Rust encoder) | `hayro-jpeg2000` (feature `jpeg2000`): JP2 / J2K, 5/3 + 9/7, tiles, layers, reduce, sub-sampling, up to 16-bit out | Digital cinema, medical / geospatial imagery, PDF embedded images |
 | OpenVDB (`.vdb`) | - (only C++ exists) | own (feature `vdb`, partial): grid list, float / double grids densified to `R32Float` volumes, none / zip / active-mask compression (no Blosc) | Sparse volumes from DCC tools (smoke, clouds, level sets) as 3D textures |
+| PNG / APNG | `png` crate (8/16-bit, palette, APNG) | `png` crate + own APNG compositing | Lossless images, UI, screenshots, animated stickers |
+| GIF | `gif` + `color_quant` (exact palette or NeuQuant, dithering, animation) | `gif` crate + own compositing | Legacy animations, simple graphics |
 
 ### Containers
 

@@ -37,13 +37,16 @@ zune-jpegxl = { version = "0.5.2", optional = true, default-features = false, fe
 zune-core = { version = "0.5.3", optional = true, default-features = false, features = ["std"] }
 hayro-jpeg2000 = { version = "0.5.0", default-features = false, features = ["simd"], optional = true }
 miniz_oxide = { version = "0.8.9", optional = true }
+png = { version = "0.18.1", optional = true }
+gif = { version = "0.14.2", default-features = false, features = ["std", "raii_no_panic"], optional = true }
+color_quant = { version = "2.0.0", optional = true }
 
 [features]
 default = ["png", "jpeg"]
 # Image file formats backed by pure Rust crates (`imgio::file`); BMP, TGA, HDR and zfile are
 # always built in.
-png = []
-gif = []
+png = ["dep:png"]
+gif = ["dep:gif", "dep:color_quant"]
 webp = []
 jpeg = []
 exr = []

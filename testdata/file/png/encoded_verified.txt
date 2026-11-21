@@ -1,0 +1,18 @@
+# imgio encoder output decoded exactly by Pillow (scripts/gen_file_testdata_pnggif.py --verify)
+R16Unorm_default f4861c9d99bc3c56
+R16Unorm_fast_paeth 88d22dd1b8e18513
+R16Unorm_store acf0237e40d70805
+R8Unorm_default f52eb9ca23edad81
+R8Unorm_fast_paeth b347ab945a76e9a8
+R8Unorm_store 3be199fe9adbec58
+Rg8Unorm_default e0dc343617eda650
+Rg8Unorm_fast_paeth 50b448676d9a5361
+Rg8Unorm_store e1553d800a7ffff0
+Rgb8Srgb_default 051585e1627ac051
+Rgb8Srgb_fast_paeth 68fdc5d4b64733ce
+Rgb8Srgb_store 315317b45fc69f39
+apng_rgba8 ac94b914db32654a
+palette_rgba 52f0ec7175c4c41b
+rgb16_stripped a55dd771cc480458
+rgba16 6f85764f76caf3a5
+rgba8 29299b025b45cf8d

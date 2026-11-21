@@ -53,6 +53,10 @@
     RLE4 / RLE8, bit fields; uncompressed encode), TGA (types 1/2/3/9/10/11, origins, 2.0
     footer; raw / RLE encode), Radiance HDR (all orientations, flat / old / new RLE; RLE
     encode, bit-exact with ffmpeg / imagecodecs), RenderMan zfile (both byte orders).
+  - [x] PNG / APNG (`png` crate): every color type / depth, Adam7, tRNS, APNG compositing,
+    color info; encode 8/16-bit, palette, APNG (`docs/spec/file_png.md`)
+  - [x] GIF (`gif` + `color_quant`): browser compositing, loop counts; encode with exact
+    palettes / NeuQuant + dithering, animation (`docs/spec/file_gif.md`)
 - [x] Optional Vulkan / OpenGL upload features (`vulkan`, `opengl`; `gpu::TextureSource`)
 - [ ] Image resize: any uncompressed `Image` / `Surface` (8/16-bit, float, sRGB-correct),
   filters from the `mip` resampler (box, tent, Mitchell, Catmull-Rom, Kaiser, Lanczos, ...),

@@ -1,0 +1,7 @@
+# imgio encoder output decoded exactly by Pillow (scripts/gen_file_testdata_pnggif.py --verify)
+gif_anim 126175d28f14ed3a
+gif_anim_alpha 69efa3fedeef754f
+gif_few_colors d5cbfc423f404b95
+gif_few_colors_alpha 42c7e415f241b61d
+gif_neuquant fd63a875f1bae293
+gif_neuquant_dither 75c3e6e17168bc33
