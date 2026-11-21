@@ -16,6 +16,7 @@ state that they were modified (Apache-2.0 §4(b)).
 | `src/basis/xubc7/*`, `src/basis/deblock.rs`, `src/basis/pvrtc1_enc.rs` | Basis Universal `basisu_transcoder.cpp`, `basisu_xbc7_decoder.{h,inl}` | Binomial LLC | Apache-2.0 |
 | `src/basis/xuastc/*` | Basis Universal `basisu_transcoder.cpp` (`astc_ldr_t`), `basisu_transcoder_internal.h` (`arith`), `basisu_idct.h`, `basisu_astc_cfgs.inl` | Binomial LLC | Apache-2.0 |
 | `src/atc.rs`, `src/fxt1.rs`, `src/pvrtc.rs` | Basis Universal `basisu_gpu_texture.cpp`, `basisu_pvrtc1_4.{h,cpp}` (encoder library) | Binomial LLC | Apache-2.0 |
+| `src/mip/resampler.rs`, `src/mip/filters.rs` | Basis Universal `basisu_resampler.cpp`, `basisu_resample_filters.cpp`, via ktx-rs `src/basisu` | Binomial LLC | Apache-2.0 |
 | `src/ktx2/dfd.rs` | [KTX-Software](https://github.com/KhronosGroup/KTX-Software) dfdutils (`createdfd.c`, `vk2dfd.inl`), via ktx-rs `src/dfd` | The Khronos Group Inc. | Apache-2.0 |
 | `src/etc.rs` | [ktx-rs](https://github.com/qbart/ktx-rs) `src/etcunpack.rs` (port of [KTX-Software](https://github.com/KhronosGroup/KTX-Software) `etcunpack.cxx`) | Mark Callow, The Khronos Group Inc. and KTX-Software contributors | Apache-2.0 |
 
@@ -51,5 +52,6 @@ Not included in the published crate.
 | `testdata/basis/golden*.txt` | hashes of C++ Basis Universal v2.50 transcoder output (also with decode flags) and of its `gpu_image::unpack` decodes (`tools/basisu-golden`) | Apache-2.0 |
 | `testdata/ktx2/*.ktx2` | `testdata/images` encoded by the Basis Universal v2.50 CLI (`scripts/gen_basis_testdata.sh`) | Apache-2.0 |
 | `testdata/ktx2/golden*.txt` | hashes of C++ Basis Universal v2.50 `ktx2_transcoder` output (also with decode flags) | Apache-2.0 |
+| `testdata/ktx2/mips/*` | `testdata/images` PNGs mipmapped by `ktx create --generate-mipmap` (ktx-rs port; `tools/ktx2-golden/gen.py`) | Apache-2.0 |
 | `testdata/ktx2/plain/*` | synthetic raw images (`tools/ktx2-golden/gen.py`) packed by `ktx create --raw` (KTX-Software CLI, ktx-rs port) | Apache-2.0 |
 | `testdata/bench/*.ktx2` | `scripts/gen_images.py` bench image encoded by the Basis Universal v2.50 CLI | Apache-2.0 |

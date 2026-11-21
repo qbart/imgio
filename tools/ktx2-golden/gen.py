@@ -7,6 +7,8 @@ Creates testdata/ktx2/plain/*.ktx2 with the reference `ktx create --raw` (KTX-So
 the ktx-rs port: KTX=path/to/ktx) from deterministic raw images, and cases.txt:
 "name vkformat width height layers faces levels zstd". Image k of a file (level-major, then
 layer, then face) has bytes (i * 7 + k * 13 + 3) & 255.
+Also creates testdata/ktx2/mips/*.ktx2 with `ktx create --generate-mipmap` from
+testdata/images PNGs and mips.txt: "name filter filter_scale wrap" (mip generation golden).
 Usage: KTX=.../ktx python3 tools/ktx2-golden/gen.py
 """
 import os
@@ -81,6 +83,39 @@ def create(name, fmt_name, w, h, layers=0, faces=1, levels=1, zstd=0):
     return f"{name} {fmt[0]} {w} {h} {layers} {faces} {levels} {zstd}"
 
 
+MIPS = os.path.join(ROOT, "testdata", "ktx2", "mips")
+IMAGES = os.path.join(ROOT, "testdata", "images")
+
+
+def mips(name, png, fmt, filt="lanczos4", scale=1.0, wrap="clamp", linear=False):
+    args = [KTX, "create", "--format", fmt, "--generate-mipmap", "--mipmap-filter", filt,
+            "--mipmap-filter-scale", str(scale), "--mipmap-wrap", wrap]
+    if linear:
+        args += ["--assign-tf", "linear"]
+    subprocess.run(args + [os.path.join(IMAGES, png), os.path.join(MIPS, name + ".ktx2")],
+                   check=True)
+    return f"{name} {filt} {scale} {wrap}"
+
+
+def main_mips():
+    os.makedirs(MIPS, exist_ok=True)
+    cases = [
+        mips("srgb_lanczos4", "rgba_64x48.png", "R8G8B8A8_SRGB"),
+        mips("srgb_rgb_npot", "rgb_37x29.png", "R8G8B8A8_SRGB"),
+        mips("unorm_box", "rgba_64x48.png", "R8G8B8A8_UNORM", "box", linear=True),
+        mips("srgb_kaiser_wrap", "mosaic_rgba_50x38.png", "R8G8B8A8_SRGB", "kaiser", wrap="wrap"),
+        mips("rg_tent_reflect", "rgba_32x32.png", "R8G8_UNORM", "tent", wrap="reflect",
+             linear=True),
+        mips("r_mitchell", "rgb_37x29.png", "R8_UNORM", "mitchell", linear=True),
+        mips("srgb_lanczos6_scale", "rgba_64x48.png", "R8G8B8A8_SRGB", "lanczos6", 1.5),
+        mips("unorm_catmullrom_wrap", "mosaic_rgb_50x38.png", "R8G8B8A8_UNORM", "catmullrom",
+             0.8, "wrap", linear=True),
+        mips("srgb_gaussian", "rgba_32x32.png", "R8G8B8A8_SRGB", "gaussian"),
+    ]
+    with open(os.path.join(MIPS, "mips.txt"), "w") as f:
+        f.write("\n".join(cases) + "\n")
+
+
 def main():
     os.makedirs(OUT, exist_ok=True)
     cases = []
@@ -104,3 +139,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    main_mips()

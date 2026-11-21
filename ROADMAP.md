@@ -54,7 +54,7 @@ C++ / ktx-rs reference (golden hashes from offline builds, as for the transcoder
 
 1. [x] Conversion gaps: `Rgba16Unorm`, sRGB <-> linear transfer, every uncompressed format
    as a conversion target
-2. [ ] Mipmap generation: basisu resampler (box, tent, kaiser, lanczos, ...), sRGB aware,
+2. [x] Mipmap generation: basisu resampler (box, tent, kaiser, lanczos, ...), sRGB aware,
    clamp / wrap, levels in parallel
 3. [ ] Encode API (`imgio::encode`, quality presets, multithreaded per block row) with
    BC1 / BC3 / BC4 / BC5 (basisu `encode_bc1` / `encode_bc4`) and BC2

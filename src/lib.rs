@@ -17,6 +17,7 @@ mod fxt1;
 pub mod half;
 pub mod image;
 pub mod ktx2;
+pub mod mip;
 mod parallel;
 mod pvrtc;
 
