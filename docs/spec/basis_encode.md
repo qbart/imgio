@@ -192,8 +192,7 @@ and Q < 100 code real XBC7 streams:
   `basis::encode::tests::xubc7_config_mapping` (options -> `xbc7::EncodeParams`).
 - `tests/basis_encode_xuastc.rs`: `goldens_decode` (golden PSNRs, calibrates the thresholds),
   `bad_options`; `matches_basisu_tool` (byte-exact `encode_basis`, 1 and 4 threads) and
-  `round_trip` (PSNR >= golden - 0.5 dB, all levels transcode, quality 30 < 100 in size) are
-  `#[ignore]`d until the block encoder lands.
+  `round_trip` (PSNR >= golden - 0.5 dB, all levels transcode, quality 30 < 100 in size).
 
 ## Audit
 
