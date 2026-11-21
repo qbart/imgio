@@ -12,6 +12,7 @@ categories = ["multimedia::images", "game-development", "graphics"]
 include = ["/src/**", "/Cargo.toml", "/LICENSE", "/LICENSES/**", "/NOTICE.md", "/README.md"]
 
 [dependencies]
+ruzstd = "0.9.1"
 vas = { version = "0.42.0", features = ["alloc"] }
 
 [lints.rust]

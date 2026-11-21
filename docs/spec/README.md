@@ -12,3 +12,4 @@ One file per subsystem. Write the spec before implementing; append audit entries
 - [etc.md](etc.md): ETC1/ETC2/EAC decode
 - [astc.md](astc.md): ASTC decode
 - [basis.md](basis.md): Basis Universal container and transcoder
+- [ktx2.md](ktx2.md): KTX2 container with Basis payloads

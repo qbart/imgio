@@ -11,6 +11,8 @@
 - [x] Basis Universal transcoder (.basis): ETC1S, UASTC LDR, UASTC HDR 4x4/6x6i, ASTC HDR 6x6 -> all targets except FXT1
 - [ ] BCn / ASTC encoders (multithreaded)
 - [ ] Basis Universal encoders: ETC1S, UASTC LDR/HDR
+- [x] KTX2 reader for Basis payloads (BasisLZ, zstd, arrays, cubemaps)
+- [ ] KTX2 plain formats, KTX2 writer
 - [ ] PNG, TGA, JPG
 - [ ] Optional Vulkan / OpenGL upload features
 
@@ -31,5 +33,5 @@
 6. [x] ETC1S transcoder -> all LDR targets
 7. [x] UASTC LDR 4x4 transcoder -> all LDR targets
 8. [x] UASTC HDR (4x4, 6x6) transcoder -> BC6H, ASTC HDR, RGBA16F
-9. [ ] KTX2 reader for Basis payloads (BasisLZ, zstd)
+9. [x] KTX2 reader for Basis payloads (BasisLZ, zstd)
 10. [ ] Golden transcode tests and benches

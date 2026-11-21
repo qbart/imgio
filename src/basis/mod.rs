@@ -2,6 +2,6 @@
 
 mod file;
 pub(crate) mod ll;
-mod transcode;
+pub(crate) mod transcode;
 
 pub use file::{BasisFile, BasisTexFormat, BasisTexType, LevelInfo};

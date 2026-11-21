@@ -14,6 +14,7 @@ mod etc;
 mod format;
 pub mod half;
 pub mod image;
+pub mod ktx2;
 mod parallel;
 
 pub use buffer::Buffer;

@@ -1,0 +1,425 @@
+//! KTX2 container with Basis Universal payloads (ETC1S/BasisLZ, UASTC LDR 4x4 and HDR 4x4,
+//! ASTC HDR 6x6, UASTC HDR 6x6 intermediate), raw or Zstandard supercompressed.
+//!
+//! Layout from the KTX 2.0 specification; payload detection follows Basis Universal's
+//! `ktx2_transcoder` (DFD color model, vkFormat, supercompression scheme).
+
+use crate::basis::BasisTexFormat;
+use crate::basis::ll::etc1s::LowlevelEtc1sTranscoder;
+use crate::basis::transcode::{SliceRef, can_transcode, etc1s_transcoder, transcode_slice};
+use crate::{Buffer, Error, Format, Result};
+use std::sync::OnceLock;
+use vas::Vector;
+use vas::storage::Dynamic;
+
+const IDENTIFIER: [u8; 12] = [
+    0xAB, 0x4B, 0x54, 0x58, 0x20, 0x32, 0x30, 0xBB, 0x0D, 0x0A, 0x1A, 0x0A,
+];
+const HEADER_SIZE: usize = 80;
+const LEVEL_INDEX_SIZE: usize = 24;
+
+const SS_NONE: u32 = 0;
+const SS_BASISLZ: u32 = 1;
+const SS_ZSTD: u32 = 2;
+const SS_UASTC_HDR_6X6I: u32 = 4;
+
+const MODEL_ASTC: u32 = 162;
+const MODEL_ETC1S: u32 = 163;
+const MODEL_UASTC_LDR_4X4: u32 = 166;
+const MODEL_UASTC_HDR_4X4: u32 = 167;
+const MODEL_UASTC_HDR_6X6I: u32 = 168;
+
+const VK_ASTC_4X4_SFLOAT: u32 = 1_000_066_000;
+const VK_ASTC_6X6_SFLOAT: u32 = 1_000_066_004;
+
+const TRANSFER_SRGB: u32 = 2;
+const CHANNEL_UASTC_RGBA: u32 = 3;
+const CHANNEL_UASTC_RRRG: u32 = 5;
+const IMAGE_IS_P_FRAME: u32 = 2;
+
+#[derive(Debug, Clone, Copy)]
+struct Level {
+    ofs: u64,
+    len: u64,
+    uncompressed_len: u64,
+}
+
+/// Where one image (level/layer/face) lives relative to its level's data.
+#[derive(Debug, Clone, Copy)]
+struct ImageDesc {
+    flags: u32,
+    rgb: (u32, u32),
+    alpha: (u32, u32),
+}
+
+/// A parsed KTX2 file with a Basis Universal payload, borrowing its bytes.
+#[derive(Debug)]
+pub struct Ktx2File<'a> {
+    data: &'a [u8],
+    tex_format: BasisTexFormat,
+    width: u32,
+    height: u32,
+    layers: u32,
+    faces: u32,
+    scheme: u32,
+    srgb: bool,
+    has_alpha: bool,
+    video: bool,
+    levels: Vector<Level, Dynamic>,
+    /// ETC1S or 6x6i slice locations, indexed `level * layers * faces + layer * faces + face`.
+    images: Vector<ImageDesc, Dynamic>,
+    etc1s: Option<LowlevelEtc1sTranscoder>,
+    /// Zstandard-inflated level data, filled on first use.
+    inflated: Vector<OnceLock<Option<Buffer>>, Dynamic>,
+}
+
+fn u32le(b: &[u8], ofs: usize) -> Result<u32> {
+    b.get(ofs..ofs + 4)
+        .map(|s| u32::from_le_bytes([s[0], s[1], s[2], s[3]]))
+        .ok_or(Error::InvalidData)
+}
+
+fn u64le(b: &[u8], ofs: usize) -> Result<u64> {
+    Ok(u64::from(u32le(b, ofs)?) | (u64::from(u32le(b, ofs + 4)?) << 32))
+}
+
+fn range(data: &[u8], ofs: u64, len: u64) -> Result<&[u8]> {
+    let start = usize::try_from(ofs).map_err(|_| Error::InvalidData)?;
+    let len = usize::try_from(len).map_err(|_| Error::InvalidData)?;
+    data.get(start..start.checked_add(len).ok_or(Error::InvalidData)?)
+        .ok_or(Error::InvalidData)
+}
+
+fn oom<T>(_: T) -> Error {
+    Error::OutOfMemory
+}
+
+/// True when the key/value data contains `key`.
+fn has_key(kvd: &[u8], key: &[u8]) -> bool {
+    let mut at = 0usize;
+    while let Ok(n) = u32le(kvd, at) {
+        let n = n as usize;
+        let Some(kv) = kvd.get(at + 4..at + 4 + n) else {
+            return false;
+        };
+        if kv.split(|&b| b == 0).next() == Some(key) {
+            return true;
+        }
+        at += 4 + n.div_ceil(4) * 4;
+    }
+    false
+}
+
+impl<'a> Ktx2File<'a> {
+    /// Parses and validates the header, level index, DFD, key/values and supercompression data.
+    pub fn parse(data: &'a [u8]) -> Result<Self> {
+        if data.len() <= HEADER_SIZE || data[..12] != IDENTIFIER {
+            return Err(Error::InvalidData);
+        }
+        let h = |ofs| u32le(data, ofs);
+        let (vk_format, type_size) = (h(12)?, h(16)?);
+        let (width, height, depth) = (h(20)?, h(24)?, h(28)?);
+        let (layer_count, faces, level_count, scheme) = (h(32)?, h(36)?, h(40)?, h(44)?);
+        let (dfd_ofs, dfd_len, kvd_ofs, kvd_len) = (h(48)?, h(52)?, h(56)?, h(60)?);
+        let (sgd_ofs, sgd_len) = (u64le(data, 64)?, u64le(data, 72)?);
+        if type_size != 1 || width == 0 || height == 0 || depth != 0 {
+            return Err(Error::Unsupported);
+        }
+        if (faces != 1 && faces != 6) || (faces == 6 && width != height) {
+            return Err(Error::InvalidData);
+        }
+        if level_count == 0 || level_count > crate::image::mip_levels(width, height) {
+            return Err(Error::InvalidData);
+        }
+        let layers = layer_count.max(1);
+
+        let mut levels = Vector::<Level, Dynamic>::default();
+        for i in 0..level_count as usize {
+            let at = HEADER_SIZE + i * LEVEL_INDEX_SIZE;
+            let l = Level {
+                ofs: u64le(data, at)?,
+                len: u64le(data, at + 8)?,
+                uncompressed_len: u64le(data, at + 16)?,
+            };
+            if l.len == 0 || l.ofs < HEADER_SIZE as u64 {
+                return Err(Error::InvalidData);
+            }
+            range(data, l.ofs, l.len)?;
+            levels.push(l).map_err(oom)?;
+        }
+
+        // Data format descriptor: one basic block, 1 or 2 samples.
+        if dfd_len != 44 && dfd_len != 60 {
+            return Err(Error::Unsupported);
+        }
+        let dfd = range(data, dfd_ofs.into(), dfd_len.into())?;
+        if u32le(dfd, 0)? != dfd_len {
+            return Err(Error::InvalidData);
+        }
+        let bits = u32le(dfd, 12)?;
+        let (model, transfer) = (bits & 255, (bits >> 16) & 255);
+        let chan0 = (u32le(dfd, 28)? >> 24) & 15;
+        let uastc_alpha = chan0 == CHANNEL_UASTC_RGBA || chan0 == CHANNEL_UASTC_RRRG;
+        let (tex_format, has_alpha) = match model {
+            MODEL_ETC1S if vk_format == 0 && scheme == SS_BASISLZ => {
+                (BasisTexFormat::Etc1s, dfd_len == 60)
+            }
+            MODEL_UASTC_LDR_4X4 if vk_format == 0 => (BasisTexFormat::UastcLdr4x4, uastc_alpha),
+            MODEL_UASTC_HDR_4X4 if vk_format == VK_ASTC_4X4_SFLOAT => {
+                (BasisTexFormat::UastcHdr4x4, false)
+            }
+            MODEL_ASTC if vk_format == VK_ASTC_6X6_SFLOAT => (BasisTexFormat::AstcHdr6x6, false),
+            MODEL_UASTC_HDR_6X6I
+                if vk_format == 0 && (scheme == SS_UASTC_HDR_6X6I || scheme == SS_BASISLZ) =>
+            {
+                (BasisTexFormat::UastcHdr6x6Intermediate, false)
+            }
+            _ => return Err(Error::Unsupported),
+        };
+        let plain = matches!(
+            tex_format,
+            BasisTexFormat::UastcLdr4x4 | BasisTexFormat::UastcHdr4x4 | BasisTexFormat::AstcHdr6x6
+        );
+        if plain {
+            if scheme != SS_NONE && scheme != SS_ZSTD {
+                return Err(Error::Unsupported);
+            }
+            if scheme == SS_ZSTD && levels.iter().any(|l| l.uncompressed_len == 0) {
+                return Err(Error::InvalidData);
+            }
+        }
+
+        let kvd = if kvd_len > 0 {
+            range(data, kvd_ofs.into(), kvd_len.into())?
+        } else {
+            &[]
+        };
+        let mut video = has_key(kvd, b"KTXanimData");
+
+        // Supercompression global data.
+        let total_images = (level_count as usize)
+            .checked_mul(layers as usize)
+            .and_then(|n| n.checked_mul(faces as usize))
+            .ok_or(Error::InvalidData)?;
+        let mut images = Vector::<ImageDesc, Dynamic>::default();
+        let mut etc1s = None;
+        if !plain {
+            let sgd = range(data, sgd_ofs, sgd_len)?;
+            if tex_format == BasisTexFormat::Etc1s {
+                let g = |ofs| u32le(sgd, ofs);
+                let endpoint_count = g(0)? & 0xFFFF;
+                let selector_count = g(0)? >> 16;
+                let (ep_len, sel_len, tab_len) = (g(4)? as u64, g(8)? as u64, g(12)? as u64);
+                let descs_end = 20 + total_images as u64 * 20;
+                for i in 0..total_images {
+                    let at = 20 + i * 20;
+                    images
+                        .push(ImageDesc {
+                            flags: g(at)?,
+                            rgb: (g(at + 4)?, g(at + 8)?),
+                            alpha: (g(at + 12)?, g(at + 16)?),
+                        })
+                        .map_err(oom)?;
+                }
+                let ep = range(sgd, descs_end, ep_len)?;
+                let sel = range(sgd, descs_end + ep_len, sel_len)?;
+                let tab = range(sgd, descs_end + ep_len + sel_len, tab_len)?;
+                etc1s = Some(etc1s_transcoder(
+                    (endpoint_count, ep),
+                    (selector_count, sel),
+                    tab,
+                )?);
+                if faces == 1
+                    && layers > 1
+                    && images.iter().any(|d| d.flags & IMAGE_IS_P_FRAME != 0)
+                {
+                    video = true;
+                }
+            } else {
+                // UASTC HDR 6x6i: offset/length (+ profile in the standard layout) per image.
+                let stride = if scheme == SS_UASTC_HDR_6X6I { 12 } else { 8 };
+                for i in 0..total_images {
+                    let at = i * stride;
+                    images
+                        .push(ImageDesc {
+                            flags: 0,
+                            rgb: (u32le(sgd, at)?, u32le(sgd, at + 4)?),
+                            alpha: (0, 0),
+                        })
+                        .map_err(oom)?;
+                }
+            }
+        }
+        let mut inflated = Vector::<OnceLock<Option<Buffer>>, Dynamic>::default();
+        inflated
+            .resize_with(level_count as usize, OnceLock::new)
+            .map_err(oom)?;
+        Ok(Self {
+            data,
+            tex_format,
+            width,
+            height,
+            layers,
+            faces,
+            scheme,
+            srgb: transfer == TRANSFER_SRGB,
+            has_alpha,
+            video,
+            levels,
+            images,
+            etc1s,
+            inflated,
+        })
+    }
+
+    /// Payload format.
+    pub fn tex_format(&self) -> BasisTexFormat {
+        self.tex_format
+    }
+    /// Width of level 0 in pixels.
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+    /// Height of level 0 in pixels.
+    pub fn height(&self) -> u32 {
+        self.height
+    }
+    /// Mip levels.
+    pub fn level_count(&self) -> u32 {
+        self.levels.len() as u32
+    }
+    /// Array layers (at least 1).
+    pub fn layer_count(&self) -> u32 {
+        self.layers
+    }
+    /// Faces: 1, or 6 for cubemaps.
+    pub fn face_count(&self) -> u32 {
+        self.faces
+    }
+    /// True when the payload has alpha.
+    pub fn has_alpha(&self) -> bool {
+        self.has_alpha
+    }
+    /// True when the DFD transfer function is sRGB.
+    pub fn is_srgb(&self) -> bool {
+        self.srgb
+    }
+    /// True for animations (`KTXanimData`, or ETC1S P-frames).
+    pub fn is_video(&self) -> bool {
+        self.video
+    }
+
+    /// Size of `level` in pixels.
+    pub fn level_dim(&self, level: u32) -> (u32, u32) {
+        crate::image::mip_dim(self.width, self.height, level)
+    }
+
+    /// True when this file can be transcoded to `format`.
+    pub fn can_transcode_to(&self, format: Format) -> bool {
+        can_transcode(self.tex_format, format)
+    }
+
+    /// Bytes needed to transcode one image of `level` to `format` (tightly packed).
+    pub fn transcoded_size(&self, level: u32, format: Format) -> Result<usize> {
+        let (w, h) = self.level_dim(level);
+        format.surface_bytes(w, h)
+    }
+
+    /// The level's payload bytes, inflated if Zstandard supercompressed.
+    fn level_data(&self, level: u32) -> Result<&[u8]> {
+        let l = self
+            .levels
+            .get(level as usize)
+            .ok_or(Error::InvalidArgument)?;
+        let raw = range(self.data, l.ofs, l.len)?;
+        if self.scheme != SS_ZSTD {
+            return Ok(raw);
+        }
+        let slot = self
+            .inflated
+            .get(level as usize)
+            .ok_or(Error::InvalidArgument)?;
+        slot.get_or_init(|| {
+            let n = usize::try_from(l.uncompressed_len).ok()?;
+            let mut buf = crate::buffer::zeroed(n).ok()?;
+            let mut dec = ruzstd::decoding::FrameDecoder::new();
+            match dec.decode_all(raw, &mut buf) {
+                Ok(written) if written == n => Some(buf),
+                _ => None,
+            }
+        })
+        .as_ref()
+        .map(|b| &b[..])
+        .ok_or(Error::InvalidData)
+    }
+
+    /// Transcodes one image (`level`, array `layer`, cube `face`) to `format` into `dst`
+    /// (tightly packed blocks or pixels).
+    ///
+    /// Errors: `Unsupported` (target not available for this payload), `BufferTooSmall`,
+    /// `InvalidArgument` (no such level/layer/face), `InvalidData`.
+    pub fn transcode(
+        &self,
+        level: u32,
+        layer: u32,
+        face: u32,
+        format: Format,
+        dst: &mut [u8],
+    ) -> Result<()> {
+        if level >= self.level_count() || layer >= self.layers || face >= self.faces {
+            return Err(Error::InvalidArgument);
+        }
+        let (width, height) = self.level_dim(level);
+        let (bw, bh) = self.tex_format.block_dim();
+        let (blocks_x, blocks_y) = (width.div_ceil(bw), height.div_ceil(bh));
+        let image = (level * self.layers + layer) * self.faces + face;
+        let l = self.levels[level as usize];
+        let mut s = SliceRef {
+            tex: self.tex_format,
+            data: self.data,
+            ofs: 0,
+            len: 0,
+            alpha: (0, 0),
+            width,
+            height,
+            blocks_x,
+            blocks_y,
+            level,
+            has_alpha: self.has_alpha,
+            video: self.video,
+        };
+        match self.tex_format {
+            BasisTexFormat::Etc1s | BasisTexFormat::UastcHdr6x6Intermediate => {
+                let d = self.images.get(image as usize).ok_or(Error::InvalidData)?;
+                s.ofs = l.ofs + u64::from(d.rgb.0);
+                s.len = d.rgb.1;
+                if d.alpha.1 != 0 {
+                    s.alpha = (l.ofs + u64::from(d.alpha.0), d.alpha.1);
+                }
+            }
+            _ => {
+                let data = self.level_data(level)?;
+                let size = u64::from(blocks_x) * u64::from(blocks_y) * 16;
+                let ofs = u64::from(layer * self.faces + face) * size;
+                range(data, ofs, size)?;
+                s.data = data;
+                s.ofs = ofs;
+                s.len = u32::try_from(size).map_err(|_| Error::InvalidData)?;
+            }
+        }
+        transcode_slice(&s, self.etc1s.as_ref(), format, dst)
+    }
+
+    /// Like [`Ktx2File::transcode`] but allocates the output.
+    pub fn transcode_to_buffer(
+        &self,
+        level: u32,
+        layer: u32,
+        face: u32,
+        format: Format,
+    ) -> Result<Buffer> {
+        let mut buf = crate::buffer::zeroed(self.transcoded_size(level, format)?)?;
+        self.transcode(level, layer, face, format, &mut buf)?;
+        Ok(buf)
+    }
+}
