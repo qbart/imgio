@@ -1,9 +1,10 @@
 //! Image file formats: decode files from byte slices, encode [`Surface`]s to bytes.
 //!
 //! [`FileFormat::detect`] identifies a file from its first bytes; [`decode`] returns its main
-//! image, [`decode_animation`] every frame (animated GIF / APNG / WebP; one frame otherwise),
-//! [`encode`] writes a surface with the format's default options. Each format module
-//! (`imgio::file::png`, ...) also has its own `decode` / `encode` with format-specific options.
+//! image, [`decode_animation`] every frame (animated GIF / APNG / WebP / JPEG XL; one frame
+//! otherwise), [`encode`] writes a surface with the format's default options. Each format
+//! module (`imgio::file::png`, ...) also has its own `decode` / `encode` with format-specific
+//! options.
 //!
 //! Formats backed by a pure Rust crate are behind a cargo feature of the same name (`png`,
 //! `gif`, `webp`, `jpeg`, `exr`, `tiff`, `jxl`, `jpeg2000`, `vdb`, `avif`); without it their
@@ -293,13 +294,14 @@ pub fn decode_as(fmt: FileFormat, data: &[u8]) -> Result<Image> {
     }
 }
 
-/// Decodes every frame of a file (GIF, APNG and WebP animations; a still image for the other
-/// formats).
+/// Decodes every frame of a file (GIF, APNG, WebP and JPEG XL animations; a still image for
+/// the other formats).
 pub fn decode_animation(data: &[u8]) -> Result<Animation> {
     match FileFormat::detect(data).ok_or(Error::Unsupported)? {
         FileFormat::Gif => gif::decode_animation(data),
         FileFormat::Png => png::decode_animation(data),
         FileFormat::WebP => webp::decode_animation(data),
+        FileFormat::JpegXl => jxl::decode_animation(data),
         fmt => Animation::still(decode_as(fmt, data)?),
     }
 }

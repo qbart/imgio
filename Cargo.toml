@@ -30,6 +30,13 @@ bytemuck = "1.25.2"
 ruzstd = "0.9.1"
 zstd-pure-rs = "0.2.0"
 vas = { version = "0.42.0", features = ["alloc"] }
+# Image file formats (optional, pure Rust): JPEG XL decode / lossless encode, JPEG 2000
+# decode, OpenVDB zip streams.
+jxl-oxide = { version = "0.12.6", optional = true, features = ["moxcms"] }
+zune-jpegxl = { version = "0.5.2", optional = true, default-features = false, features = ["std", "threads"] }
+zune-core = { version = "0.5.3", optional = true, default-features = false, features = ["std"] }
+hayro-jpeg2000 = { version = "0.5.0", default-features = false, features = ["simd"], optional = true }
+miniz_oxide = { version = "0.8.9", optional = true }
 
 [features]
 default = ["png", "jpeg"]
@@ -41,9 +48,9 @@ webp = []
 jpeg = []
 exr = []
 tiff = []
-jxl = []
-jpeg2000 = []
-vdb = []
+jxl = ["dep:jxl-oxide", "dep:zune-jpegxl", "dep:zune-core"]
+jpeg2000 = ["dep:hayro-jpeg2000"]
+vdb = ["dep:miniz_oxide"]
 avif = []
 # Vulkan texture upload (`imgio::gpu::vulkan`, port of KTX-Software vkloader.c). Vulkan and
 # OpenGL are the only allowed bindings: commands are looked up at run time, nothing is linked.
@@ -70,6 +77,8 @@ unimplemented = "deny"
 
 [dev-dependencies]
 bcdec_rs = "0.2.1"
+# Inflates the stored uncompressed OpenVDB test file.
+miniz_oxide = "0.8.9"
 
 # GPU upload tests only (they need a real Vulkan / EGL library and skip without one).
 [target.'cfg(not(target_family = "wasm"))'.dev-dependencies]

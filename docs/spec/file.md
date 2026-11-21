@@ -8,7 +8,7 @@ Shared API (every format module follows it):
   `from_surface`, `with_format` (relabel, e.g. sRGB -> unorm).
 - `Frame { image, delay: (num, den) }`, `Animation { frames, loops }` (0 = forever).
 - `decode(bytes)` / `decode_as(fmt, bytes)`: main image; `decode_animation(bytes)`: all frames
-  (GIF / APNG / WebP, still otherwise); `encode(fmt, &Surface)`: default options.
+  (GIF / APNG / WebP / JPEG XL, still otherwise); `encode(fmt, &Surface)`: default options.
 - Per format module `imgio::file::<fmt>`: `decode`, `encode(&Surface, &EncodeOptions)`,
   (`decode_animation`), plus format-specific APIs (EXR layers, TIFF pages, VDB grids, ...).
 - Decoded pixel formats: 8-bit gray `R8Unorm`, gray+alpha `Rg8Unorm`, RGB `Rgb8Srgb`, RGBA
@@ -24,3 +24,4 @@ Shared API (every format module follows it):
 ## Audit
 
 - 2026-11-22: shared API, detection, stubs.
+- 2026-11-22: JPEG XL, JPEG 2000, OpenVDB (`file_jxl.md`, `file_jpeg2000.md`, `file_vdb.md`).

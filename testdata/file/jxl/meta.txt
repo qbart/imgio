@@ -1,0 +1,17 @@
+rgba8 exact
+rgb8_container exact
+gray8 exact
+graya8 exact
+rgb16 exact
+rgba16_container exact
+gray16 exact
+graya16 exact
+rgb16_linear max 8
+rgba_f32 exact
+rgb_f16 exact
+gray_f32 exact
+lossy_rgb8 max 1
+lossy_rgba8 max 1
+lossy_gray8 max 1
+lossy_rgb16 max 8
+anim_rgba8 exact

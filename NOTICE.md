@@ -51,10 +51,16 @@ Copyright © 2016–2026 Binomial LLC.
 | [ruzstd](https://crates.io/crates/ruzstd) | Zstandard decoding of KTX2 levels and XUASTC LDR streams | MIT |
 | [ash](https://crates.io/crates/ash) | optional (feature `vulkan`): Vulkan types and command signatures; tests: Vulkan device setup | MIT OR Apache-2.0 |
 | [libloading](https://crates.io/crates/libloading) | optional (features `vulkan`, `opengl`): looks up Vulkan / GL commands in the process; tests: global loading of the system libraries | ISC |
+| [jxl-oxide](https://crates.io/crates/jxl-oxide) | optional (feature `jxl`): JPEG XL decoding (with its `moxcms` ICC and `rayon` thread features) | MIT OR Apache-2.0 |
+| [zune-jpegxl](https://crates.io/crates/zune-jpegxl), [zune-core](https://crates.io/crates/zune-core) | optional (feature `jxl`): lossless JPEG XL encoding | MIT OR Apache-2.0 OR Zlib |
+| [hayro-jpeg2000](https://crates.io/crates/hayro-jpeg2000) | optional (feature `jpeg2000`): JPEG 2000 decoding (with `fearless_simd`) | Apache-2.0 OR MIT |
+| [miniz_oxide](https://crates.io/crates/miniz_oxide) | optional (feature `vdb`): zlib streams of OpenVDB grids; tests: inflates the stored uncompressed VDB file | MIT OR Zlib OR Apache-2.0 |
 | [khronos-egl](https://crates.io/crates/khronos-egl) | tests only: surfaceless EGL contexts for the GL upload tests | MIT OR Apache-2.0 |
 | [bcdec_rs](https://crates.io/crates/bcdec_rs) | tests only: reference BC6H/BC7 decoder | MIT |
 | Basis Universal C++ (`ref/basisu`) | `tools/basisu-golden` only (offline generator, not linked into the crate) | Apache-2.0 |
 | [ktx-rs](https://crates.io/crates/ktx-rs) | `tools/astc-golden` only (not a crate dependency): astcenc reference | Apache-2.0 AND BSD-3-Clause AND MIT AND Zlib |
+| OpenVDB 10.0.1 C++ (Ubuntu 24.04 packages) | `tools/vdb-golden/gen.cpp` only (offline generator of `testdata/file/vdb`, not linked); its headers documented the file layout for imgio's own reader (no code copied) | MPL-2.0 |
+| libjxl, OpenJPEG (via imagecodecs), Pillow 13, `opj_compress` 2.5.0 | `scripts/gen_file_testdata_jxlj2kvdb.py` only (offline reference encoders / decoders, not linked) | BSD-3-Clause, BSD-2-Clause, MIT-CMU |
 | astc-encoder 6.0.0 C++ (`ref/astcenc`) | `tools/astcenc-golden`, `scripts/gen_astcenc_golden.sh`, `scripts/gen_astcenc_testdata.py` only (offline generators, not linked into the crate) | Apache-2.0 |
 
 ## Test data
@@ -90,3 +96,6 @@ Not included in the published crate.
 | `testdata/ktx1/*` | KTX2 test files exported by the Basis Universal v2.50 CLI (`basisu -export_ktx`; `cube_32.ktx2` from `testdata/images/rgba_32x32.png`) | Apache-2.0 |
 | `testdata/dds/*.dds` | `testdata/images` PNGs written by the Basis Universal v2.50 CLI (`basisu -dds`) | Apache-2.0 |
 | `testdata/bench/*.ktx2` | `scripts/gen_images.py` bench image encoded by the Basis Universal v2.50 CLI | Apache-2.0 |
+| `testdata/file/jxl/*` | `testdata/images/raw` images and crops / gray / 16-bit / float derivatives encoded by libjxl via imagecodecs 2026.11.11 (`jpegxl_encode`), `*.raw` = libjxl decodes (`scripts/gen_file_testdata_jxlj2kvdb.py`) | Apache-2.0 |
+| `testdata/file/jpeg2000/*` | `testdata/images/raw` images and derived gray / 12- / 16-bit / YCbCr variants encoded by OpenJPEG (imagecodecs `jpeg2k`, Pillow 13 with OpenJPEG 2.5.4, `opj_compress` 2.5.0 CLI), expected pixels from the source or OpenJPEG's decode (`scripts/gen_file_testdata_jxlj2kvdb.py`) | Apache-2.0 |
+| `testdata/file/vdb/*` | synthetic grids written by the C++ OpenVDB 10.0.1 library (`tools/vdb-golden/gen.cpp`), expected values / grid info from OpenVDB reading them back (`scripts/gen_file_testdata_jxlj2kvdb.py`) | Apache-2.0 |

@@ -39,6 +39,16 @@
 
   No bindings, ever: a format or direction without a pure Rust option is skipped (Ptex: only
   C++ bindings exist, not planned).
+
+  - Done: JPEG XL (`jxl`): `jxl-oxide` decode (lossless bit-exact vs libjxl, lossy VarDCT
+    within 1/255, float, animation, sRGB / linear sRGB output), `zune-jpegxl` lossless encode
+    (8/16-bit, libjxl-verified).
+  - Done: JPEG 2000 (`jpeg2000`): `hayro-jpeg2000` decode of JP2 / J2K, 5/3 and 9/7, 8/12/16-bit,
+    gray / RGB(A) / sYCC, tiles, layers, resolution reduce, sub-sampled components (tested
+    against OpenJPEG).
+  - Done: OpenVDB (`vdb`, partial): own reader (`vdb-rs` links C Blosc): grid list, densify
+    `float` / `double` grids to `R32Float` volumes, none / zip / active-mask compression, half,
+    tiles, instances; Blosc grids listed only (bit-exact vs OpenVDB 10).
 - [x] Optional Vulkan / OpenGL upload features (`vulkan`, `opengl`; `gpu::TextureSource`)
 - [ ] Image resize: any uncompressed `Image` / `Surface` (8/16-bit, float, sRGB-correct),
   filters from the `mip` resampler (box, tent, Mitchell, Catmull-Rom, Kaiser, Lanczos, ...),

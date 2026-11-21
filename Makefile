@@ -3,8 +3,9 @@
 build:
 	cargo build --release
 
+# Every image file format is a cargo feature: test them all (GPU tests skip without a device).
 test:
-	cargo test --release
+	cargo test --release --all-features
 
 # GPU upload tests (Vulkan via lavapipe or any device, GL via surfaceless EGL); they skip
 # without a device / context.
@@ -25,7 +26,8 @@ fmt:
 check:
 	cargo fmt --all --check
 	cargo clippy --all-targets --all-features -- -D warnings
-	cargo test --release -q
+	cargo test --release --all-features -q
+	cargo build --release --no-default-features
 
 # Minimum supported Rust version (Cargo.toml `rust-version`).
 msrv:
