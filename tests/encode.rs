@@ -339,6 +339,43 @@ fn round_trips() -> Result<(), Box<dyn Error>> {
         &imgio::encode_to_buffer(&src, Format::Bc3Unorm, &opts)?[..]
     );
     assert!(!imgio::can_encode(Format::Rgba8Unorm));
-    assert!(imgio::encode_to_buffer(&src, Format::AtcRgb, &opts).is_err());
+    // Every compressed format has an encoder.
+    use Format::*;
+    for f in [
+        Bc1Unorm,
+        Bc1Srgb,
+        Bc2Unorm,
+        Bc2Srgb,
+        Bc3Unorm,
+        Bc3Srgb,
+        Bc4Unorm,
+        Bc4Snorm,
+        Bc5Unorm,
+        Bc5Snorm,
+        Bc6hUfloat,
+        Bc6hSfloat,
+        Bc7Unorm,
+        Bc7Srgb,
+        Etc1Rgb,
+        Etc2Rgb,
+        Etc2Srgb,
+        Etc2Rgba1,
+        Etc2Rgba1Srgb,
+        Etc2Rgba,
+        Etc2RgbaSrgb,
+        EacR11Unorm,
+        EacR11Snorm,
+        EacRg11Unorm,
+        EacRg11Snorm,
+        Pvrtc1Rgb,
+        Pvrtc1Rgba,
+        Pvrtc2Rgb,
+        Pvrtc2Rgba,
+        AtcRgb,
+        AtcRgba,
+        Fxt1Rgb,
+    ] {
+        assert!(imgio::can_encode(f), "{f:?}");
+    }
     Ok(())
 }

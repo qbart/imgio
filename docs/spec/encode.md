@@ -44,8 +44,14 @@
   golden from C++ astcenc: 8 block sizes x 4 profiles x 3 qualities x 4 flag sets, every ISA
   copy) + PSNR round trips (also multithreaded).
 - PVRTC1 4bpp RGB / RGBA: basisu `encode_pvrtc1` (min/max endpoints + modulation fit against
-  the bilinear upsample), whole image, power-of-two block counts (`InvalidArgument`). No
-  encoders for ATC, PVRTC2, FXT1 (basisu has none outside ETC1S transcoding).
+  the bilinear upsample), whole image, power-of-two block counts (`InvalidArgument`).
+- ATC RGB / RGBA (BC4 alpha), PVRTC2 RGB / RGBA (hard-transition blocks; translucent mode
+  when alpha < 255), FXT1 (CC_MIXED): `legacy_enc` (own; basisu has these only as ETC1S
+  transcode targets). Two-endpoint fit: principal axis, both endpoint orders quantized
+  (ATC 555 / 565, PVRTC2 554 / 555 or 3443 / 3444), nearest decoded palette entry
+  (interpolants 3/8, 5/8); Default+: least-squares refits, High+: +-1 per channel. FXT1:
+  each 4x4 half `encode_bc1` + basisu `convert_dxt1_to_fxt1`. 64x48 image: ATC 30.0-30.6,
+  PVRTC2 29.9-30.4 (RGBA 28.3-29.7), FXT1 30.1-30.5 dB.
 - BC6H unsigned: `fast_encode_bc6h` (transcoder's encoder) on RGB halves; source -> RGBA32F,
   `v > 0 ? half(min(v, 65504)) : 0`. Presets `{diff endpoint modes, 2-subset patterns,
   hq_ls, brute force weights}`: Fastest {0,0,-,-}, Fast {2,0,-,-}, Default {2,1,hq,-} (basisu
@@ -70,6 +76,7 @@
 - 2026-11-21: API + BC1-BC5 encoders (basisu real-time), bit-exact with C++ (24 cases).
 - 2026-11-21: PVRTC1 encoder exposed (`encode_pvrtc1`), 6 golden cases.
 - 2026-11-21: ASTC encoder (astcenc port from ktx-rs), C++ golden passes on every ISA copy.
+- 2026-11-21: ATC, PVRTC2, FXT1 encoders (`legacy_enc`): every compressed `Format` encodes.
 - 2026-11-21: signed BC6H encoder (`bc6h_signed`).
 - 2026-11-21: ETC2 T / H / planar mode encoding (`etc2modes`).
 - 2026-11-21: ETC2 RGB A1 and signed BC4 / BC5 / EAC encoders (own; round-trip tested).

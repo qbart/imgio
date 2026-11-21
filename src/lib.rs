@@ -26,6 +26,7 @@ pub mod gpu;
 pub mod half;
 pub mod image;
 pub mod ktx2;
+mod legacy_enc;
 pub mod mip;
 mod parallel;
 mod pvrtc;

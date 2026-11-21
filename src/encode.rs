@@ -19,6 +19,7 @@
 //! - ETC2 RGB A1 (punch-through, alpha < 128 transparent): `etc1hq::encode_punchthrough_block`
 //!   (differential-only optimizer search for opaque blocks; base / base +- b search with
 //!   transparent texels). No T / H / planar modes yet.
+//! - ATC RGB / RGBA, PVRTC2 RGB / RGBA (hard blocks), FXT1: `legacy_enc` (own).
 //! - BC6H signed: own mode 11 / 12 / 13 / 14 single-region encoder (`bc6h_signed`).
 //! - BC6H (unsigned): `fast_encode_bc6h` from RGB halves (source converted to RGBA32F;
 //!   negative / NaN -> 0, clamped to 65504); quality picks `FastBc6hParams`.
@@ -229,6 +230,20 @@ fn encoder(format: Format) -> Option<Encoder> {
         },
         Bc7Unorm => |px, q, out| bc7(px, q, false, out),
         Bc7Srgb => |px, q, out| bc7(px, q, true, out),
+        AtcRgb => |px, q, out| {
+            out[..8].copy_from_slice(&crate::legacy_enc::atc_block(px, legacy_effort(q)))
+        },
+        AtcRgba => |px, q, out| {
+            bc4(px, 3, out);
+            out[8..16].copy_from_slice(&crate::legacy_enc::atc_block(px, legacy_effort(q)));
+        },
+        Pvrtc2Rgb => |px, q, out| {
+            let opaque = px.map(|p| [p[0], p[1], p[2], 255]);
+            out[..8].copy_from_slice(&crate::legacy_enc::pvrtc2_block(&opaque, legacy_effort(q)));
+        },
+        Pvrtc2Rgba => |px, q, out| {
+            out[..8].copy_from_slice(&crate::legacy_enc::pvrtc2_block(px, legacy_effort(q)));
+        },
         Bc4Snorm => return Some(Encoder::Snorm(|px, _, out| bc4_snorm(px, 0, out))),
         Bc5Snorm => {
             return Some(Encoder::Snorm(|px, _, out| {
@@ -302,13 +317,48 @@ fn bc6h_half(v: f32) -> u16 {
     }
 }
 
+/// Effort of the legacy two-endpoint encoders (ATC, PVRTC2).
+fn legacy_effort(q: Quality) -> u32 {
+    match q {
+        Quality::Fastest | Quality::Fast => 0,
+        Quality::Default => 1,
+        Quality::High | Quality::Best => 2,
+    }
+}
+
 /// True when [`encode`] supports `format`.
 pub fn can_encode(format: Format) -> bool {
     encoder(format).is_some()
         || matches!(
             format,
-            Format::Astc(..) | Format::Pvrtc1Rgb | Format::Pvrtc1Rgba
+            Format::Astc(..) | Format::Pvrtc1Rgb | Format::Pvrtc1Rgba | Format::Fxt1Rgb
         )
+}
+
+/// FXT1: 8x4 blocks, each half BC1-encoded and converted (rows of blocks in parallel).
+fn encode_fxt1(src: &Surface, q: Quality, dst: &mut [u8]) -> Result<()> {
+    let (w, h) = (src.width() as usize, src.height() as usize);
+    let converted;
+    let rgba: &[u8] = match src.format() {
+        Format::Rgba8Unorm | Format::Rgba8Srgb => src.data(),
+        _ => {
+            converted = crate::convert::convert_to_buffer(src, Format::Rgba8Unorm)?;
+            &converted
+        }
+    };
+    let row = Format::Fxt1Rgb.row_bytes(src.width())?;
+    try_for_each_unit(dst, row, w * h, |by, out| {
+        for (bx, o) in out.as_chunks_mut::<16>().0.iter_mut().enumerate() {
+            let px: [Px; 32] = core::array::from_fn(|i| {
+                let x = (bx * 8 + (i & 7)).min(w - 1);
+                let y = (by * 4 + (i >> 3)).min(h - 1);
+                let a = (y * w + x) * 4;
+                [rgba[a], rgba[a + 1], rgba[a + 2], rgba[a + 3]]
+            });
+            o.copy_from_slice(&crate::legacy_enc::fxt1_block(&px, bc1_flags(q)));
+        }
+        Ok(())
+    })
 }
 
 fn astc_error(e: crate::astcenc::AstcencError) -> Error {
@@ -468,6 +518,17 @@ pub fn encode(src: &Surface, format: Format, opts: &EncodeOptions, dst: &mut [u8
             by,
             dst,
         );
+    }
+    if format == Format::Fxt1Rgb {
+        let len = format.surface_bytes(src.width(), src.height())?;
+        let got = dst.len();
+        let dst = dst
+            .get_mut(..len)
+            .ok_or(Error::BufferTooSmall { needed: len, got })?;
+        if len == 0 {
+            return Ok(());
+        }
+        return encode_fxt1(src, opts.quality, dst);
     }
     if let Format::Astc(block, kind) = format {
         let len = format.surface_bytes(src.width(), src.height())?;

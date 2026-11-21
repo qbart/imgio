@@ -28,6 +28,11 @@ fn set_color(hi: &mut u64, slot: u32, c: [u32; 3]) {
 pub fn convert_etc1s_to_fxt1(blk: &mut [u8; 16], ep: &Endpoint, sel: &Selector, subblock: u32) {
     let mut d = Dxt1Block::default();
     convert_etc1s_to_dxt1(&mut d, ep, sel, false);
+    convert_dxt1_to_fxt1(blk, &d, subblock);
+}
+
+/// The DXT1 -> FXT1 CC_MIXED half of `convert_etc1s_to_fxt1`, for any 4-color DXT1 block.
+pub fn convert_dxt1_to_fxt1(blk: &mut [u8; 16], d: &Dxt1Block, subblock: u32) {
     let (l, h) = (d.get_low_color(), d.get_high_color());
     let mut c0 = [(l >> 11) & 31, (l >> 5) & 63, l & 31];
     let mut c1 = [(h >> 11) & 31, (h >> 5) & 63, h & 31];
