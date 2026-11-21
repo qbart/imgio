@@ -29,13 +29,18 @@ split into rows of blocks. Parallel work starts at 64K pixels.
 | BC3 | 1.8 ms |
 | BC5 | 0.8 ms |
 | BC7 fastest / default (bc7f) | 2.2 / 7.8 ms |
-| BC7 high / best (bc7e slow / slowest) | 139 / 797 ms |
+| BC7 high / best (bc7e slow / slowest) | 143 / 801 ms |
 | BC6H default | 5.0 ms |
-| ETC1 default / high / best | 1.3 / 109 / 234 ms |
-| ETC2 RGBA (HQ EAC) | 9.8 ms |
-| ASTC 4x4 fast / medium, 8x8 medium (astcenc) | 107 / 204 / 247 ms |
+| ETC1 default / high / best | 1.3 / 102 / 184 ms |
+| ETC2 RGBA high (HQ EAC + T / H / planar search) | 631 ms |
+| ASTC 4x4 fast / medium, 8x8 medium (astcenc 6.0) | 76 / 123 / 178 ms |
+
+ASTC vs the C++ astcenc 6.0 AVX2 CLI (1024x1024 photo, 1 thread): 4x4 medium 1.16 s vs 0.86 s,
+with `rdo_lambda` 20 1.74 s vs 1.36 s; output byte identical.
 
 ## Audit
 
 - 2026-11-21: harness added; parallel threshold changed from 256 KiB of output to 64K pixels
   (UASTC -> BC1/ETC1 5x faster).
+- 2026-11-21: encode rows refreshed after the astcenc 6.0 upgrade (ASTC 35-40% faster) and the
+  ETC2 T / H / planar search at High.
