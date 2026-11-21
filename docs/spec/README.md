@@ -10,3 +10,4 @@ One file per subsystem. Write the spec before implementing; append audit entries
 - [convert.md](convert.md): half floats and uncompressed conversion
 - [decode.md](decode.md): decode API and block driver
 - [etc.md](etc.md): ETC1/ETC2/EAC decode
+- [astc.md](astc.md): ASTC decode

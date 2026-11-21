@@ -1,7 +1,7 @@
 //! Decoding of block-compressed surfaces.
 
 use crate::block::{BlockDecoder, decode_surface};
-use crate::{Buffer, Error, Format, Result, bc, etc};
+use crate::{Buffer, Error, Format, Result, astc, bc, etc};
 
 fn decoder(format: Format) -> Option<BlockDecoder> {
     use Format::*;
@@ -12,6 +12,7 @@ fn decoder(format: Format) -> Option<BlockDecoder> {
         }
         Etc1Rgb | Etc2Rgb | Etc2Srgb | Etc2Rgba1 | Etc2Rgba1Srgb | Etc2Rgba | Etc2RgbaSrgb
         | EacR11Unorm | EacR11Snorm | EacRg11Unorm | EacRg11Snorm => Some(etc::decode_block),
+        Astc(..) => Some(astc::decode_block),
         _ => None,
     }
 }
