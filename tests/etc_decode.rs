@@ -52,7 +52,11 @@ fn matches_etcdec() -> Result<(), Box<dyn std::error::Error>> {
             // etcdec writes RGB without alpha for the opaque formats.
             let rgb_only = matches!(format, Format::Etc1Rgb | Format::Etc2Rgb | Format::Etc2Srgb);
             let hash = if rgb_only {
-                fnv(out.chunks_exact(4).flat_map(|p| p[..3].iter().copied()))
+                fnv(out
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .flat_map(|p| p[..3].iter().copied()))
             } else {
                 fnv(out.iter().copied())
             };
