@@ -5,7 +5,9 @@
 //! decoder (plus the block packer) used by the UASTC HDR transcoders.
 #![allow(clippy::needless_range_loop)]
 
-use super::tables::{ASTC_QUINT_ENCODE, ASTC_TRIT_ENCODE, QUINT_DECODE, TRIT_DECODE};
+use crate::basis::ll::hdr_tables::{
+    ASTC_QUINT_ENCODE, ASTC_TRIT_ENCODE, QUINT_DECODE, TRIT_DECODE,
+};
 use std::sync::OnceLock;
 
 pub const MIN_GRID_DIM: u32 = 2;

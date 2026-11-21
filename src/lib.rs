@@ -3,6 +3,7 @@
 //! Every fallible operation returns [`Result`]; the library never panics.
 
 mod astc;
+pub mod basis;
 mod bc;
 mod block;
 mod buffer;

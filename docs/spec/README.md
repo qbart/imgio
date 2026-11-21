@@ -11,3 +11,4 @@ One file per subsystem. Write the spec before implementing; append audit entries
 - [decode.md](decode.md): decode API and block driver
 - [etc.md](etc.md): ETC1/ETC2/EAC decode
 - [astc.md](astc.md): ASTC decode
+- [basis.md](basis.md): Basis Universal container and transcoder

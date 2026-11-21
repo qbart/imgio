@@ -2,8 +2,6 @@
 
 #[allow(dead_code)]
 pub(crate) mod helpers;
-#[allow(dead_code)]
-pub(crate) mod tables;
 
 use crate::{AstcKind, Format};
 use helpers::{DecodePixels, LogAstcBlock, decode_block as decode_log, unpack_block};
