@@ -2,3 +2,4 @@ target/
 ref/
 Cargo.lock.bak
 testdata/images/bench_512.png
+.claude/

@@ -65,6 +65,7 @@ pub(crate) fn can_transcode(block: AstcBlock, format: Format) -> bool {
         EacR11Unorm | EacRg11Unorm => true,
         Etc1Rgb | Etc2Rgba | Etc2RgbaSrgb => true,
         Bc7Unorm | Bc7Srgb => true,
+        Pvrtc1Rgb | Pvrtc1Rgba => true,
         _ => false,
     }
 }
@@ -252,17 +253,43 @@ pub(crate) fn transcode(src: &AstcLdrImage, format: Format, dst: &mut [u8]) -> R
         d.copy_from_slice(s);
         return Ok(());
     }
-    if src.deblock {
-        return Err(Error::Unsupported); // deblocking filter not ported yet
+    let pvrtc1 = matches!(format, Format::Pvrtc1Rgb | Format::Pvrtc1Rgba);
+    if pvrtc1 && (!src.width.is_power_of_two() || !src.height.is_power_of_two()) {
+        return Err(Error::InvalidArgument);
     }
-    let img = decode_image(src)?;
+    let mut img = decode_image(src)?;
+    if src.deblock {
+        let (bw, bh) = src.block.dim();
+        let mut out = crate::buffer::zeroed(img.data.len())?;
+        super::deblock::deblock(
+            &img.data,
+            img.width,
+            img.height,
+            bw as usize,
+            bh as usize,
+            &mut out,
+        );
+        img.data = out;
+    }
     let (w, h) = (src.width as usize, src.height as usize);
     if !format.is_compressed() {
         return write_uncompressed(&img, w, h, format, dst);
     }
-    // 4x4 sources map block to block (padding rows are real decoded pixels); the C++
-    // row-buffered path for other sizes clamps edge rows to the image height.
-    let max_y = if src.block == AstcBlock::B4x4 {
+    if pvrtc1 {
+        return super::pvrtc1_enc::encode_pvrtc1(
+            &img.data,
+            img.width,
+            img.height,
+            format == Format::Pvrtc1Rgba,
+            src.width.div_ceil(4),
+            src.height.div_ceil(4),
+            dst,
+        );
+    }
+    // 4x4 sources map block to block (padding rows are real decoded pixels) and the C++
+    // whole-image path (deblocking) clamps to the padded image; its row-buffered path for
+    // other block sizes clamps edge rows to the image height.
+    let max_y = if src.block == AstcBlock::B4x4 || src.deblock {
         img.height
     } else {
         h.min(img.height)

@@ -44,7 +44,12 @@ Test data `testdata/basis/*.basis`: encoded by Basis Universal v2.50 (C++ CLI bu
   `etc1f`; its `pack_etc1_state` is only a solid-block memo and is omitted) and ETC2 RGBA (EAC
   alpha + ETC1); BC7 via `ll/bc7f.rs` (port of C++ `bc7f`, default flags); block rows in parallel.
 - Deblocking: `.basis` deblocks blocks of >= 80 texels (basisu default); KTX2 deblocks iff key
-  `DeblockFilterID` = "1".
+  `DeblockFilterID` = "1". `basis/deblock.rs` ports `xuastc_deblock_filter` (corner 5-tap in
+  f32 / 6, edge 3-tap integer averages, interior copy; rows in parallel); applied to the padded
+  decoded image before any non-ASTC target.
+- PVRTC1 (power-of-two sizes only): `basis/pvrtc1_enc.rs` ports `encode_pvrtc1` (per-block
+  min/max endpoints, floor/ceil quantized; modulation via the shared
+  `ll::pvrtc::fixup_pvrtc1_4_modulation`).
 - UASTC 4x4 (LDR/HDR): one row of source blocks per work unit, multithreaded through
   `parallel::for_each_unit` (PVRTC1 transcodes the whole image at once; ETC1S is sequential).
 - Golden test: `tests/basis_transcode.rs` vs `testdata/basis/golden.txt`, FNV-1a hashes of every
@@ -65,3 +70,5 @@ Test data `testdata/basis/*.basis`: encoded by Basis Universal v2.50 (C++ CLI bu
 - 2026-11-21: `bc7f` port (`ll/bc7f.rs`, scalar path; C++ float->int casts emulate x86
   `cvttss2si`, mixed signed/unsigned arithmetic kept); ASTC LDR -> BC7 via
   `fast_pack_bc7_auto_rgba` bit-exact (196 + 98 cases; all 8 BC7 modes exercised).
+- 2026-11-21: deblocking filter + PVRTC1 encoder; every ASTC LDR golden line passes (240 .basis
+  + 128 KTX2).

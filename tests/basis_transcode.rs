@@ -139,11 +139,6 @@ fn astc_hdr_6x6() -> Result<(), Box<dyn Error>> {
 
 #[test]
 fn astc_ldr() -> Result<(), Box<dyn Error>> {
-    // In progress: targets ported so far (see ROADMAP.md).
-    let n: usize = ["astc_ldr4x4", "astc_ldr6x5", "astc_ldr8x8"]
-        .iter()
-        .map(|p| check_with(p, true))
-        .sum::<Result<_, _>>()?;
-    assert_eq!(n, 196);
+    assert_eq!(check("astc_ldr")?, 240); // every target, mips, deblocked 12x12, PVRTC1
     Ok(())
 }

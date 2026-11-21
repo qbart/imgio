@@ -125,8 +125,8 @@ fn matches_basisu() -> Result<(), Box<dyn Error>> {
 
 #[test]
 fn astc_ldr() -> Result<(), Box<dyn Error>> {
-    // In progress: targets ported so far (see ROADMAP.md).
-    assert_eq!(check_with(|l| l.starts_with("astc_ldr8x5"), true)?, 98);
+    // Every target; astc_ldr10x10_rgb.ktx2 carries DeblockFilterID = 1.
+    assert_eq!(check(|l| l.starts_with("astc_ldr"))?, 128);
     Ok(())
 }
 
