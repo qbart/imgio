@@ -14,7 +14,17 @@
 - [ ] Basis Universal encoders: ETC1S, UASTC LDR/HDR
 - [x] KTX2 reader for Basis payloads (BasisLZ, zstd, arrays, cubemaps)
 - [ ] KTX2 plain formats, KTX2 writer
-- [ ] PNG, TGA, JPG
+- [ ] Image file formats (encode/decode API on byte slices, pure Rust; table = target scope,
+  crate = reference for the feature set):
+
+  | Format | Reference crate | Decode | Encode |
+  |--------|-----------------|--------|--------|
+  | BMP | `image` | Yes, including RLE-compressed files | Uncompressed only |
+  | TGA | `image` | Yes, including RLE | Basic |
+  | GIF | `gif` | Yes, including animation | Yes, including animation |
+  | WebP | `image-webp` | Lossy, lossless, alpha and animation | Lossless only |
+  | PNG | `png` | Yes, including APNG | Yes, including APNG |
+  | JPG | - | Yes | - |
 - [ ] Optional Vulkan / OpenGL upload features
 
 ## Follow-ups
