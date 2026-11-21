@@ -130,8 +130,8 @@ fn dfd_has_alpha(dfd: &[u8], model: u32) -> bool {
 pub(crate) fn type_size_of(format: Format) -> u32 {
     use Format::*;
     match format {
-        R16Unorm | R16Snorm | Rg16Unorm | Rg16Snorm | Rgb16Float | Rgba16Float | Rgb565
-        | Bgr565 | Rgba4444 => 2,
+        R16Unorm | R16Snorm | Rg16Unorm | Rg16Snorm | Rgb16Float | Rgba16Float | Rgba16Unorm
+        | Rgb565 | Bgr565 | Rgba4444 => 2,
         Rgba32Float | Rgb9e5Float => 4,
         _ => 1,
     }

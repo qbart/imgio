@@ -56,7 +56,7 @@ fn levels(d: &Ktx2Desc) -> Result<Vec<Vec<u8>>, Box<dyn Error>> {
 #[test]
 fn reader_returns_every_image() -> Result<(), Box<dyn Error>> {
     let cases = cases()?;
-    assert_eq!(cases.len(), 94);
+    assert_eq!(cases.len(), 95);
     for c in &cases {
         let data = std::fs::read(format!("{DIR}{}.ktx2", c.name))?;
         let file = Ktx2File::parse(&data)?;

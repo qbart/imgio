@@ -114,6 +114,8 @@ pub enum Format {
     Rgb9e5Float,
     /// 16-bit float RGBA (IEEE half, little endian).
     Rgba16Float,
+    /// 16-bit unsigned normalized RGBA (little endian).
+    Rgba16Unorm,
     /// 32-bit float RGBA (little endian).
     Rgba32Float,
     /// BC1 (DXT1) RGB with 1-bit alpha.
@@ -205,8 +207,8 @@ impl Format {
             Rgba8Unorm | Rgba8Srgb | Rg16Unorm | Rg16Snorm | Rgb9e5Float => 4,
             Pvrtc1Rgb | Pvrtc1Rgba | Pvrtc2Rgb | Pvrtc2Rgba | AtcRgb => 8,
             AtcRgba | Fxt1Rgb => 16,
-            Rgba16Float | Bc1Unorm | Bc1Srgb | Bc4Unorm | Bc4Snorm | Etc1Rgb | Etc2Rgb
-            | Etc2Srgb | Etc2Rgba1 | Etc2Rgba1Srgb | EacR11Unorm | EacR11Snorm => 8,
+            Rgba16Float | Rgba16Unorm | Bc1Unorm | Bc1Srgb | Bc4Unorm | Bc4Snorm | Etc1Rgb
+            | Etc2Rgb | Etc2Srgb | Etc2Rgba1 | Etc2Rgba1Srgb | EacR11Unorm | EacR11Snorm => 8,
             Rgba32Float | Bc2Unorm | Bc2Srgb | Bc3Unorm | Bc3Srgb | Bc5Unorm | Bc5Snorm
             | Bc6hUfloat | Bc6hSfloat | Bc7Unorm | Bc7Srgb | Etc2Rgba | Etc2RgbaSrgb
             | EacRg11Unorm | EacRg11Snorm | Astc(..) => 16,
@@ -234,6 +236,7 @@ impl Format {
                 | Rgb16Float
                 | Rgb9e5Float
                 | Rgba16Float
+                | Rgba16Unorm
                 | Rgba32Float
         )
     }

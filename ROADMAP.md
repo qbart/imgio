@@ -52,7 +52,7 @@
 Image file formats wait until every step below is done. Ports keep bit-exactness with their
 C++ / ktx-rs reference (golden hashes from offline builds, as for the transcoder).
 
-1. [ ] Conversion gaps: `Rgba16Unorm`, sRGB <-> linear transfer, every uncompressed format
+1. [x] Conversion gaps: `Rgba16Unorm`, sRGB <-> linear transfer, every uncompressed format
    as a conversion target
 2. [ ] Mipmap generation: basisu resampler (box, tent, kaiser, lanczos, ...), sRGB aware,
    clamp / wrap, levels in parallel

@@ -29,6 +29,7 @@ pub fn vk_format(format: Format) -> Option<u32> {
         Rg16Snorm => 78,
         Rgb16Float => 90,
         Rgba16Float => 97,
+        Rgba16Unorm => 91,
         Rgba32Float => 109,
         Rgb9e5Float => 123,
         Rgba4444 => 2,
@@ -104,7 +105,7 @@ pub fn format_from_vk(vk: u32) -> Option<Format> {
 }
 
 /// Formats with a unique `VkFormat` (everything except ASTC, BC1 and PVRTC, handled above).
-const ALL_PLAIN: [Format; 39] = {
+const ALL_PLAIN: [Format; 40] = {
     use Format::*;
     [
         R8Unorm,
@@ -119,6 +120,7 @@ const ALL_PLAIN: [Format; 39] = {
         Rg16Snorm,
         Rgb16Float,
         Rgba16Float,
+        Rgba16Unorm,
         Rgba32Float,
         Rgb9e5Float,
         Rgba4444,
@@ -168,6 +170,6 @@ mod tests {
                 assert!(alias || back == Some(vk), "{vk} -> {f:?} -> {back:?}");
             }
         }
-        assert_eq!(n, 39 + 4 + 4 + 28 + 14);
+        assert_eq!(n, 40 + 4 + 4 + 28 + 14);
     }
 }
