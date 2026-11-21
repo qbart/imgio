@@ -62,7 +62,7 @@ C++ / ktx-rs reference (golden hashes from offline builds, as for the transcoder
 4. [x] BC7 encoders: `bc7f` presets, basisu v2.50 `bc7e_scalar` (High / Best)
 5. [x] BC6H encoder (unsigned; `fast_encode_bc6h` presets)
 6. [x] ETC1 / ETC2 / EAC encoders: `etc1f`, EAC (normal / high quality)
-7. [x] ASTC LDR / HDR encoder: astcenc (ktx-rs port)
+7. [x] ASTC LDR / HDR encoder: astcenc (ktx-rs port), + LZ-RDO (`EncodeOptions::rdo_lambda`)
 8. [x] PVRTC1 encoder exposure; own ATC, PVRTC2, FXT1 encoders (every compressed format encodes)
 9. [x] Basis Universal encoders: ETC1S, UASTC LDR 4x4 (+ RDO), UASTC HDR 4x4, ASTC HDR 6x6,
    UASTC HDR 6x6i (ktx-rs `basisu::comp` port, + mipmaps / y flip) -> `.basis`
@@ -82,7 +82,9 @@ astcenc: ported to astc-encoder 6.0.0, byte identical with the 6.0 CLI. 1024x102
 0.70 / 0.098 vs 0.57 / 0.075 (1.22x), 6x6 medium 1.79 / 0.216 vs 1.30 / 0.143 (1.36x), 8x8
 thorough 2.96 / 0.348 vs 2.29 / 0.257 (1.28x); was 1.99 s for 4x4 medium on 5.x. Vs a non-LTO
 in-process C++ 6.0 build the gap is 1.06-1.2x (the CLI's gcc LTO is worth 15-20%; Rust LTO 3%).
-Remaining: codegen gap spread over many kernels; LZ-RDO (`-rdo-lambda`) not ported.
+Remaining: codegen gap spread over many kernels. [x] ASTC LZ-RDO (`-rdo-lambda`,
+`EncodeOptions::rdo_lambda`): byte identical with the 6.0 CLI, thread-count independent;
+1024x1024 4x4 medium lambda 20: 1.74 / 0.26 s vs 1.36 / 0.20 s.
 
 More texture work (in order): [x] `.astc` file reader / writer, [x] KTX1 reader / writer
 (own, byte identical with basisu `-export_ktx`), [x] 3D textures (KTX2 depth, DDS volumes, KTX1 depth), [x] one-call

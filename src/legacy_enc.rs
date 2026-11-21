@@ -337,8 +337,15 @@ mod tests {
             for q in [crate::Quality::Fastest, crate::Quality::Best] {
                 let s = crate::Surface::new(crate::Format::Rgba8Unorm, w, h, src)
                     .unwrap_or_else(|_| std::process::abort());
-                let enc = crate::encode_to_buffer(&s, f, &crate::EncodeOptions { quality: q })
-                    .unwrap_or_default();
+                let enc = crate::encode_to_buffer(
+                    &s,
+                    f,
+                    &crate::EncodeOptions {
+                        quality: q,
+                        ..Default::default()
+                    },
+                )
+                .unwrap_or_default();
                 let dec = crate::decode_to_buffer(f, &enc, w, h).unwrap_or_default();
                 let db = psnr(src, &dec, channels);
                 assert!(db > min_db, "{f:?} {q:?}: {db:.1} dB");

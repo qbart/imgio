@@ -1298,12 +1298,14 @@ fn constant_u16(blk: &ImageBlock) -> [i32; 4] {
 }
 
 isa_fn! {
-/// `compress_block`: compresses one image block into a 16 byte physical ASTC block.
+/// `compress_block`: compresses one image block into a 16 byte physical ASTC block, and with
+/// `restricted_pcb` (LZ-RDO) also into its restricted 1 partition, 1 plane encoding.
 pub fn compress_block(
     config: &AstcencConfig,
     bsd: &BlockSizeDescriptor,
     blk: &ImageBlock,
     pcb: &mut [u8; 16],
+    restricted_pcb: Option<&mut [u8; 16]>,
     tmpbuf: &mut CompressionWorkingBuffers,
 ) {
     let decode_mode = config.profile;
@@ -1352,6 +1354,9 @@ pub fn compress_block(
         }
 
         symbolic_to_physical(bsd, &scb, pcb);
+        if let Some(restricted_pcb) = restricted_pcb {
+            *restricted_pcb = *pcb;
+        }
         return;
     }
 
@@ -1378,6 +1383,38 @@ pub fn compress_block(
     let errorval_mult = [1.0 / config.tune_mse_overshoot, 1.0];
 
     let errorval_overshoot = 1.0 / config.tune_mse_overshoot;
+
+    // If restricted encoding was requested, do an extra encode with the most likely candidate
+    // mode, and write it to restricted_pcb. This is basically the same as the restricted MODE0
+    // fast path trial, but with slightly different parameters and a different purpose.
+    if let Some(restricted_pcb) = restricted_pcb {
+        let mut workscb = scb;
+
+        // Can't enable "only_always" for 3D blocks since no "always" block modes are available
+        compress_symbolic_block_for_partition_1plane(
+            config,
+            bsd,
+            blk,
+            bsd.dim_z == 1,
+            error_threshold * errorval_mult[1] * errorval_overshoot,
+            1,
+            0,
+            &mut workscb,
+            tmpbuf,
+            QUANT_32 as i32,
+        );
+        if workscb.block_type == SYM_BTYPE_ERROR {
+            // No encoding passed (possible with the RGBM error metric). Upstream encodes the
+            // uninitialized fields of the error block (undefined behaviour); use the mean color
+            // constant block of the main search instead (LZ-RDO is LDR only).
+            workscb.block_type = SYM_BTYPE_CONST_U16;
+            workscb.partition_count = 0;
+            workscb.constant_color = Vfloat4::clamp(0.0, 65535.0, blk.data_mean)
+                .float_to_int_rtn()
+                .m;
+        }
+        symbolic_to_physical(bsd, &workscb, restricted_pcb);
+    }
 
     // Only enable MODE0 fast path if enabled
     // Never enable for 3D blocks as no "always" block modes are available

@@ -42,7 +42,9 @@ pub fn compressor_alloc(cfg: &AstcencConfig, thread_count: u32) -> Compressor {
 
 isa_fn! {
 /// `compress_image`: compresses the batches of 16 blocks the task manager hands to this
-/// thread. Each batch is compressed locally and copied into the shared output.
+/// thread. Each batch is compressed locally and copied into the shared output (and, for
+/// LZ-RDO, its restricted encodings into `restricted`). A failed batch cancels the task
+/// manager and still counts as complete, so no thread waits for it.
 #[allow(clippy::too_many_arguments)]
 pub fn compress_image(
     compressor: &Compressor,
@@ -53,6 +55,7 @@ pub fn compress_image(
     image: &AstcencImage,
     swizzle: &AstcencSwizzle,
     buffer: &AstcencOutput,
+    restricted: Option<&std::sync::RwLock<Vec<u8>>>,
 ) -> Result<(), AstcencError> {
     let config = *config;
     let bsd = &*compressor.bsd;
@@ -112,84 +115,145 @@ pub fn compress_image(
     // All threads run this processing loop until there is no work remaining
     const GRANULE: usize = 16;
     let mut local = [0u8; GRANULE * 16];
+    let mut local_restricted = [0u8; GRANULE * 16];
     loop {
         let (base, count) = manage_compress.get_task_assignment(GRANULE);
         if count == 0 {
             break;
         }
-
-        for i in base..base + count {
-            // Decode i into x, y, z block indices
-            let z = i / plane_blocks;
-            let rem = i - (z * plane_blocks);
-            let y = rem / row_blocks;
-            let x = rem - (y * row_blocks);
-
-            // Fetch the full block for compression
-            blk.channel_weight = channel_weight;
-            if use_fast_load {
-                image::load_image_block_fast_ldr(image, &mut blk, bsd, x * block_x, y * block_y);
-            } else {
-                image::load_image_block(
-                    decode_mode,
-                    image,
-                    &mut blk,
-                    bsd,
-                    x * block_x,
-                    y * block_y,
-                    z * block_z,
-                    swizzle,
-                );
-            }
-
-            if needs_hdr && config.flags & ASTCENC_FLG_USE_PERCEPTUAL != 0 {
-                // Approximate display-space error by weighting logarithmic channels by their
-                // geometric brightness
-                let mut mean = blk.data_mean;
-                mean.set_lane(3, 0.0);
-                let geometric_mean =
-                    vecmath::float16_to_float_v(vecmath::lns_to_sf16(mean.float_to_int()));
-                let maximum = mathlib::max(geometric_mean.hmax_s(), 1e-20);
-
-                // Retain at least 1% weight for dim channels
-                let mut weights = (geometric_mean / maximum).max(vecmath::Vfloat4::splat(0.01));
-                weights.set_lane(3, 1.0);
-                blk.channel_weight = weights * blk.channel_weight;
-            }
-
-            // Scale RGB error contribution by the maximum alpha in the block. This encourages
-            // alpha accuracy in regions with high transparency, and can gain up to 0.5 dB.
-            if config.flags & ASTCENC_FLG_USE_ALPHA_WEIGHT != 0 {
-                let mut alpha_scale = blk.data_max.lane(3) * (1.0 / 65535.0);
-                if decode_mode == AstcencProfile::Hdr {
-                    // Transparency uses linear alpha, even when the endpoints use LNS
-                    let alpha_lns = blk.data_max.float_to_int();
-                    let alpha = vecmath::float16_to_float_v(vecmath::lns_to_sf16(alpha_lns));
-                    alpha_scale = mathlib::clamp1f(alpha.lane(3));
-                }
-                blk.channel_weight = blk.channel_weight
-                    * vecmath::Vfloat4::new(alpha_scale, alpha_scale, alpha_scale, 1.0);
-            }
-
-            // ((z * blocks_y + y) * blocks_x + x) * 16 == i * 16: a batch is contiguous
-            let Some(bp) = local
-                .get_mut((i - base) * 16..(i - base) * 16 + 16)
-                .and_then(|b| <&mut [u8; 16]>::try_from(b).ok())
-            else {
+        let batch = compress_batch(
+            &config,
+            bsd,
+            &mut blk,
+            temp_buffers,
+            (base, count),
+            (row_blocks, plane_blocks),
+            (use_fast_load, needs_hdr, channel_weight),
+            image,
+            swizzle,
+            &mut local,
+            restricted.is_some().then_some(&mut local_restricted),
+        )
+        .and_then(|()| {
+            let Ok(mut out) = buffer.lock() else {
+                return Err(AstcencError::BadContext);
+            };
+            let Some(dst) = out.get_mut(base * 16..(base + count) * 16) else {
                 return Err(AstcencError::OutOfMem);
             };
-            compress_symbolic::compress_block(&config, bsd, &blk, bp, temp_buffers);
+            dst.copy_from_slice(&local[..count * 16]);
+            drop(out);
+            if let Some(restricted) = restricted {
+                let Ok(mut out) = restricted.write() else {
+                    return Err(AstcencError::BadContext);
+                };
+                let Some(dst) = out.get_mut(base * 16..(base + count) * 16) else {
+                    return Err(AstcencError::OutOfMem);
+                };
+                dst.copy_from_slice(&local_restricted[..count * 16]);
+            }
+            Ok(())
+        });
+        if batch.is_err() {
+            manage_compress.cancel();
+        }
+        manage_compress.complete_task_assignment(count);
+        batch?;
+    }
+    Ok(())
+}
+}
+
+isa_fn! {
+/// The block loop of `compress_image` for one batch `(base, count)` of block indices.
+#[allow(clippy::too_many_arguments)]
+fn compress_batch(
+    config: &AstcencConfig,
+    bsd: &BlockSizeDescriptor,
+    blk: &mut ImageBlock,
+    temp_buffers: &mut CompressionWorkingBuffers,
+    (base, count): (usize, usize),
+    (row_blocks, plane_blocks): (usize, usize),
+    (use_fast_load, needs_hdr, channel_weight): (bool, bool, vecmath::Vfloat4),
+    image: &AstcencImage,
+    swizzle: &AstcencSwizzle,
+    local: &mut [u8; 256],
+    mut local_restricted: Option<&mut [u8; 256]>,
+) -> Result<(), AstcencError> {
+    let decode_mode = config.profile;
+    let block_x = bsd.dim_x as usize;
+    let block_y = bsd.dim_y as usize;
+    let block_z = bsd.dim_z as usize;
+    for i in base..base + count {
+        // Decode i into x, y, z block indices
+        let z = i / plane_blocks;
+        let rem = i - (z * plane_blocks);
+        let y = rem / row_blocks;
+        let x = rem - (y * row_blocks);
+
+        // Fetch the full block for compression
+        blk.channel_weight = channel_weight;
+        if use_fast_load {
+            image::load_image_block_fast_ldr(image, blk, bsd, x * block_x, y * block_y);
+        } else {
+            image::load_image_block(
+                decode_mode,
+                image,
+                blk,
+                bsd,
+                x * block_x,
+                y * block_y,
+                z * block_z,
+                swizzle,
+            );
         }
 
-        let Ok(mut out) = buffer.lock() else {
-            return Err(AstcencError::BadContext);
-        };
-        let Some(dst) = out.get_mut(base * 16..(base + count) * 16) else {
+        if needs_hdr && config.flags & ASTCENC_FLG_USE_PERCEPTUAL != 0 {
+            // Approximate display-space error by weighting logarithmic channels by their
+            // geometric brightness
+            let mut mean = blk.data_mean;
+            mean.set_lane(3, 0.0);
+            let geometric_mean =
+                vecmath::float16_to_float_v(vecmath::lns_to_sf16(mean.float_to_int()));
+            let maximum = mathlib::max(geometric_mean.hmax_s(), 1e-20);
+
+            // Retain at least 1% weight for dim channels
+            let mut weights = (geometric_mean / maximum).max(vecmath::Vfloat4::splat(0.01));
+            weights.set_lane(3, 1.0);
+            blk.channel_weight = weights * blk.channel_weight;
+        }
+
+        // Scale RGB error contribution by the maximum alpha in the block. This encourages
+        // alpha accuracy in regions with high transparency, and can gain up to 0.5 dB.
+        if config.flags & ASTCENC_FLG_USE_ALPHA_WEIGHT != 0 {
+            let mut alpha_scale = blk.data_max.lane(3) * (1.0 / 65535.0);
+            if decode_mode == AstcencProfile::Hdr {
+                // Transparency uses linear alpha, even when the endpoints use LNS
+                let alpha_lns = blk.data_max.float_to_int();
+                let alpha = vecmath::float16_to_float_v(vecmath::lns_to_sf16(alpha_lns));
+                alpha_scale = mathlib::clamp1f(alpha.lane(3));
+            }
+            blk.channel_weight = blk.channel_weight
+                * vecmath::Vfloat4::new(alpha_scale, alpha_scale, alpha_scale, 1.0);
+        }
+
+        // ((z * blocks_y + y) * blocks_x + x) * 16 == i * 16: a batch is contiguous
+        let range = (i - base) * 16..(i - base) * 16 + 16;
+        let Some(bp) = local
+            .get_mut(range.clone())
+            .and_then(|b| <&mut [u8; 16]>::try_from(b).ok())
+        else {
             return Err(AstcencError::OutOfMem);
         };
-        dst.copy_from_slice(&local[..count * 16]);
-        drop(out);
-        manage_compress.complete_task_assignment(count);
+        let restricted_bp = match local_restricted.as_deref_mut() {
+            Some(r) => match r.get_mut(range).and_then(|b| <&mut [u8; 16]>::try_from(b).ok())
+            {
+                Some(b) => Some(b),
+                None => return Err(AstcencError::OutOfMem),
+            },
+            None => None,
+        };
+        compress_symbolic::compress_block(config, bsd, blk, bp, restricted_bp, temp_buffers);
     }
     Ok(())
 }

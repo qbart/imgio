@@ -36,6 +36,8 @@ pub mod ideal_endpoints_and_weights;
 pub mod image;
 #[path = "enc/internal.rs"]
 pub mod internal;
+#[path = "enc/lz_optimize.rs"]
+pub mod lz_optimize;
 #[path = "enc/mathlib.rs"]
 pub mod mathlib;
 #[path = "enc/partition_tables.rs"]

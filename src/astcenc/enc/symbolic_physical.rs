@@ -375,3 +375,244 @@ pub fn symbolic_to_physical(
     );
 }
 }
+
+isa_fn! {
+/// `physical_to_symbolic` with the compressor's block size descriptor (LZ-RDO decodes the
+/// candidate blocks it splices together).
+pub fn physical_to_symbolic(
+    bsd: &BlockSizeDescriptor,
+    pcb: &[u8; 16],
+    scb: &mut SymbolicCompressedBlock,
+) {
+    use crate::astcenc::{decode_ise, read_bits};
+    use super::tables::{
+        COLOR_SCRAMBLED_PQUANT_TO_UQUANT, QUANT_MODE_TABLE, WEIGHT_UNSCRAMBLE_AND_UNQUANT,
+    };
+
+    scb.block_type = SYM_BTYPE_NONCONST;
+
+    // Extract header fields
+    let block_mode = read_bits(11, 0, pcb) as usize;
+    if block_mode & 0x1FF == 0x1FC {
+        // Constant color block: check what format the data has
+        scb.block_type = if block_mode & 0x200 != 0 {
+            SYM_BTYPE_CONST_F16
+        } else {
+            SYM_BTYPE_CONST_U16
+        };
+        scb.partition_count = 0;
+        for i in 0..4 {
+            scb.constant_color[i] = i32::from(pcb[2 * i + 8]) | (i32::from(pcb[2 * i + 9]) << 8);
+        }
+
+        // Additionally, check that the void-extent
+        if bsd.dim_z == 1 {
+            // 2D void-extent
+            if read_bits(2, 10, pcb) != 3 {
+                scb.block_type = SYM_BTYPE_ERROR;
+                return;
+            }
+            // Low values span 3 bytes so need two read_bits calls
+            let vx_low_s = read_bits(8, 12, pcb) | (read_bits(5, 12 + 8, pcb) << 8);
+            let vx_high_s = read_bits(13, 25, pcb);
+            let vx_low_t = read_bits(8, 38, pcb) | (read_bits(5, 38 + 8, pcb) << 8);
+            let vx_high_t = read_bits(13, 51, pcb);
+            let all_ones = vx_low_s == 0x1FFF
+                && vx_high_s == 0x1FFF
+                && vx_low_t == 0x1FFF
+                && vx_high_t == 0x1FFF;
+            if (vx_low_s >= vx_high_s || vx_low_t >= vx_high_t) && !all_ones {
+                scb.block_type = SYM_BTYPE_ERROR;
+            }
+        } else {
+            // 3D void-extent
+            let v = |o: u32| read_bits(9, o, pcb);
+            let (ls, hs, lt, ht, lr, hr) = (v(10), v(19), v(28), v(37), v(46), v(55));
+            let all_ones = [ls, hs, lt, ht, lr, hr].iter().all(|&x| x == 0x1FF);
+            if (ls >= hs || lt >= ht || lr >= hr) && !all_ones {
+                scb.block_type = SYM_BTYPE_ERROR;
+            }
+        }
+        return;
+    }
+
+    if bsd.block_mode_packed_index[block_mode] == BLOCK_BAD_BLOCK_MODE {
+        scb.block_type = SYM_BTYPE_ERROR;
+        return;
+    }
+
+    let bm = bsd.get_block_mode(block_mode);
+    let di = bsd.get_decimation_info(bm.decimation_mode as usize);
+
+    let weight_count = di.weight_count as usize;
+    let weight_quant_method = bm.quant_mode as usize;
+    let is_dual_plane = bm.is_dual_plane;
+    let real_weight_count = if is_dual_plane {
+        2 * weight_count
+    } else {
+        weight_count
+    };
+
+    let partition_count = read_bits(2, 11, pcb) as usize + 1;
+
+    scb.block_mode = block_mode as u16;
+    scb.partition_count = partition_count as u8;
+
+    let mut bswapped = [0u8; 16];
+    for (i, b) in bswapped.iter_mut().enumerate() {
+        *b = bitrev8(pcb[15 - i]);
+    }
+
+    let bits_for_weights =
+        super::get_ise_sequence_bitcount(real_weight_count as u32, weight_quant_method) as i32;
+    let mut below_weights_pos = 128 - bits_for_weights;
+
+    let mut indices = [0u8; 64];
+    decode_ise(
+        weight_quant_method,
+        real_weight_count,
+        &bswapped,
+        &mut indices,
+        0,
+    );
+    let Some(map) = WEIGHT_UNSCRAMBLE_AND_UNQUANT.get(weight_quant_method) else {
+        scb.block_type = SYM_BTYPE_ERROR;
+        return;
+    };
+    let unquant = |v: u8| map.get(v as usize).copied().unwrap_or(0);
+    if is_dual_plane {
+        for i in 0..weight_count {
+            scb.weights[i] = unquant(indices[2 * i]);
+            scb.weights[i + WEIGHTS_PLANE2_OFFSET] = unquant(indices[2 * i + 1]);
+        }
+    } else {
+        for i in 0..weight_count {
+            scb.weights[i] = unquant(indices[i]);
+        }
+    }
+
+    if is_dual_plane && partition_count == 4 {
+        scb.block_type = SYM_BTYPE_ERROR;
+        return;
+    }
+
+    scb.color_formats_matched = 0;
+
+    // Determine the format of each endpoint pair
+    let mut color_formats = [0u32; BLOCK_MAX_PARTITIONS];
+    let mut encoded_type_highpart_size: i32 = 0;
+    if partition_count == 1 {
+        color_formats[0] = read_bits(4, 13, pcb);
+        scb.partition_index = 0;
+    } else {
+        encoded_type_highpart_size = (3 * partition_count as i32) - 4;
+        below_weights_pos -= encoded_type_highpart_size;
+        let encoded_type = read_bits(6, 13 + PARTITION_INDEX_BITS, pcb)
+            | (read_bits(
+                encoded_type_highpart_size as u32,
+                below_weights_pos.max(0) as u32,
+                pcb,
+            ) << 6);
+        let mut baseclass = encoded_type & 0x3;
+        if baseclass == 0 {
+            for f in color_formats.iter_mut().take(partition_count) {
+                *f = (encoded_type >> 2) & 0xF;
+            }
+            below_weights_pos += encoded_type_highpart_size;
+            scb.color_formats_matched = 1;
+            encoded_type_highpart_size = 0;
+        } else {
+            let mut bitpos = 2;
+            baseclass -= 1;
+            for f in color_formats.iter_mut().take(partition_count) {
+                *f = (((encoded_type >> bitpos) & 1) + baseclass) << 2;
+                bitpos += 1;
+            }
+            for f in color_formats.iter_mut().take(partition_count) {
+                *f |= (encoded_type >> bitpos) & 3;
+                bitpos += 2;
+            }
+        }
+        scb.partition_index = read_bits(10, 13, pcb) as u16;
+
+        // Reject blocks selecting a partitioning that is not present in this block size
+        // descriptor
+        if bsd.partitioning_packed_index[partition_count - 2][scb.partition_index as usize]
+            == BLOCK_BAD_PARTITIONING
+        {
+            scb.block_type = SYM_BTYPE_ERROR;
+            return;
+        }
+    }
+
+    for i in 0..partition_count {
+        scb.color_formats[i] = color_formats[i] as u8;
+    }
+
+    // Determine number of color endpoint integers
+    let color_integer_count: usize = color_formats[..partition_count]
+        .iter()
+        .map(|f| ((f >> 2) as usize + 1) * 2)
+        .sum();
+    if color_integer_count > 18 {
+        scb.block_type = SYM_BTYPE_ERROR;
+        return;
+    }
+
+    // Determine the color endpoint format to use
+    const COLOR_BITS_ARR: [i32; 5] = [
+        -1,
+        115 - 4,
+        113 - 4 - PARTITION_INDEX_BITS as i32,
+        113 - 4 - PARTITION_INDEX_BITS as i32,
+        113 - 4 - PARTITION_INDEX_BITS as i32,
+    ];
+    let mut color_bits =
+        COLOR_BITS_ARR[partition_count] - bits_for_weights - encoded_type_highpart_size;
+    if is_dual_plane {
+        color_bits -= 2;
+    }
+    let color_bits = color_bits.max(0) as usize;
+
+    let color_quant_level = QUANT_MODE_TABLE[color_integer_count >> 1][color_bits.min(127)];
+    if color_quant_level < QUANT_6 as i8 {
+        scb.block_type = SYM_BTYPE_ERROR;
+        return;
+    }
+
+    // Unpack the integer color values and assign to endpoints
+    scb.quant_mode = color_quant_level as u32;
+
+    let mut values_to_decode = [0u8; 32];
+    decode_ise(
+        color_quant_level as usize,
+        color_integer_count,
+        pcb,
+        &mut values_to_decode,
+        if partition_count == 1 {
+            17
+        } else {
+            19 + PARTITION_INDEX_BITS
+        },
+    );
+
+    let unpack_table = COLOR_SCRAMBLED_PQUANT_TO_UQUANT[(scb.quant_mode - QUANT_6) as usize];
+    let mut valuecount_to_decode = 0;
+    for i in 0..partition_count {
+        let vals = 2 * (color_formats[i] >> 2) as usize + 2;
+        for j in 0..vals {
+            scb.color_values[i][j] = unpack_table
+                .get(values_to_decode[j + valuecount_to_decode] as usize)
+                .copied()
+                .unwrap_or(0);
+        }
+        valuecount_to_decode += vals;
+    }
+
+    // Fetch component for second-plane in the case of dual plane of weights
+    scb.plane2_component = -1;
+    if is_dual_plane {
+        scb.plane2_component = read_bits(2, (below_weights_pos - 2).max(0) as u32, pcb) as i8;
+    }
+}
+}

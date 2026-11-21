@@ -3,7 +3,8 @@
 // From ktx-rs tests/astcenc_compress.rs; see NOTICE.md.
 //! astcenc compressor (`astcenc_compress_image`) vs. golden output of the C++ original
 //! (ktx-rs `scripts/golden/gen_astcenc_compress_golden.sh`): whole images over block sizes,
-//! profiles, qualities, flag sets, swizzles and data types, on every instruction set copy.
+//! profiles, qualities, flag sets, swizzles and data types, on every instruction set copy;
+//! also with LZ-RDO (`ASTCENC_FLG_USE_LZ_RDO`) for the LDR profiles.
 #![allow(clippy::panic, clippy::needless_range_loop)]
 
 use super::*;
@@ -92,14 +93,34 @@ fn to_half(f: f32) -> u16 {
 
 #[test]
 fn compress_matches_astcenc() {
-    let golden: BTreeMap<String, String> = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/testdata/astcenc/compress_golden.txt"
-    ))
-    .lines()
-    .filter_map(|l| l.split_once('\t'))
-    .map(|(k, v)| (k.to_string(), v.to_string()))
-    .collect();
+    check_golden(
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/testdata/astcenc/compress_golden.txt"
+        )),
+        false,
+    );
+}
+
+#[test]
+fn compress_lz_rdo_matches_astcenc() {
+    check_golden(
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/testdata/astcenc/compress_lz_rdo_golden.txt"
+        )),
+        true,
+    );
+}
+
+/// Compresses the generated cases (`rdo`: the LZ-RDO set) with every instruction set copy and
+/// 1..=4 threads and compares their hashes with `golden` (`tools/astcenc-golden`).
+fn check_golden(golden: &str, rdo: bool) {
+    let golden: BTreeMap<String, String> = golden
+        .lines()
+        .filter_map(|l| l.split_once('\t'))
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
     const SIZES: [[u32; 3]; 8] = [
         [4, 4, 1],
         [5, 4, 1],
@@ -126,7 +147,7 @@ fn compress_matches_astcenc() {
     let mut fails = Vec::new();
     let mut n = 0;
     for (si, s) in SIZES.iter().enumerate() {
-        for (pi, &prof) in profiles.iter().enumerate() {
+        for (pi, &prof) in profiles.iter().enumerate().take(if rdo { 2 } else { 4 }) {
             for (qi, &q) in qualities.iter().enumerate() {
                 for fi in 0..4usize {
                     let mut flags = flag_sets[fi];
@@ -135,13 +156,24 @@ fn compress_matches_astcenc() {
                         continue;
                     }
                     if pi == 0 && fi == 3 {
-                        flags = ASTCENC_FLG_MAP_RGBM;
+                        // RGBM with LZ-RDO can make upstream encode an uninitialized error block
+                        flags = if rdo {
+                            ASTCENC_FLG_USE_DECODE_UNORM8
+                        } else {
+                            ASTCENC_FLG_MAP_RGBM
+                        };
                     }
                     let dt = (si + pi + qi + fi) % 3;
                     let kind = ((si * 3 + pi + qi * 2 + fi) % 5) as u32;
-                    let Ok(c) = astcenc_config_init(prof, s[0], s[1], s[2], q, flags) else {
+                    if rdo {
+                        flags |= ASTCENC_FLG_USE_LZ_RDO;
+                    }
+                    let Ok(mut c) = astcenc_config_init(prof, s[0], s[1], s[2], q, flags) else {
                         panic!("config_init")
                     };
+                    if rdo {
+                        c.lz_rdo_lambda = [10.0, 20.0, 40.0][(si + qi + fi) % 3];
+                    }
                     // 1..=4 threads sharing the context; the output must not depend on it.
                     // wasm has no threads.
                     let threads = if cfg!(target_family = "wasm") {
@@ -149,9 +181,22 @@ fn compress_matches_astcenc() {
                     } else {
                         (n % 4) as u32 + 1
                     };
-                    let dx = s[0] * 2 + 1;
-                    let dy = s[1] * 2 - 1;
-                    let dz = if s[2] == 1 { 1 } else { s[2] + 1 };
+                    let (mut dx, mut dy, mut dz) = (
+                        s[0] * 2 + 1,
+                        s[1] * 2 - 1,
+                        if s[2] == 1 { 1 } else { s[2] + 1 },
+                    );
+                    if rdo {
+                        // Larger images; the first case spans two 4096 block optimization chunks
+                        (dx, dy, dz) = (
+                            s[0] * 9 + 1,
+                            s[1] * 7 - 1,
+                            if s[2] == 1 { 1 } else { s[2] * 3 + 1 },
+                        );
+                        if (si, pi, qi, fi) == (0, 0, 1, 0) {
+                            (dx, dy) = (264, 257);
+                        }
+                    }
                     let mut l = Lcg((si * 1000 + pi * 100 + qi * 10 + fi) as u32);
                     let mut p8 = vec![Vec::new(); dz as usize];
                     let mut p16 = vec![Vec::new(); dz as usize];
@@ -223,9 +268,10 @@ fn compress_matches_astcenc() {
                                 }
                             });
                         }
-                        let key = format!("s{si} p{pi} q{qi} f{fi} {isa:?}");
+                        let prefix = if rdo { "rdo " } else { "" };
+                        let key = format!("{prefix}s{si} p{pi} q{qi} f{fi} {isa:?}");
                         let got = format!("{:016x}", fnv(&out));
-                        match golden.get(&format!("s{si} p{pi} q{qi} f{fi}")) {
+                        match golden.get(&format!("{prefix}s{si} p{pi} q{qi} f{fi}")) {
                             Some(w) if *w == got => {}
                             Some(w) => fails.push(format!("{key}: want {w} got {got}")),
                             None => fails.push(format!("{key}: missing")),

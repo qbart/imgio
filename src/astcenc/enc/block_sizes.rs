@@ -815,5 +815,15 @@ pub fn init_block_size_descriptor(
         construct_block_size_descriptor_2d(texels_x, texels_y, can_omit_modes, mode_cutoff, bsd);
     }
     init_partition_tables(bsd, can_omit_modes, partition_count_cutoff);
+
+    // Initialize weight bits table for RDO encoding
+    for i in 0..WEIGHTS_MAX_BLOCK_MODES {
+        let packed_index = bsd.block_mode_packed_index[i];
+        bsd.weight_bits_for_mode[i] = if packed_index != BLOCK_BAD_BLOCK_MODE {
+            bsd.block_modes[packed_index as usize].weight_bits
+        } else {
+            0
+        };
+    }
 }
 }

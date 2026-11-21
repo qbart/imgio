@@ -12,8 +12,8 @@
 //! `_mm_min_ps` / `_mm_max_ps` NaN rules (second operand wins), round-to-nearest-even
 //! float16 conversion, and the AVX2 build's two-candidates-per-vector partition search
 //! (`ASTCENC_HAS_NATIVE_QUAD_OPS`) in every instruction set copy. It is compiled once per
-//! instruction set and picked at context creation. LZ rate-distortion optimization
-//! (`ASTCENC_FLG_USE_LZ_RDO`, `astcenc_lz_optimize.cpp`) is not ported.
+//! instruction set and picked at context creation, including the LZ rate-distortion
+//! optimization (`ASTCENC_FLG_USE_LZ_RDO`, `astcenc_lz_optimize.cpp`).
 
 pub mod percentile_tables;
 pub mod sincos_tables;
@@ -1100,64 +1100,115 @@ impl BlockSizeDescriptor {
     }
 }
 
-/// Port of `ParallelManager` (`astcenc_internal_entry.h`) as used for compression: threads
-/// take batches of task indices from a shared counter. The progress callback, `wait` and
-/// `term` are not ported (libktx uses none of them).
+/// The `m_lock` guarded state of [`ParallelManager`].
+#[derive(Debug, Default)]
+struct ParallelState {
+    is_cancelled: bool,
+    init_done: bool,
+    term_done: bool,
+    issued_task_count: usize,
+    done_task_count: usize,
+    total_task_count: usize,
+}
+
+impl ParallelState {
+    /// The task count `wait` waits for (only the issued tasks once cancelled).
+    fn target(&self) -> usize {
+        if self.is_cancelled {
+            self.issued_task_count
+        } else {
+            self.total_task_count
+        }
+    }
+}
+
+/// Port of `ParallelManager` (`astcenc_internal_entry.h`): threads take batches of task
+/// indices under a lock, `wait` blocks until every issued batch is complete and `term` runs a
+/// cleanup once. The progress callback is not ported. A poisoned lock reads as "no work"
+/// (and does not block in `wait`).
 #[derive(Debug, Default)]
 pub struct ParallelManager {
-    /// `m_lock` guarded state: `(m_init_done, m_task_count, m_done_count)`.
-    state: std::sync::Mutex<(bool, usize, usize)>,
-    is_cancelled: std::sync::atomic::AtomicBool,
-    start_count: std::sync::atomic::AtomicUsize,
-    /// `m_task_count` once initialized (read lock free by `get_task_assignment`).
-    task_count: std::sync::atomic::AtomicUsize,
+    state: std::sync::Mutex<ParallelState>,
+    complete: std::sync::Condvar,
 }
 
 impl ParallelManager {
     /// `reset`.
     pub fn reset(&self) {
-        use std::sync::atomic::Ordering::Relaxed;
         if let Ok(mut st) = self.state.lock() {
-            *st = (false, 0, 0);
+            *st = ParallelState::default();
         }
-        self.is_cancelled.store(false, Relaxed);
-        self.start_count.store(0, Relaxed);
-        self.task_count.store(0, Relaxed);
     }
 
-    /// `cancel`.
+    /// `cancel`: no further batches are handed out.
     pub fn cancel(&self) {
-        self.is_cancelled
-            .store(true, std::sync::atomic::Ordering::Relaxed);
+        if let Ok(mut st) = self.state.lock() {
+            st.is_cancelled = true;
+        }
+        self.complete.notify_all();
     }
 
     /// `init(task_count, callback)`: only the first caller sets the task count.
     pub fn init(&self, task_count: usize) {
+        self.init_with(|| task_count);
+    }
+
+    /// `init(init_func)`: only the first caller runs `init_func` (under the lock), which
+    /// returns the task count.
+    pub fn init_with(&self, init_func: impl FnOnce() -> usize) {
         if let Ok(mut st) = self.state.lock()
-            && !st.0
+            && !st.init_done
         {
-            st.1 = task_count;
-            st.0 = true;
-            self.task_count
-                .store(task_count, std::sync::atomic::Ordering::Release);
+            st.total_task_count = init_func();
+            st.init_done = true;
         }
     }
 
     /// `get_task_assignment`: `(base, count)`, `count == 0` when no work is left.
     pub fn get_task_assignment(&self, granule: usize) -> (usize, usize) {
-        use std::sync::atomic::Ordering::{Acquire, Relaxed};
-        let base = self.start_count.fetch_add(granule, Relaxed);
-        let task_count = self.task_count.load(Acquire);
-        if self.is_cancelled.load(Relaxed) || base >= task_count {
+        let Ok(mut st) = self.state.lock() else {
+            return (0, 0);
+        };
+        if st.is_cancelled || st.issued_task_count >= st.total_task_count {
             return (0, 0);
         }
-        (base, (task_count - base).min(granule))
+        let base = st.issued_task_count;
+        let count = (st.total_task_count - base).min(granule);
+        st.issued_task_count += count;
+        (base, count)
     }
 
     /// `complete_task_assignment`.
     pub fn complete_task_assignment(&self, count: usize) {
-        if let Ok(mut st) = self.state.lock() {
-            st.2 += count;
+        let notify = match self.state.lock() {
+            Ok(mut st) => {
+                st.done_task_count += count;
+                st.done_task_count == st.target()
+            }
+            Err(_) => true,
+        };
+        if notify {
+            self.complete.notify_all();
+        }
+    }
+
+    /// `wait`: blocks until all tasks (only the issued ones once cancelled) are complete.
+    pub fn wait(&self) {
+        let Ok(st) = self.state.lock() else {
+            return;
+        };
+        let _done = self
+            .complete
+            .wait_while(st, |st| st.done_task_count != st.target());
+    }
+
+    /// `term(term_func)`: only the first caller runs `term_func`.
+    pub fn term(&self, term_func: impl FnOnce()) {
+        if let Ok(mut st) = self.state.lock()
+            && !st.term_done
+        {
+            term_func();
+            st.term_done = true;
         }
     }
 }
@@ -1223,6 +1274,31 @@ pub struct AstcencContext {
     compressor: Option<CompressorCopy>,
     /// `manage_compress`.
     manage_compress: ParallelManager,
+    /// LZ-RDO task managers and shared buffers.
+    lz_rdo: LzRdo,
+}
+
+/// The LZ-RDO state of `astcenc_context`: `manage_lz_rdo_setup`, `manage_lz_rdo_optimize`,
+/// `lz_rdo_restricted_blocks` and `lz_rdo_per_texel_weights` (allocated by the first thread
+/// of the setup pass; tiles and batches write disjoint ranges under the write locks).
+#[derive(Debug, Default)]
+pub struct LzRdo {
+    pub manage_setup: ParallelManager,
+    pub manage_optimize: ParallelManager,
+    /// One restricted (1 partition, 1 plane, QUANT_32 weights) encoding per block.
+    pub restricted_blocks: std::sync::RwLock<Vec<u8>>,
+    /// `texel_count` activity weights per block, plus SIMD padding.
+    pub per_texel_weights: std::sync::RwLock<Vec<f32>>,
+    /// Set when the setup allocation failed (every thread then fails with `OutOfMem`).
+    pub alloc_failed: std::sync::atomic::AtomicBool,
+}
+
+impl LzRdo {
+    /// `astcenc_compress_reset` for the LZ-RDO managers.
+    fn reset(&self) {
+        self.manage_setup.reset();
+        self.manage_optimize.reset();
+    }
 }
 
 impl std::fmt::Debug for AstcencContext {
@@ -1321,6 +1397,7 @@ pub fn astcenc_context_alloc_isa(
         bsd: BlockSizeDescriptor::new(cfg.block_x, cfg.block_y, cfg.block_z),
         compressor,
         manage_compress: ParallelManager::default(),
+        lz_rdo: LzRdo::default(),
     }))
 }
 
@@ -1348,10 +1425,11 @@ pub type AstcencOutput<'a> = std::sync::Mutex<&'a mut [u8]>;
 
 /// Port of `astcenc_compress_image`. As in C++, every thread of a multi-threaded context
 /// calls it with its own `thread_index` and the same `data_out`; the threads share the
-/// blocks. Alpha scale RDO (`a_scale_radius`, the `compute_variance.cpp` averages) and LZ-RDO
-/// (`ASTCENC_FLG_USE_LZ_RDO` with a nonzero `lz_rdo_lambda`) are not ported and fail with
-/// `NotImplemented`.
-#[allow(unsafe_code)] // calls into the SSE4.1 / AVX2 copies, see `CompressorCopy`
+/// blocks, and each call returns once all of them are compressed. With
+/// `ASTCENC_FLG_USE_LZ_RDO` and a nonzero `lz_rdo_lambda` the LZ-RDO setup pass runs first and
+/// the LZ-RDO optimization passes after the compression (`astcenc_lz_optimize.cpp`). Alpha
+/// scale RDO (`a_scale_radius`, the `compute_variance.cpp` averages) is not ported and fails
+/// with `NotImplemented`.
 pub fn astcenc_compress_image(
     context: &AstcencContext,
     image: &AstcencImage,
@@ -1368,6 +1446,9 @@ pub fn astcenc_compress_image(
     if thread_index >= context.thread_count {
         return Err(AstcencError::BadParam);
     }
+
+    let enable_lz_rdo =
+        context.config.flags & ASTCENC_FLG_USE_LZ_RDO != 0 && context.config.lz_rdo_lambda > 0.0;
 
     let dim_x = image.dim_x as usize;
     let dim_y = image.dim_y as usize;
@@ -1400,38 +1481,112 @@ pub fn astcenc_compress_image(
     // If context thread count is one then implicitly reset
     if context.thread_count == 1 {
         context.manage_compress.reset();
+        context.lz_rdo.reset();
     }
 
     if context.config.a_scale_radius != 0 {
         return Err(AstcencError::NotImplemented);
     }
-    // LZ-RDO (`astcenc_lz_optimize.cpp`) is not ported
-    if context.config.flags & ASTCENC_FLG_USE_LZ_RDO != 0 && context.config.lz_rdo_lambda > 0.0 {
-        return Err(AstcencError::NotImplemented);
+
+    let result = compress_image_passes(
+        context,
+        image,
+        swizzle,
+        data_out,
+        thread_index as usize,
+        enable_lz_rdo,
+    );
+    if result.is_err() {
+        // Release the threads waiting on this one
+        context.lz_rdo.manage_optimize.cancel();
+        context.manage_compress.cancel();
+        context.lz_rdo.manage_setup.cancel();
+    }
+    result
+}
+
+/// The passes of `astcenc_compress_image`: LZ-RDO setup, compression, LZ-RDO optimization.
+#[allow(unsafe_code)] // calls into the SSE4.1 / AVX2 copies, see `CompressorCopy`
+fn compress_image_passes(
+    context: &AstcencContext,
+    image: &AstcencImage,
+    swizzle: &AstcencSwizzle,
+    data_out: &AstcencOutput,
+    t: usize,
+    enable_lz_rdo: bool,
+) -> Result<(), AstcencError> {
+    let Some(copy) = &context.compressor else {
+        return Err(AstcencError::BadContext);
+    };
+    let config = &context.config;
+    let lz = &context.lz_rdo;
+
+    // LZ-RDO setup goes before the compression, which writes the restricted blocks it
+    // allocates; all threads take tiles of it
+    if enable_lz_rdo {
+        match copy {
+            CompressorCopy::Baseline(c) => {
+                base::lz_optimize::lz_rdo_setup(c, config, lz, image, swizzle)
+            }
+            // SAFETY: these copies only exist when the CPU has their features (see
+            // `CompressorCopy`).
+            #[cfg(target_arch = "x86_64")]
+            CompressorCopy::Sse41(c) => unsafe {
+                sse41::lz_optimize::lz_rdo_setup(c, config, lz, image, swizzle)
+            },
+            #[cfg(target_arch = "x86_64")]
+            CompressorCopy::Avx2(c) => unsafe {
+                avx2::lz_optimize::lz_rdo_setup(c, config, lz, image, swizzle)
+            },
+        }
+        if lz.alloc_failed.load(std::sync::atomic::Ordering::Relaxed) {
+            return Err(AstcencError::OutOfMem);
+        }
     }
 
-    let (config, manage, t) = (
-        &context.config,
-        &context.manage_compress,
-        thread_index as usize,
-    );
-    let acm = context.active_channel_mask;
-    match &context.compressor {
-        Some(CompressorCopy::Baseline(c)) => {
-            base::compressor::compress_image(c, config, acm, manage, t, image, swizzle, data_out)
-        }
-        // SAFETY: these copies only exist when the CPU has their features (see
-        // `CompressorCopy`).
+    let restricted = enable_lz_rdo.then_some(&lz.restricted_blocks);
+    let (manage, acm) = (&context.manage_compress, context.active_channel_mask);
+    match copy {
+        CompressorCopy::Baseline(c) => base::compressor::compress_image(
+            c, config, acm, manage, t, image, swizzle, data_out, restricted,
+        ),
+        // SAFETY: see above.
         #[cfg(target_arch = "x86_64")]
-        Some(CompressorCopy::Sse41(c)) => unsafe {
-            sse41::compressor::compress_image(c, config, acm, manage, t, image, swizzle, data_out)
+        CompressorCopy::Sse41(c) => unsafe {
+            sse41::compressor::compress_image(
+                c, config, acm, manage, t, image, swizzle, data_out, restricted,
+            )
         },
         #[cfg(target_arch = "x86_64")]
-        Some(CompressorCopy::Avx2(c)) => unsafe {
-            avx2::compressor::compress_image(c, config, acm, manage, t, image, swizzle, data_out)
+        CompressorCopy::Avx2(c) => unsafe {
+            avx2::compressor::compress_image(
+                c, config, acm, manage, t, image, swizzle, data_out, restricted,
+            )
         },
-        None => Err(AstcencError::BadContext),
+    }?;
+
+    // Wait for the compression to complete (the optimization reads every block)
+    context.manage_compress.wait();
+
+    if enable_lz_rdo {
+        // The optimization passes also depend on the setup pass
+        lz.manage_setup.wait();
+        match copy {
+            CompressorCopy::Baseline(c) => {
+                base::lz_optimize::lz_rdo_optimize(c, config, lz, t, image, swizzle, data_out)
+            }
+            // SAFETY: see above.
+            #[cfg(target_arch = "x86_64")]
+            CompressorCopy::Sse41(c) => unsafe {
+                sse41::lz_optimize::lz_rdo_optimize(c, config, lz, t, image, swizzle, data_out)
+            },
+            #[cfg(target_arch = "x86_64")]
+            CompressorCopy::Avx2(c) => unsafe {
+                avx2::lz_optimize::lz_rdo_optimize(c, config, lz, t, image, swizzle, data_out)
+            },
+        }?;
     }
+    Ok(())
 }
 
 /// Port of `astcenc_compress_reset`.
@@ -1440,6 +1595,7 @@ pub fn astcenc_compress_reset(context: &mut AstcencContext) -> Result<(), Astcen
         return Err(AstcencError::BadContext);
     }
     context.manage_compress.reset();
+    context.lz_rdo.reset();
     Ok(())
 }
 
@@ -1448,7 +1604,11 @@ pub fn astcenc_compress_cancel(context: &AstcencContext) -> Result<(), AstcencEr
     if context.config.flags & ASTCENC_FLG_DECOMPRESS_ONLY != 0 {
         return Err(AstcencError::BadContext);
     }
+    // Cancel dependent stages first so workers cannot consume incomplete input from an
+    // earlier stage
+    context.lz_rdo.manage_optimize.cancel();
     context.manage_compress.cancel();
+    context.lz_rdo.manage_setup.cancel();
     Ok(())
 }
 

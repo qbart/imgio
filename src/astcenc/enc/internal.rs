@@ -223,6 +223,9 @@ pub struct BlockSizeDescriptor {
     pub decimation_tables: Vec<DecimationInfo>,
     pub block_mode_packed_index: [u16; WEIGHTS_MAX_BLOCK_MODES],
     pub block_modes: [BlockMode; WEIGHTS_MAX_BLOCK_MODES],
+    /// `weight_bits_for_mode`: the weight bits of each block mode (0 for unused modes), used
+    /// for LZ-RDO encoding.
+    pub weight_bits_for_mode: [u8; WEIGHTS_MAX_BLOCK_MODES],
     /// `(3 * BLOCK_MAX_PARTITIONINGS) + 1` entries: 2, 3, 4 partition tables then the
     /// single 1 partition entry.
     pub partitionings: Vec<PartitionInfo>,
@@ -255,6 +258,7 @@ impl BlockSizeDescriptor {
             decimation_tables: vec![DecimationInfo::default(); WEIGHTS_MAX_DECIMATION_MODES],
             block_mode_packed_index: [0; WEIGHTS_MAX_BLOCK_MODES],
             block_modes: [BlockMode::default(); WEIGHTS_MAX_BLOCK_MODES],
+            weight_bits_for_mode: [0; WEIGHTS_MAX_BLOCK_MODES],
             partitionings: vec![PartitionInfo::default(); 3 * BLOCK_MAX_PARTITIONINGS + 1],
             partitioning_packed_index: [[0; BLOCK_MAX_PARTITIONINGS]; 3],
             kmeans_texels: [0; BLOCK_MAX_KMEANS_TEXELS],

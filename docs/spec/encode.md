@@ -44,8 +44,8 @@
   `-thorough` (98), Best `-exhaustive` (100); flags 0, RGBA swizzle, no alpha weighting /
   decode_unorm8 (= the CLI defaults for an RGBA8 TGA / PNG or FP16 DDS input). One context,
   `available_parallelism` threads (1 below 64K pixels) each calling `astcenc_compress_image`;
-  input RGBA8 (LDR) or RGBA32F (HDR). Not ported: LZ-RDO (`astcenc_lz_optimize.cpp`,
-  `-rdo-lambda`) and alpha-scale RDO (`a_scale_radius`), both `NotImplemented`.
+  input RGBA8 (LDR) or RGBA32F (HDR). LZ-RDO (`EncodeOptions::rdo_lambda`) see below. Not
+  ported: alpha-scale RDO (`a_scale_radius`, `NotImplemented`).
   Byte identity with the C++ 6.0 CLI (`astcenc-avx2`): `tests/astcenc_cli.rs` (11 `.astc` files
   from `scripts/gen_astcenc_testdata.py`: LDR / sRGB / HDR, 4x4..12x12, every `Quality`);
   `astcenc::tests::compress_matches_astcenc` (C++ 6.0 library hashes from
@@ -54,6 +54,40 @@
   trips. Dev cross-check (not in the tests): `-cl` / `-cs` / `-ch` / `-cH` x all six presets x
   4x4, 5x4, 6x6, 8x8, 10x5, 12x12 x 1 / 16 threads, also `-normal`, `-perceptual`, `-a 0`,
   `-decode_unorm8`, on the test images, a 256x256 crop and a 1024x1024 image: all identical.
+- ASTC LZ-RDO (`EncodeOptions::rdo_lambda`, default 0 = off; negative / NaN ->
+  `InvalidArgument`; ignored by every other format incl. ASTC HDR): astc-encoder 6.0
+  `astcenc_lz_optimize.cpp` (`src/astcenc/enc/lz_optimize.rs`), set up like the CLI's
+  `-rdo-lambda <x>`: `ASTCENC_FLG_USE_LZ_RDO` + `lz_rdo_lambda = x`, preset history sizes /
+  passes. HDR profiles with the flag are `NotImplemented` (as upstream). Passes, all threads
+  sharing each through a `ParallelManager` (now with upstream's `wait` / `term`):
+  1. Setup: block aligned ~256x256 (3D: ~32^3) tiles, per-texel activity weights
+     `1/257 / (257/256 + 4/255 * sqrt(E))`, E = sigma 1.25 blur of the summed squared high-pass
+     (input minus sigma 2.2 blur) of RGBA. The X pass filters 8-texel spans unnormalized where
+     the kernel fits and renormalizes the rest one texel at a time, exactly where the AVX2
+     build does (`ASTCENC_SIMD_WIDTH` 8).
+  2. Compression, plus a restricted encode per block (1 partition, 1 plane, QUANT_32,
+     "always" modes in 2D) into the shared restricted buffer. If no restricted candidate
+     passes (possible with RGBM), upstream encodes an uninitialized error block (undefined
+     behaviour); imgio writes the mean color constant block instead.
+  3. Optimization: chunks of 4096 blocks (seeded by the chunk start), per pass: MTF lists of
+     weight bits, endpoint bits (2x history) and simple endpoints seeded with 64 random blocks,
+     candidates = current / restricted / original block, endpoint substitution with
+     re-derived weights, and weight bits x the 8 best endpoint candidates, scored by
+     `weighted SSD + lambda * 0.75 * texels / 16 * estimated bits` (MTF positions + mode byte
+     histogram), with a decoded block / error cache. Chunks are independent, so the output
+     does not depend on the thread count (as in C++: `-j 1` / `-j 3` / `-j 16` identical).
+  Tests: `tests/astcenc_cli.rs` `matches_astcenc_cli_lz_rdo` (7 CLI `-rdo-lambda` files:
+  lambda 10 / 20 / 40, fast / medium / thorough, 4x4 / 6x6 / 8x8, `-cl` / `-cs`, incl. a
+  320x240 image spanning two chunks), `astcenc::tests::compress_lz_rdo_matches_astcenc`
+  (`compress_lz_rdo_golden.txt`: 192 C++ library cases, 8 block sizes incl. 3D x LDR / sRGB x
+  3 qualities x 4 flag sets, U8 / F16 / F32, 1-4 threads, every ISA copy; RGBM is left out
+  for the undefined behaviour above), `tests/astc_rdo.rs` (zstd size shrinks and PSNR drops
+  monotonically over lambda 0 / 10 / 20 / 40 on a procedural photo-like image, 4x4: 63.4 ->
+  51.8 -> 46.6 -> 40.6 KB at 53.8 -> 47.9 dB; lambda validation). Dev cross-check: lambda 10 /
+  20 / 40 x fast / medium / thorough x 4x4 / 6x6 / 8x8 x `-cl` / `-cs` on a 1024x1024 image at
+  1 and 16 threads, plus 517x301 / 300x700 crops at 4x4, 5x4, 6x5, 8x6, 10x5, 12x12: identical.
+  1024x1024 4x4 medium lambda 20 (imgio vs CLI): 1 thread 1.74 vs 1.36 s, 16 threads 0.26 vs
+  0.20 s (optimization pass ~0.48 s single threaded; the rest is the compressor gap above).
 - PVRTC1 4bpp RGB / RGBA: basisu `encode_pvrtc1` (min/max endpoints + modulation fit against
   the bilinear upsample), whole image, power-of-two block counts (`InvalidArgument`).
 - ATC RGB / RGBA (BC4 alpha), PVRTC2 RGB / RGBA (hard-transition blocks; translucent mode
@@ -92,6 +126,9 @@
   format search splits, k-means SoA, RGB metric reuse, LDR / sRGB / HDR quality changes and bug
   fixes): byte identical with the 6.0 CLI; `compress_golden.txt` regenerated from C++ 6.0
   (209 of 336 hashes changed). 1024x1024 4x4 medium, 1 thread: 1.99 s -> 1.16 s (6.0 CLI 0.86 s).
+- 2026-11-21: ASTC LZ-RDO (`astcenc_lz_optimize.cpp`, `EncodeOptions::rdo_lambda`): byte
+  identical with the 6.0 CLI `-rdo-lambda` (7 CLI files, 192 library hashes, 108 dev runs on
+  1024x1024 at 1 / 16 threads); thread-count independent like upstream.
 - 2026-11-21: ATC, PVRTC2, FXT1 encoders (`legacy_enc`): every compressed `Format` encodes.
 - 2026-11-21: signed BC6H encoder (`bc6h_signed`).
 - 2026-11-21: ETC2 T / H / planar mode encoding (`etc2modes`).

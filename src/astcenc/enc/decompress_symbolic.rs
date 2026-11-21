@@ -126,6 +126,30 @@ fn unpack_weights_at(
 }
 
 isa_fn! {
+/// `unpack_weights`: the unquantized, undecimated weights (0..64) of every texel of plane 1
+/// and (dual plane) plane 2.
+pub fn unpack_weights(
+    bsd: &BlockSizeDescriptor,
+    scb: &SymbolicCompressedBlock,
+    di: &DecimationInfo,
+    is_dual_plane: bool,
+    weights_plane1: &mut [i32; BLOCK_MAX_TEXELS],
+    weights_plane2: &mut [i32; BLOCK_MAX_TEXELS],
+) {
+    let tables = weight_tables(bsd, scb, di, is_dual_plane);
+    let mut i = 0;
+    while i < bsd.texel_count as usize {
+        let (w1, w2) = unpack_weights_at(&tables, di, i, is_dual_plane);
+        w1.store(weights_plane1.get_mut(i..).unwrap_or_default());
+        if is_dual_plane {
+            w2.store(weights_plane2.get_mut(i..).unwrap_or_default());
+        }
+        i += SIMD_WIDTH;
+    }
+}
+}
+
+isa_fn! {
 /// Perceptual RGBM error colors; `None` for a zero weight M decode.
 fn rgbm_colors(config: &AstcencConfig, color: Vfloat4, old: Vfloat4) -> Option<(Vfloat4, Vfloat4)> {
     // Fail encodings that result in zero weight M pixels
@@ -296,6 +320,34 @@ pub fn compute_symbolic_block_difference_1plane_1partition(
     scb: &SymbolicCompressedBlock,
     blk: &ImageBlock,
 ) -> f32 {
+    compute_symbolic_block_difference_1plane_1partition_impl(config, bsd, scb, blk, None)
+}
+}
+
+isa_fn! {
+/// `compute_symbolic_block_difference_1plane_1partition_weighted`: the texel errors are
+/// scaled by `weights` (one per texel, LZ-RDO activity weights).
+pub fn compute_symbolic_block_difference_1plane_1partition_weighted(
+    config: &AstcencConfig,
+    bsd: &BlockSizeDescriptor,
+    scb: &SymbolicCompressedBlock,
+    blk: &ImageBlock,
+    weights: &[f32],
+) -> f32 {
+    compute_symbolic_block_difference_1plane_1partition_impl(config, bsd, scb, blk, Some(weights))
+}
+}
+
+isa_fn! {
+/// `compute_symbolic_block_difference_1plane_1partition_impl<enable_weights>`.
+#[inline]
+fn compute_symbolic_block_difference_1plane_1partition_impl(
+    config: &AstcencConfig,
+    bsd: &BlockSizeDescriptor,
+    scb: &SymbolicCompressedBlock,
+    blk: &ImageBlock,
+    weights: Option<&[f32]>,
+) -> f32 {
     // If we detected an error-block, blow up immediately.
     if scb.block_type == SYM_BTYPE_ERROR {
         return ERROR_CALC_DEFAULT;
@@ -342,8 +394,11 @@ pub fn compute_symbolic_block_difference_1plane_1partition(
         }
 
         // Compute squared error metric
-        let metric =
+        let mut metric =
             err[0] * cw.lane(0) + err[1] * cw.lane(1) + err[2] * cw.lane(2) + err[3] * cw.lane(3);
+        if let Some(weights) = weights {
+            metric = metric * Vfloat8::load(weights.get(i..).unwrap_or_default());
+        }
 
         // Mask off bad lanes
         let mask = lane_id.lt(Vint8::splat(texel_count as i32));

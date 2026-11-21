@@ -127,7 +127,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             imgio::Quality::Default,
         ),
     ] {
-        let opts = imgio::EncodeOptions { quality: q };
+        let opts = imgio::EncodeOptions {
+            quality: q,
+            ..Default::default()
+        };
         bench(&format!("encode {name}"), px, || {
             imgio::encode(&src, f, &opts, &mut enc)
         });

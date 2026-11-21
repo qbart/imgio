@@ -14,7 +14,8 @@
 //!   EAC R11 / RG11: `pack_eac` on R (G), `pack_eac_high_quality` from `Quality::High`.
 //! - ASTC (every 2D block size; LDR, sRGB, HDR): astcenc (ARM astc-encoder port, via ktx-rs),
 //!   presets fastest (0) / fast (10) / medium (60) / thorough (98) / exhaustive (100); its own
-//!   threads share one context.
+//!   threads share one context. LDR / sRGB with `EncodeOptions::rdo_lambda` > 0 add astcenc's
+//!   LZ rate-distortion optimization (`-rdo-lambda`).
 //! - PVRTC1 4bpp RGB / RGBA: basisu `encode_pvrtc1` (whole image; power-of-two block counts).
 //! - ETC2 RGB A1 (punch-through, alpha < 128 transparent): `etc1hq::encode_punchthrough_block`
 //!   (differential-only optimizer search for opaque blocks; base / base +- b search with
@@ -52,9 +53,16 @@ pub enum Quality {
 }
 
 /// Options of [`encode`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct EncodeOptions {
     pub quality: Quality,
+    /// LZ rate-distortion optimization strength (astcenc `-rdo-lambda`); 0 (the default) is
+    /// off. Larger values make the block data more compressible by a following LZ-family
+    /// coder (zstd, Deflate, LZ4, ...) at some loss of quality; typical values are 10 to 40.
+    /// Only ASTC LDR / sRGB encodes use it (astcenc's `ASTCENC_FLG_USE_LZ_RDO`); it is ignored
+    /// for every other format, ASTC HDR included. Negative or NaN values are
+    /// `InvalidArgument`.
+    pub rdo_lambda: f32,
 }
 
 type Px = [u8; 4];
@@ -375,9 +383,10 @@ fn encode_astc(
     src: &Surface,
     block: crate::AstcBlock,
     kind: crate::AstcKind,
-    q: Quality,
+    opts: &EncodeOptions,
     dst: &mut [u8],
 ) -> Result<()> {
+    let q = opts.quality;
     use crate::astcenc::*;
     let (profile, image_format) = match kind {
         crate::AstcKind::Unorm => (AstcencProfile::Ldr, Format::Rgba8Unorm),
@@ -392,7 +401,13 @@ fn encode_astc(
         Quality::Best => ASTCENC_PRE_EXHAUSTIVE,
     };
     let (bw, bh) = block.dim();
-    let config = astcenc_config_init(profile, bw, bh, 1, quality, 0).map_err(astc_error)?;
+    // LZ-RDO as the CLI's `-rdo-lambda` sets it up (LDR profiles only)
+    let rdo = opts.rdo_lambda > 0.0 && kind != crate::AstcKind::Float;
+    let flags = if rdo { ASTCENC_FLG_USE_LZ_RDO } else { 0 };
+    let mut config = astcenc_config_init(profile, bw, bh, 1, quality, flags).map_err(astc_error)?;
+    if rdo {
+        config.lz_rdo_lambda = opts.rdo_lambda;
+    }
     let (w, h) = (src.width(), src.height());
     let pixels = (w as usize).saturating_mul(h as usize);
     let threads = if pixels < crate::parallel::MIN_PARALLEL_PIXELS {
@@ -484,10 +499,14 @@ fn encode_astc(
 /// Encodes `src` (any uncompressed format) to `format` into `dst`
 /// (`format.surface_bytes(width, height)` bytes).
 ///
-/// Errors: `Unsupported` (target or source format), `BufferTooSmall`, `OutOfMemory`.
+/// Errors: `Unsupported` (target or source format), `BufferTooSmall`, `OutOfMemory`,
+/// `InvalidArgument` (negative or NaN `rdo_lambda`).
 pub fn encode(src: &Surface, format: Format, opts: &EncodeOptions, dst: &mut [u8]) -> Result<()> {
     if !crate::convert::can_read(src.format()) {
         return Err(Error::Unsupported);
+    }
+    if opts.rdo_lambda.is_nan() || opts.rdo_lambda < 0.0 {
+        return Err(Error::InvalidArgument);
     }
     if matches!(format, Format::Pvrtc1Rgb | Format::Pvrtc1Rgba) {
         let (w, h) = (src.width(), src.height());
@@ -539,7 +558,7 @@ pub fn encode(src: &Surface, format: Format, opts: &EncodeOptions, dst: &mut [u8
         if len == 0 {
             return Ok(());
         }
-        return encode_astc(src, block, kind, opts.quality, dst);
+        return encode_astc(src, block, kind, opts, dst);
     }
     let enc = encoder(format).ok_or(Error::Unsupported)?;
     let (w, h) = (src.width(), src.height());

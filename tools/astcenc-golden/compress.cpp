@@ -7,8 +7,10 @@
 // library). Compresses generated images through the public astcenc_compress_image API for
 // block sizes x profiles x qualities x flag sets x data types and prints
 // "<case>\t<fnv1a64 of the compressed blocks>".
-// Must stay in sync with src/astcenc/tests.rs (`compress_matches_astcenc`). Build / run via
-// scripts/gen_astcenc_golden.sh.
+// With the argument `rdo` it prints the LZ-RDO cases instead (LDR profiles, larger images,
+// ASTCENC_FLG_USE_LZ_RDO with lambda 10 / 20 / 40).
+// Must stay in sync with src/astcenc/tests.rs (`compress_matches_astcenc`,
+// `compress_lz_rdo_matches_astcenc`). Build / run via scripts/gen_astcenc_golden.sh.
 #include <cstdio>
 #include <cstdint>
 #include <cstring>
@@ -44,7 +46,9 @@ static float texel(Lcg& l, int kind, unsigned x, unsigned y, unsigned z, int c) 
     }
 }
 
-int main() {
+int main(int argc, char** argv) {
+    const bool rdo = argc > 1 && !strcmp(argv[1], "rdo");
+    const float LAMBDAS[] = {10.0f, 20.0f, 40.0f};
     const unsigned SIZES[][3] = {{4, 4, 1}, {5, 4, 1}, {6, 6, 1}, {8, 8, 1}, {10, 5, 1}, {12, 12, 1}, {3, 3, 3}, {4, 4, 4}};
     const astcenc_profile PROFILES[] = {ASTCENC_PRF_LDR, ASTCENC_PRF_LDR_SRGB, ASTCENC_PRF_HDR_RGB_LDR_A, ASTCENC_PRF_HDR};
     const float QUALITIES[] = {ASTCENC_PRE_FASTEST, ASTCENC_PRE_MEDIUM, ASTCENC_PRE_THOROUGH};
@@ -52,20 +56,29 @@ int main() {
                               ASTCENC_FLG_USE_DECODE_UNORM8};
     for (int si = 0; si < 8; si++) {
         const auto* s = SIZES[si];
-        for (int pi = 0; pi < 4; pi++) {
+        for (int pi = 0; pi < (rdo ? 2 : 4); pi++) {
             for (int qi = 0; qi < 3; qi++) {
                 for (int fi = 0; fi < 4; fi++) {
                     unsigned flags = FLAGS[fi];
                     bool hdr = pi >= 2;
                     if (hdr && fi == 3) continue; // decode unorm8 needs LDR
-                    if (pi == 0 && fi == 3) flags = ASTCENC_FLG_MAP_RGBM;
+                    // RGBM with LZ-RDO can encode an uninitialized error block (undefined
+                    // behaviour), so the LZ-RDO set uses decode_unorm8 there
+                    if (pi == 0 && fi == 3) flags = rdo ? ASTCENC_FLG_USE_DECODE_UNORM8 : ASTCENC_FLG_MAP_RGBM;
                     int dt = (si + pi + qi + fi) % 3;
                     int kind = (si * 3 + pi + qi * 2 + fi) % 5;
                     astcenc_config c;
+                    if (rdo) flags |= ASTCENC_FLG_USE_LZ_RDO;
                     if (astcenc_config_init(PROFILES[pi], s[0], s[1], s[2], QUALITIES[qi], flags, &c) != ASTCENC_SUCCESS) return 1;
+                    if (rdo) c.lz_rdo_lambda = LAMBDAS[(si + qi + fi) % 3];
                     astcenc_context* ctx = nullptr;
                     if (astcenc_context_alloc(&c, 1, &ctx, nullptr) != ASTCENC_SUCCESS) return 2;
                     unsigned dx = s[0] * 2 + 1, dy = s[1] * 2 - 1, dz = s[2] == 1 ? 1 : s[2] + 1;
+                    if (rdo) {
+                        // Larger images; the first case spans two 4096 block optimization chunks
+                        dx = s[0] * 9 + 1; dy = s[1] * 7 - 1; dz = s[2] == 1 ? 1 : s[2] * 3 + 1;
+                        if (si == 0 && pi == 0 && qi == 1 && fi == 0) { dx = 264; dy = 257; }
+                    }
                     Lcg l{(uint32_t)(si * 1000 + pi * 100 + qi * 10 + fi)};
                     std::vector<std::vector<uint8_t>> p8(dz);
                     std::vector<std::vector<uint16_t>> p16(dz);
@@ -111,7 +124,7 @@ int main() {
                     size_t blocks = ((dx + s[0] - 1) / s[0]) * ((dy + s[1] - 1) / s[1]) * ((dz + s[2] - 1) / s[2]);
                     std::vector<uint8_t> out(blocks * 16);
                     if (astcenc_compress_image(ctx, &img, &swz, out.data(), out.size(), 0) != ASTCENC_SUCCESS) return 3;
-                    printf("s%d p%d q%d f%d\t%016llx\n", si, pi, qi, fi, (unsigned long long)fnv(out.data(), out.size()));
+                    printf("%ss%d p%d q%d f%d\t%016llx\n", rdo ? "rdo " : "", si, pi, qi, fi, (unsigned long long)fnv(out.data(), out.size()));
                     astcenc_context_free(ctx);
                 }
             }

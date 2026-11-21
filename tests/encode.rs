@@ -80,7 +80,15 @@ fn matches_basisu() -> Result<(), Box<dyn Error>> {
             (w, h, px)
         };
         let src = Surface::new(src_format, w, h, &px)?;
-        let mut out = imgio::encode_to_buffer(&src, format, &EncodeOptions { quality })?.to_vec();
+        let mut out = imgio::encode_to_buffer(
+            &src,
+            format,
+            &EncodeOptions {
+                quality,
+                ..Default::default()
+            },
+        )?
+        .to_vec();
         if f[1] == "etc2rgba_eac" {
             // High also changes the ETC1 color halves: compare the EAC alpha halves only.
             out = out
@@ -120,7 +128,14 @@ fn bc7_high_best_match_bc7e() -> Result<(), Box<dyn Error>> {
         };
         let (w, h, px) = raw(f[0])?;
         let src = Surface::new(Format::Rgba8Unorm, w, h, &px)?;
-        let out = imgio::encode_to_buffer(&src, format, &EncodeOptions { quality })?;
+        let out = imgio::encode_to_buffer(
+            &src,
+            format,
+            &EncodeOptions {
+                quality,
+                ..Default::default()
+            },
+        )?;
         assert_eq!(format!("{:016x}", fnv(&out)), f[3], "{line}");
         n += 1;
     }
@@ -168,7 +183,14 @@ fn round_trips() -> Result<(), Box<dyn Error>> {
     }
     // ETC2 RGB with T / H / planar candidates (High) beats the best ETC1 block.
     let etc = |f: Format, q: Quality| -> Result<f64, Box<dyn Error>> {
-        let enc = imgio::encode_to_buffer(&src, f, &EncodeOptions { quality: q })?;
+        let enc = imgio::encode_to_buffer(
+            &src,
+            f,
+            &EncodeOptions {
+                quality: q,
+                ..Default::default()
+            },
+        )?;
         let dec = imgio::decode_to_buffer(f, &enc, w, h)?;
         Ok(psnr(&px, &dec, &[0, 1, 2]))
     };
@@ -182,7 +204,14 @@ fn round_trips() -> Result<(), Box<dyn Error>> {
     );
     // ETC2 RGB A1: alpha < 128 decodes transparent, the rest opaque.
     for q in [Quality::Default, Quality::Best] {
-        let enc = imgio::encode_to_buffer(&src, Format::Etc2Rgba1, &EncodeOptions { quality: q })?;
+        let enc = imgio::encode_to_buffer(
+            &src,
+            Format::Etc2Rgba1,
+            &EncodeOptions {
+                quality: q,
+                ..Default::default()
+            },
+        )?;
         let dec = imgio::decode_to_buffer(Format::Etc2Rgba1, &enc, w, h)?;
         for (p, d) in px.as_chunks::<4>().0.iter().zip(dec.as_chunks::<4>().0) {
             assert_eq!(d[3], if p[3] >= 128 { 255 } else { 0 });
@@ -230,7 +259,14 @@ fn round_trips() -> Result<(), Box<dyn Error>> {
     // ETC1: the optimizer search (High / Best) beats etc1f (Default).
     let mut prev = 0.0;
     for q in [Quality::Default, Quality::High, Quality::Best] {
-        let enc = imgio::encode_to_buffer(&src, Format::Etc1Rgb, &EncodeOptions { quality: q })?;
+        let enc = imgio::encode_to_buffer(
+            &src,
+            Format::Etc1Rgb,
+            &EncodeOptions {
+                quality: q,
+                ..Default::default()
+            },
+        )?;
         let dec = imgio::decode_to_buffer(Format::Etc1Rgb, &enc, w, h)?;
         let db = psnr(&px, &dec, &[0, 1, 2]);
         println!("etc1 {q:?}: {db:.2} dB");
@@ -243,7 +279,14 @@ fn round_trips() -> Result<(), Box<dyn Error>> {
         (Quality::Default, 35.0),
         (Quality::Best, 35.0),
     ] {
-        let enc = imgio::encode_to_buffer(&src, Format::Bc7Unorm, &EncodeOptions { quality: q })?;
+        let enc = imgio::encode_to_buffer(
+            &src,
+            Format::Bc7Unorm,
+            &EncodeOptions {
+                quality: q,
+                ..Default::default()
+            },
+        )?;
         let dec = imgio::decode_to_buffer(Format::Bc7Unorm, &enc, w, h)?;
         let db = psnr(&px, &dec, &[0, 1, 2, 3]);
         assert!(db > min_db, "bc7 {q:?}: {db:.1} dB");
@@ -308,7 +351,10 @@ fn round_trips() -> Result<(), Box<dyn Error>> {
     ] {
         let f = Format::Astc(block, kind);
         for q in [Quality::Fastest, Quality::Default] {
-            let opts = EncodeOptions { quality: q };
+            let opts = EncodeOptions {
+                quality: q,
+                ..Default::default()
+            };
             for (s, (sw, sh), want) in [(&src, (w, h), &px[..]), (&bsrc, (512, 384), &big[..])] {
                 let enc = imgio::encode_to_buffer(s, f, &opts)?;
                 let dec = imgio::decode_to_buffer(f, &enc, sw, sh)?;
