@@ -160,6 +160,7 @@ fn basisu_export_ktx() -> Result<(), Box<dyn Error>> {
             faces: f.face_count(),
             levels: f.level_count(),
             srgb: f.is_srgb(),
+            depth: 0,
         };
         let out = ktx1::write(&desc, &refs, &[])?;
         assert!(
@@ -198,6 +199,7 @@ fn uncompressed_round_trip() -> Result<(), Box<dyn Error>> {
             faces: 1,
             levels: 3,
             srgb: false,
+            depth: 0,
         };
         let file = ktx1::write(&desc, &refs, &[("KTXorientation", b"S=r,T=d\0")])?;
         let f = Ktx1File::parse(&file)?;
@@ -206,6 +208,42 @@ fn uncompressed_round_trip() -> Result<(), Box<dyn Error>> {
             f.key_values()
                 .any(|(k, v)| k == b"KTXorientation" && v == b"S=r,T=d\0")
         );
+        for (l, want) in levels.iter().enumerate() {
+            assert_eq!(
+                &f.image(l as u32, 0, 0)?[..],
+                &want[..],
+                "{format:?} level {l}"
+            );
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn volume_round_trip() -> Result<(), Box<dyn Error>> {
+    // 3D 8x4x6, 3 levels: R8 (row padding) and BC1.
+    for format in [Format::R8Unorm, Format::Bc1Unorm] {
+        let levels: Vec<Vec<u8>> = (0..3u32)
+            .map(|l| {
+                let (lw, lh) = imgio::image::mip_dim(8, 4, l);
+                let n = format.surface_bytes(lw, lh).unwrap_or(0) * (6usize >> l).max(1);
+                (0..n).map(|i| (i * 5 + l as usize) as u8).collect()
+            })
+            .collect();
+        let refs: Vec<&[u8]> = levels.iter().map(|l| &l[..]).collect();
+        let desc = Ktx1Desc {
+            format,
+            width: 8,
+            height: 4,
+            layers: 0,
+            faces: 1,
+            levels: 3,
+            srgb: false,
+            depth: 6,
+        };
+        let file = ktx1::write(&desc, &refs, &[])?;
+        let f = Ktx1File::parse(&file)?;
+        assert_eq!((f.depth(), f.level_depth(1), f.level_depth(2)), (6, 3, 1));
         for (l, want) in levels.iter().enumerate() {
             assert_eq!(
                 &f.image(l as u32, 0, 0)?[..],

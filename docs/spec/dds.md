@@ -11,6 +11,9 @@
   / 116 (RGBA16, RGBA16F, RGBA32F); RGB / luminance masks for RGBA8, R8, RG8, RG16, 565 (both
   orders), RGBA4444. Cubemaps need all six faces. Volume textures, BGRA layouts and other
   formats without an imgio `Format`: `Unsupported`.
+- Volume textures: legacy `DDSD_DEPTH` + `DDSCAPS2_VOLUME`, DX10 `TEXTURE3D` (array size 1);
+  every level's depth slices back to back (level-major); `depth()`, `level_depth(level)`,
+  `image_data` returns all slices of the level; `DdsDesc::depth` (0 = 2D) for the writer.
 - `write(&DdsDesc, levels, &DdsWriteOptions { legacy })`: same `levels` input as
   `ktx2::write` (level-major, layers then faces), reordered to the DDS layout. DX10 header as
   basisu `build_dx10_header` (flags, pitch / linear size of level 0, caps, cube caps2, array
@@ -23,3 +26,4 @@
 ## Audit
 
 - 2026-11-21: reader + writer; byte-identical with basisu v2.50 `-dds` output.
+- 2026-11-21: volume textures (DX10 and legacy headers), round-trip tested.

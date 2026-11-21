@@ -63,6 +63,7 @@ fn basisu_files_round_trip() -> Result<(), Box<dyn Error>> {
             layers,
             faces,
             levels: mips,
+            depth: 0,
         };
         let out = dds::write(&desc, &refs, &DdsWriteOptions::default())?;
         assert!(out[..] == data[..], "{name}: rewrite differs");
@@ -100,6 +101,7 @@ fn legacy_headers() -> Result<(), Box<dyn Error>> {
                 layers: 0,
                 faces,
                 levels: mips,
+                depth: 0,
             };
             let lv: Vec<Vec<u8>> = (0..mips)
                 .map(|l| {
@@ -128,10 +130,54 @@ fn legacy_headers() -> Result<(), Box<dyn Error>> {
         layers: 0,
         faces: 1,
         levels: 1,
+        depth: 0,
     };
     let opts = DdsWriteOptions { legacy: true };
     assert!(dds::write(&desc, &[&[0u8; 16]], &opts).is_err());
     assert!(dds::write(&desc, &[&[0u8; 15]], &DdsWriteOptions::default()).is_err());
     assert!(DdsFile::parse(&[0u8; 200]).is_err());
+    Ok(())
+}
+
+#[test]
+fn volumes() -> Result<(), Box<dyn Error>> {
+    // 8x4x6 volume, 3 levels (depth 6, 3, 1), DX10 and legacy headers.
+    for (format, legacy) in [
+        (Format::Rgba8Unorm, false),
+        (Format::Bc1Unorm, true),
+        (Format::R8Unorm, true),
+    ] {
+        let lv: Vec<Vec<u8>> = (0..3u32)
+            .map(|l| {
+                let (w, h) = imgio::image::mip_dim(8, 4, l);
+                let slices = (6u32 >> l).max(1) as usize;
+                let n = format.surface_bytes(w, h).unwrap_or(0) * slices;
+                (0..n).map(|i| (i * 11 + l as usize * 3) as u8).collect()
+            })
+            .collect();
+        let refs: Vec<&[u8]> = lv.iter().map(|l| &l[..]).collect();
+        let desc = DdsDesc {
+            format,
+            width: 8,
+            height: 4,
+            layers: 0,
+            faces: 1,
+            levels: 3,
+            depth: 6,
+        };
+        let out = dds::write(&desc, &refs, &DdsWriteOptions { legacy })?;
+        let f = DdsFile::parse(&out)?;
+        assert_eq!(
+            (f.depth(), f.level_depth(1), f.level_depth(2), f.is_dx10()),
+            (6, 3, 1, !legacy)
+        );
+        for (l, want) in lv.iter().enumerate() {
+            assert_eq!(
+                f.image_data(l as u32, 0, 0)?,
+                &want[..],
+                "{format:?} level {l}"
+            );
+        }
+    }
     Ok(())
 }

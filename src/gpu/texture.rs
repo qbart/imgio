@@ -53,6 +53,9 @@ impl TextureSource for Ktx2File<'_> {
     fn height(&self) -> u32 {
         Ktx2File::height(self)
     }
+    fn depth(&self) -> u32 {
+        Ktx2File::depth(self)
+    }
     fn level_count(&self) -> u32 {
         Ktx2File::level_count(self)
     }
@@ -88,6 +91,9 @@ impl TextureSource for DdsFile<'_> {
     }
     fn image_data(&self, level: u32, layer: u32, face: u32) -> Result<&[u8]> {
         DdsFile::image_data(self, level, layer, face)
+    }
+    fn depth(&self) -> u32 {
+        DdsFile::depth(self)
     }
 }
 

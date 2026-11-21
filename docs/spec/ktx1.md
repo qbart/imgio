@@ -3,8 +3,10 @@
 `imgio::ktx1` (own implementation of the KTX 1.1 layout).
 
 - `Ktx1File::parse`: little / big endian (header and uncompressed elements by `glTypeSize`
-  swapped), 2D with mips, arrays, cubemaps (depth > 1: `Unsupported`). `format`, `width`,
-  `height`, `level_count`, `layer_count`, `face_count`, `is_srgb` (incl. PVRTC sRGB enums),
+  swapped), 2D / 3D with mips, arrays, cubemaps (3D: slices innermost; `image` returns all
+  slices of a level; `Ktx1Desc::depth`, 0 = 2D, for the writer). `format`, `width`,
+  `height`, `depth`, `level_depth`, `level_count`, `layer_count`, `face_count`, `is_srgb` (incl.
+  PVRTC sRGB enums),
   `gl_internal_format`, `key_values`, `image(level, layer, face)` -> tightly packed texels.
 - GL enums: compressed table (S3TC incl. RGB / RGBA / sRGB DXT1, RGTC, BPTC, ETC1, ETC2, EAC,
   ASTC LDR / sRGB (no HDR enum: ASTC reads as LDR), PVRTC1 / 2 incl. sRGB, ATC, FXT1);
@@ -24,3 +26,4 @@
 ## Audit
 
 - 2026-11-21: reader / writer, byte identical with basisu v2.50 `-export_ktx`.
+- 2026-11-21: 3D textures (round trip).

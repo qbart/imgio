@@ -215,6 +215,8 @@ pub struct Ktx1File<'a> {
     layers: u32,
     faces: u32,
     big_endian: bool,
+    /// Base depth (1 for 2D textures).
+    depth: u32,
     internal: u32,
     kvd: &'a [u8],
     /// Offset of each level's data (after its imageSize).
@@ -250,15 +252,15 @@ impl<'a> Ktx1File<'a> {
         let (gl_type, _type_size, gl_format, internal) = (h(1), h(2), h(3), h(4));
         let (width, height, depth) = (h(6), h(7), h(8));
         let (layers, faces, levels, kvd_len) = (h(9), h(10), h(11), h(12));
-        if width == 0 || depth > 1 {
+        if width == 0 {
             return Err(Error::Unsupported);
         }
-        let height = height.max(1);
-        if !(faces == 1 || (faces == 6 && width == height)) {
+        let (height, depth) = (height.max(1), depth.max(1));
+        if !(faces == 1 || (faces == 6 && width == height && depth == 1)) {
             return Err(Error::InvalidData);
         }
         let levels = levels.max(1);
-        if levels > crate::image::mip_levels(width, height) {
+        if levels > crate::image::mip_levels(width.max(depth), height) {
             return Err(Error::InvalidData);
         }
         let format = format_from_gl(internal, gl_format, gl_type).ok_or(Error::Unsupported)?;
@@ -271,7 +273,8 @@ impl<'a> Ktx1File<'a> {
         let elements = layers.max(1) as usize;
         for (l, slot) in level_ofs.iter_mut().enumerate().take(levels as usize) {
             let (w, hh) = crate::image::mip_dim(width, height, l as u32);
-            let face = stored_size(format, w, hh)?;
+            let slices = depth.checked_shr(l as u32).unwrap_or(0).max(1) as usize;
+            let face = stored_size(format, w, hh)? * slices;
             let face_padded = if faces == 6 && layers == 0 {
                 face.next_multiple_of(4)
             } else {
@@ -296,6 +299,7 @@ impl<'a> Ktx1File<'a> {
             layers: layers.max(1),
             faces,
             big_endian,
+            depth,
             internal,
             kvd,
             level_ofs,
@@ -325,6 +329,14 @@ impl<'a> Ktx1File<'a> {
     /// 6 for cubemaps, 1 otherwise.
     pub fn face_count(&self) -> u32 {
         self.faces
+    }
+    /// Depth of level 0 (1 for 2D textures).
+    pub fn depth(&self) -> u32 {
+        self.depth
+    }
+    /// Depth slices of `level` (`image` returns them back to back).
+    pub fn level_depth(&self, level: u32) -> u32 {
+        self.depth.checked_shr(level).unwrap_or(0).max(1)
     }
     /// The raw `glInternalFormat`.
     pub fn gl_internal_format(&self) -> u32 {
@@ -357,14 +369,16 @@ impl<'a> Ktx1File<'a> {
     }
 
     /// The texels of one image (`level`, array `layer`, cube `face`), tightly packed and in
-    /// little-endian element order.
+    /// little-endian element order (3D textures: the level's depth slices back to back).
     pub fn image(&self, level: u32, layer: u32, face: u32) -> Result<Buffer> {
         if level >= self.levels || layer >= self.layers || face >= self.faces {
             return Err(Error::InvalidArgument);
         }
         let f = self.format;
         let (w, h) = crate::image::mip_dim(self.width, self.height, level);
-        let face_size = stored_size(f, w, h)?;
+        let slices = self.level_depth(level) as usize;
+        let slice_size = stored_size(f, w, h)?;
+        let face_size = slice_size * slices;
         let padded = if self.faces == 6 && self.layers == 1 {
             face_size.next_multiple_of(4)
         } else {
@@ -375,17 +389,24 @@ impl<'a> Ktx1File<'a> {
             .data
             .get(start..start + face_size)
             .ok_or(Error::InvalidData)?;
-        let mut out = crate::buffer::zeroed(f.surface_bytes(w, h)?)?;
-        if is_pvrtc1(f) {
-            let (tight, stored) = pvrtc1_grids(w, h);
-            pvrtc1_regrid(src, stored, tight, &mut out);
-        } else if f.is_compressed() {
-            out.copy_from_slice(src);
-        } else {
-            let (row, stored) = (f.row_bytes(w)?, f.row_bytes(w)?.next_multiple_of(4));
-            for y in 0..h as usize {
-                out[y * row..(y + 1) * row].copy_from_slice(&src[y * stored..y * stored + row]);
+        let tight = f.surface_bytes(w, h)?;
+        let mut out = crate::buffer::zeroed(tight * slices)?;
+        for z in 0..slices {
+            let src = &src[z * slice_size..(z + 1) * slice_size];
+            let dst = &mut out[z * tight..(z + 1) * tight];
+            if is_pvrtc1(f) {
+                let (tg, stored) = pvrtc1_grids(w, h);
+                pvrtc1_regrid(src, stored, tg, dst);
+            } else if f.is_compressed() {
+                dst.copy_from_slice(src);
+            } else {
+                let (row, stored) = (f.row_bytes(w)?, f.row_bytes(w)?.next_multiple_of(4));
+                for y in 0..h as usize {
+                    dst[y * row..(y + 1) * row].copy_from_slice(&src[y * stored..y * stored + row]);
+                }
             }
+        }
+        if !f.is_compressed() {
             let ts = type_size(f) as usize;
             if self.big_endian && ts > 1 {
                 for e in out.chunks_exact_mut(ts) {
@@ -411,6 +432,8 @@ pub struct Ktx1Desc {
     pub levels: u32,
     /// Use the sRGB GL enum for PVRTC formats (other formats carry sRGB in `format`).
     pub srgb: bool,
+    /// Depth of a 3D texture; 0 (or 1) for 2D.
+    pub depth: u32,
 }
 
 /// Writes a little-endian `.ktx` file. `levels[i]` holds mip level `i`: `max(layers, 1) *
@@ -424,8 +447,8 @@ pub fn write(desc: &Ktx1Desc, levels: &[&[u8]], key_values: &[(&str, &[u8])]) ->
         || h == 0
         || levels.is_empty()
         || levels.len() != desc.levels as usize
-        || desc.levels > crate::image::mip_levels(w, h)
-        || !(desc.faces == 1 || (desc.faces == 6 && w == h))
+        || desc.levels > crate::image::mip_levels(w.max(desc.depth), h)
+        || !(desc.faces == 1 || (desc.faces == 6 && w == h && desc.depth <= 1))
     {
         return Err(Error::InvalidArgument);
     }
@@ -466,7 +489,7 @@ pub fn write(desc: &Ktx1Desc, levels: &[&[u8]], key_values: &[(&str, &[u8])]) ->
         base,
         w,
         h,
-        0,
+        if desc.depth > 1 { desc.depth } else { 0 },
         desc.layers,
         desc.faces,
         desc.levels,
@@ -478,19 +501,22 @@ pub fn write(desc: &Ktx1Desc, levels: &[&[u8]], key_values: &[(&str, &[u8])]) ->
     let cube = desc.faces == 6 && desc.layers == 0;
     for (l, data) in levels.iter().enumerate() {
         let (lw, lh) = crate::image::mip_dim(w, h, l as u32);
+        let slices = desc.depth.checked_shr(l as u32).unwrap_or(0).max(1) as usize;
         let size = f.surface_bytes(lw, lh)?;
-        if size.checked_mul(images) != Some(data.len()) {
+        if size.checked_mul(images * slices) != Some(data.len()) {
             return Err(Error::InvalidArgument);
         }
-        let face = stored_size(f, lw, lh)?;
+        let slice_stored = stored_size(f, lw, lh)?;
+        let face = slice_stored * slices;
         let image_size = if cube { face } else { face * images };
         out.extend_from_slice(&(image_size as u32).to_le_bytes());
-        for i in 0..images {
+        // Images, depth slices innermost (cubemaps are 2D, so one slice per face).
+        for i in 0..images * slices {
             let src = &data[i * size..(i + 1) * size];
             if is_pvrtc1(f) {
                 let (tight, stored) = pvrtc1_grids(lw, lh);
                 let at = out.len();
-                out.resize(at + face, 0);
+                out.resize(at + slice_stored, 0);
                 pvrtc1_regrid(src, tight, stored, &mut out[at..]);
             } else if f.is_compressed() {
                 out.extend_from_slice(src);

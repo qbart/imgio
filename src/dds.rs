@@ -6,7 +6,8 @@
 //!   [`Format`] (e.g. BGRA8) are `Unsupported`.
 //! - Writer: DX10 header (layout as basisu `build_dx10_header`), or a legacy header for the
 //!   formats that have one (BC1-BC5, RGBA8, R8, RG8, 565, RGBA16 / RGBA16F / RGBA32F codes).
-//! - Data order: for every array element / face, its full mip chain.
+//! - Data order: for every array element / face, its full mip chain; volume textures (legacy
+//!   `DDSCAPS2_VOLUME`, DX10 `TEXTURE3D`) store every level's depth slices back to back.
 
 use crate::{Buffer, Error, Format, Result};
 
@@ -36,6 +37,7 @@ const DDSCAPS2_CUBEMAP_ALLFACES: u32 = 0xFC00;
 const DDSCAPS2_VOLUME: u32 = 0x20_0000;
 
 const DIMENSION_TEXTURE2D: u32 = 3;
+const DIMENSION_TEXTURE3D: u32 = 4;
 const MISC_TEXTURECUBE: u32 = 0x4;
 
 const fn fourcc(s: &[u8; 4]) -> u32 {
@@ -230,6 +232,8 @@ pub struct DdsFile<'a> {
     levels: u32,
     layers: u32,
     faces: u32,
+    /// Base depth (1 for 2D textures).
+    depth: u32,
     dx10: bool,
     /// Offset of the first image.
     start: usize,
@@ -258,14 +262,12 @@ impl<'a> DdsFile<'a> {
         if width == 0 || height == 0 {
             return Err(Error::InvalidData);
         }
-        if caps2 & DDSCAPS2_VOLUME != 0 || (flags & DDSD_DEPTH != 0 && depth > 1) {
-            return Err(Error::Unsupported);
-        }
+        let volume = caps2 & DDSCAPS2_VOLUME != 0 || (flags & DDSD_DEPTH != 0 && depth > 1);
         let dx10 = pf_flags & DDPF_FOURCC != 0 && cc == fourcc(b"DX10");
         let (format, layers, faces, start) = if dx10 {
             let d = |i: usize| u32le(data, HEADER + i * 4);
             let (dxgi, dim, misc, array) = (d(0)?, d(1)?, d(2)?, d(3)?);
-            if dim != DIMENSION_TEXTURE2D {
+            if dim != DIMENSION_TEXTURE2D && !(dim == DIMENSION_TEXTURE3D && array <= 1) {
                 return Err(Error::Unsupported);
             }
             let format = format_from_dxgi(dxgi).ok_or(Error::Unsupported)?;
@@ -283,14 +285,19 @@ impl<'a> DdsFile<'a> {
             };
             (format, 1, faces, HEADER)
         };
-        if mips > crate::image::mip_levels(width, height) || (faces == 6 && width != height) {
+        let depth = if volume { depth.max(1) } else { 1 };
+        if (depth > 1 && (faces != 1 || layers != 1))
+            || mips > crate::image::mip_levels(width.max(depth), height)
+            || (faces == 6 && width != height)
+        {
             return Err(Error::InvalidData);
         }
         let mut element = 0usize;
         for level in 0..mips {
             let (w, h) = crate::image::mip_dim(width, height, level);
+            let slices = depth.checked_shr(level).unwrap_or(0).max(1) as usize;
             element = element
-                .checked_add(format.surface_bytes(w, h)?)
+                .checked_add(format.surface_bytes(w, h)?.saturating_mul(slices))
                 .ok_or(Error::InvalidData)?;
         }
         let total = element
@@ -308,6 +315,7 @@ impl<'a> DdsFile<'a> {
             levels: mips,
             layers,
             faces,
+            depth,
             dx10,
             start,
             element,
@@ -338,6 +346,14 @@ impl<'a> DdsFile<'a> {
     pub fn face_count(&self) -> u32 {
         self.faces
     }
+    /// Depth of level 0 (1 for 2D textures).
+    pub fn depth(&self) -> u32 {
+        self.depth
+    }
+    /// Depth slices of `level` (`image_data` returns them back to back).
+    pub fn level_depth(&self, level: u32) -> u32 {
+        self.depth.checked_shr(level).unwrap_or(0).max(1)
+    }
     /// True when the file has a DX10 header.
     pub fn is_dx10(&self) -> bool {
         self.dx10
@@ -351,10 +367,10 @@ impl<'a> DdsFile<'a> {
         let mut at = self.start + (layer * self.faces + face) as usize * self.element;
         for l in 0..level {
             let (w, h) = crate::image::mip_dim(self.width, self.height, l);
-            at += self.format.surface_bytes(w, h)?;
+            at += self.format.surface_bytes(w, h)? * self.level_depth(l) as usize;
         }
         let (w, h) = crate::image::mip_dim(self.width, self.height, level);
-        let len = self.format.surface_bytes(w, h)?;
+        let len = self.format.surface_bytes(w, h)? * self.level_depth(level) as usize;
         self.data.get(at..at + len).ok_or(Error::InvalidData)
     }
 }
@@ -371,6 +387,8 @@ pub struct DdsDesc {
     pub faces: u32,
     /// Mip levels (at least 1).
     pub levels: u32,
+    /// Depth of a volume texture; 0 (or 1) for 2D.
+    pub depth: u32,
 }
 
 /// Options of [`write()`].
@@ -382,8 +400,9 @@ pub struct DdsWriteOptions {
 }
 
 /// Writes a `.dds` file. `levels[i]` holds mip level `i`: `max(layers, 1) * faces` images of
-/// `format.surface_bytes(level size)` bytes each, in layer then face order (the same input as
-/// [`crate::ktx2::write`]); the file stores each face / layer with its full mip chain.
+/// `format.surface_bytes(level size)` bytes each (times `max(1, depth >> i)` slices for
+/// volumes), in layer then face order (the same input as [`crate::ktx2::write`]); the file
+/// stores each face / layer with its full mip chain.
 pub fn write(desc: &DdsDesc, levels: &[&[u8]], opts: &DdsWriteOptions) -> Result<Buffer> {
     let f = desc.format;
     let (w, h) = (desc.width, desc.height);
@@ -392,16 +411,19 @@ pub fn write(desc: &DdsDesc, levels: &[&[u8]], opts: &DdsWriteOptions) -> Result
         || h == 0
         || n == 0
         || n != desc.levels as usize
-        || desc.levels > crate::image::mip_levels(w, h)
+        || desc.levels > crate::image::mip_levels(w.max(desc.depth), h)
         || !(desc.faces == 1 || (desc.faces == 6 && w == h))
+        || (desc.depth > 1 && (desc.faces != 1 || desc.layers > 1))
     {
         return Err(Error::InvalidArgument);
     }
+    let volume = desc.depth > 1;
     let images = desc.layers.max(1) as usize * desc.faces as usize;
     let mut sizes = [0usize; 32];
     for (i, l) in levels.iter().enumerate() {
         let (lw, lh) = crate::image::mip_dim(w, h, i as u32);
-        sizes[i] = f.surface_bytes(lw, lh)?;
+        let slices = desc.depth.checked_shr(i as u32).unwrap_or(0).max(1) as usize;
+        sizes[i] = f.surface_bytes(lw, lh)? * slices;
         if sizes[i].checked_mul(images) != Some(l.len()) {
             return Err(Error::InvalidArgument);
         }
@@ -435,9 +457,12 @@ pub fn write(desc: &DdsDesc, levels: &[&[u8]], opts: &DdsWriteOptions) -> Result
     if n > 1 {
         flags |= DDSD_MIPMAPCOUNT;
     }
+    if volume {
+        flags |= DDSD_DEPTH;
+    }
     let cube = desc.faces == 6;
     let mut caps = DDSCAPS_TEXTURE;
-    if n > 1 || cube || desc.layers > 1 {
+    if n > 1 || cube || desc.layers > 1 || volume {
         caps |= DDSCAPS_COMPLEX;
     }
     if n > 1 {
@@ -445,6 +470,8 @@ pub fn write(desc: &DdsDesc, levels: &[&[u8]], opts: &DdsWriteOptions) -> Result
     }
     let caps2 = if cube {
         DDSCAPS2_CUBEMAP | DDSCAPS2_CUBEMAP_ALLFACES
+    } else if volume {
+        DDSCAPS2_VOLUME
     } else {
         0
     };
@@ -454,6 +481,9 @@ pub fn write(desc: &DdsDesc, levels: &[&[u8]], opts: &DdsWriteOptions) -> Result
     put(12, h);
     put(16, w);
     put(20, pitch as u32);
+    if volume {
+        put(24, desc.depth);
+    }
     put(28, desc.levels);
     // DDS_PIXELFORMAT at 76.
     put(76, 32);
@@ -475,7 +505,14 @@ pub fn write(desc: &DdsDesc, levels: &[&[u8]], opts: &DdsWriteOptions) -> Result
     put(112, caps2);
     if legacy_pf.is_none() {
         put(128, dxgi);
-        put(132, DIMENSION_TEXTURE2D);
+        put(
+            132,
+            if volume {
+                DIMENSION_TEXTURE3D
+            } else {
+                DIMENSION_TEXTURE2D
+            },
+        );
         put(136, if cube { MISC_TEXTURECUBE } else { 0 });
         put(140, desc.layers.max(1));
     }
