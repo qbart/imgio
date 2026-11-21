@@ -10,10 +10,11 @@
 //! callback; this port keeps every block of the image (all references point backwards, so the
 //! decoded blocks are the same).
 
-mod arith;
-mod dct;
-mod endpoints;
-mod tables;
+pub(crate) mod arith;
+pub(crate) mod dct;
+pub(crate) mod enc;
+pub(crate) mod endpoints;
+pub(crate) mod tables;
 
 use arith::{ArithDec, BitModel, DataModel, GammaContexts};
 use dct::{Coeff, DCT_MEAN_LEVELS1, DctSyms, decode_block_weights, num_weight_dc_levels};
@@ -37,56 +38,56 @@ use std::sync::OnceLock;
 use vas::Vector;
 use vas::storage::Dynamic;
 
-const ARITH_HEADER_MARKER: u32 = 0x01;
-const ARITH_HEADER_MARKER_BITS: u32 = 5;
-const FULL_ZSTD_HEADER_MARKER: u32 = 0x01;
-const FULL_ZSTD_HEADER_MARKER_BITS: u32 = 5;
-const FINAL_SYNC_MARKER: u32 = 0xAF;
-const FINAL_SYNC_MARKER_BITS: u32 = 8;
-const MAX_CONFIG_REUSE_NEIGHBORS: u32 = 3;
-const DCT_RUN_LEN_EOB_SYM_INDEX: u32 = 64;
-const DCT_MEAN_LEVELS0: u32 = 9;
-const PART_HASH_SIZE: usize = 64;
-const TM_HASH_BITS: u32 = 7;
-const TM_HASH_SIZE: usize = 1 << TM_HASH_BITS;
-const PART_HASH_BITS: u32 = 6;
+pub(crate) const ARITH_HEADER_MARKER: u32 = 0x01;
+pub(crate) const ARITH_HEADER_MARKER_BITS: u32 = 5;
+pub(crate) const FULL_ZSTD_HEADER_MARKER: u32 = 0x01;
+pub(crate) const FULL_ZSTD_HEADER_MARKER_BITS: u32 = 5;
+pub(crate) const FINAL_SYNC_MARKER: u32 = 0xAF;
+pub(crate) const FINAL_SYNC_MARKER_BITS: u32 = 8;
+pub(crate) const MAX_CONFIG_REUSE_NEIGHBORS: u32 = 3;
+pub(crate) const DCT_RUN_LEN_EOB_SYM_INDEX: u32 = 64;
+pub(crate) const DCT_MEAN_LEVELS0: u32 = 9;
+pub(crate) const PART_HASH_SIZE: usize = 64;
+pub(crate) const TM_HASH_BITS: u32 = 7;
+pub(crate) const TM_HASH_SIZE: usize = 1 << TM_HASH_BITS;
+pub(crate) const PART_HASH_BITS: u32 = 6;
 
-const OTM_NUM_CEMS: u32 = 14;
-const OTM_NUM_SUBSETS: u32 = 3;
-const OTM_NUM_CCS: u32 = 5;
-const OTM_NUM_GRID_SIZES: u32 = 2;
-const OTM_NUM_GRID_ANISOS: u32 = 3;
-const NUM_GROUPS: usize =
+pub(crate) const OTM_NUM_CEMS: u32 = 14;
+pub(crate) const OTM_NUM_SUBSETS: u32 = 3;
+pub(crate) const OTM_NUM_CCS: u32 = 5;
+pub(crate) const OTM_NUM_GRID_SIZES: u32 = 2;
+pub(crate) const OTM_NUM_GRID_ANISOS: u32 = 3;
+pub(crate) const NUM_GROUPS: usize =
     (OTM_NUM_CEMS * OTM_NUM_SUBSETS * OTM_NUM_CCS * OTM_NUM_GRID_SIZES * OTM_NUM_GRID_ANISOS)
         as usize;
 
 /// `xuastc_ldr_syntax`.
-const SYNTAX_HYBRID_ARITH_ZSTD: u8 = 1;
-const SYNTAX_FULL_ZSTD: u8 = 2;
+pub(crate) const SYNTAX_HYBRID_ARITH_ZSTD: u8 = 1;
+pub(crate) const SYNTAX_FULL_ZSTD: u8 = 2;
 
 /// `xuastc_ldr_arith_header`: flags byte + 11 lengths.
-const ARITH_HEADER_SIZE: usize = 1 + 11 * 4;
+pub(crate) const ARITH_HEADER_SIZE: usize = 1 + 11 * 4;
 /// `xuastc_ldr_full_zstd_header`: flags byte + 21 lengths.
-const FULL_ZSTD_HEADER_SIZE: usize = 1 + 21 * 4;
+pub(crate) const FULL_ZSTD_HEADER_SIZE: usize = 1 + 21 * 4;
 
 /// `xuastc_mode` (arithmetic syntaxes).
-const MODE_SOLID: u32 = 0;
-const MODE_RAW: u32 = 1;
-const MODE_REUSE_CFG_ENDPOINTS_LEFT: u32 = 2;
-const MODE_REUSE_CFG_ENDPOINTS_UP: u32 = 3;
-const MODE_REUSE_CFG_ENDPOINTS_DIAG: u32 = 4;
-const MODE_RUN: u32 = 5;
-const MODE_TOTAL: u32 = 6;
+pub(crate) const MODE_SOLID: u32 = 0;
+pub(crate) const MODE_RAW: u32 = 1;
+pub(crate) const MODE_REUSE_CFG_ENDPOINTS_LEFT: u32 = 2;
+pub(crate) const MODE_REUSE_CFG_ENDPOINTS_UP: u32 = 3;
+pub(crate) const MODE_REUSE_CFG_ENDPOINTS_DIAG: u32 = 4;
+pub(crate) const MODE_RUN: u32 = 5;
+pub(crate) const MODE_TOTAL: u32 = 6;
 
 /// `xuastc_zstd_mode` and mode byte flags (full Zstd syntax).
-const ZMODE_RUN: u32 = 0b01;
-const ZMODE_SOLID: u32 = 0b0011;
-const ZMODE_REUSE_CFG_ENDPOINTS_LEFT: u32 = 0b0111;
-const MODE_BYTE_IS_BASE_OFS_FLAG: u32 = 1 << 3;
-const MODE_BYTE_PART_HASH_HIT: u32 = 1 << 4;
-const MODE_BYTE_DPCM_ENDPOINTS_FLAG: u32 = 1 << 5;
-const MODE_BYTE_TM_HASH_HIT_FLAG: u32 = 1 << 6;
-const MODE_BYTE_USE_DCT: u32 = 1 << 7;
+pub(crate) const ZMODE_RUN: u32 = 0b01;
+pub(crate) const ZMODE_SOLID: u32 = 0b0011;
+pub(crate) const ZMODE_REUSE_CFG_ENDPOINTS_LEFT: u32 = 0b0111;
+pub(crate) const MODE_BYTE_IS_BASE_OFS_FLAG: u32 = 1 << 3;
+pub(crate) const MODE_BYTE_PART_HASH_HIT: u32 = 1 << 4;
+pub(crate) const MODE_BYTE_DPCM_ENDPOINTS_FLAG: u32 = 1 << 5;
+pub(crate) const MODE_BYTE_TM_HASH_HIT_FLAG: u32 = 1 << 6;
+pub(crate) const MODE_BYTE_USE_DCT: u32 = 1 << 7;
 
 /// One decompressed XUASTC LDR image: ASTC logical blocks, row major. (The transcoder reads
 /// only the blocks and flags; the geometry is checked through [`Expected`].)
@@ -112,28 +113,28 @@ pub(crate) type Expected = (AstcBlock, u32, u32);
 
 /// `trial_mode`.
 #[derive(Clone, Copy, Default)]
-struct TrialMode {
-    grid_w: u8,
-    grid_h: u8,
-    cem: u8,
+pub(crate) struct TrialMode {
+    pub grid_w: u8,
+    pub grid_h: u8,
+    pub cem: u8,
     /// -1: single plane.
-    ccs_index: i8,
-    endpoint_range: u8,
-    weight_range: u8,
-    num_parts: u8,
+    pub ccs_index: i8,
+    pub endpoint_range: u8,
+    pub weight_range: u8,
+    pub num_parts: u8,
 }
 
 /// `g_encoder_trial_modes[i]` and `g_grouped_encoder_trial_modes[i]` of one block size.
-struct ModeTable {
-    modes: Vec<TrialMode>,
+pub(crate) struct ModeTable {
+    pub modes: Vec<TrialMode>,
     /// `(start, len)` into `group_modes` per group.
-    groups: Vec<(u32, u32)>,
+    pub groups: Vec<(u32, u32)>,
     /// Trial mode indices, grouped, ascending within a group.
-    group_modes: Vec<u16>,
+    pub group_modes: Vec<u16>,
 }
 
 /// `s_unique_ldr_index_to_astc_cem`.
-const UNIQUE_LDR_INDEX_TO_ASTC_CEM: [u32; 6] = [
+pub(crate) const UNIQUE_LDR_INDEX_TO_ASTC_CEM: [u32; 6] = [
     CEM_LDR_LUM_DIRECT,
     CEM_LDR_LUM_ALPHA_DIRECT,
     CEM_LDR_RGB_BASE_SCALE,
@@ -143,7 +144,7 @@ const UNIQUE_LDR_INDEX_TO_ASTC_CEM: [u32; 6] = [
 ];
 
 /// `calc_grid_aniso_val`.
-fn grid_aniso(gw: u32, gh: u32, bw: u32, bh: u32) -> u32 {
+pub(crate) fn grid_aniso(gw: u32, gh: u32, bw: u32, bh: u32) -> u32 {
     let (lhs, rhs) = (gw * bh, gh * bw);
     if lhs == rhs {
         0
@@ -154,7 +155,7 @@ fn grid_aniso(gw: u32, gh: u32, bw: u32, bh: u32) -> u32 {
     }
 }
 
-fn group_index(cem: u32, subset: u32, ccs: u32, size: u32, aniso: u32) -> Option<usize> {
+pub(crate) fn group_index(cem: u32, subset: u32, ccs: u32, size: u32, aniso: u32) -> Option<usize> {
     if cem >= OTM_NUM_CEMS
         || subset >= OTM_NUM_SUBSETS
         || ccs >= OTM_NUM_CCS
@@ -170,7 +171,7 @@ fn group_index(cem: u32, subset: u32, ccs: u32, size: u32, aniso: u32) -> Option
 }
 
 /// `create_encoder_trial_modes_table`.
-fn build_mode_table(bw: u32, bh: u32) -> ModeTable {
+pub(crate) fn build_mode_table(bw: u32, bh: u32) -> ModeTable {
     let mut modes = Vec::new();
     let mut keys = Vec::new();
     for c in tables::ASTC_CFG_TABLE
@@ -247,14 +248,14 @@ fn build_mode_table(bw: u32, bh: u32) -> ModeTable {
     }
 }
 
-fn mode_table(size_index: usize) -> Option<&'static ModeTable> {
+pub(crate) fn mode_table(size_index: usize) -> Option<&'static ModeTable> {
     static T: [OnceLock<ModeTable>; 14] = [const { OnceLock::new() }; 14];
     let (bw, bh) = BASIS_ASTC_ORDER.get(size_index)?.dim();
     Some(T.get(size_index)?.get_or_init(|| build_mode_table(bw, bh)))
 }
 
 impl ModeTable {
-    fn get(&self, tm_index: u32) -> Result<TrialMode> {
+    pub(crate) fn get(&self, tm_index: u32) -> Result<TrialMode> {
         self.modes
             .get(tm_index as usize)
             .copied()
@@ -262,7 +263,14 @@ impl ModeTable {
     }
 
     /// `get_tm_candidates`.
-    fn candidates(&self, cem: u32, subset: u32, ccs: u32, size: u32, aniso: u32) -> &[u16] {
+    pub(crate) fn candidates(
+        &self,
+        cem: u32,
+        subset: u32,
+        ccs: u32,
+        size: u32,
+        aniso: u32,
+    ) -> &[u16] {
         group_index(cem, subset, ccs, size, aniso)
             .and_then(|g| self.groups.get(g))
             .and_then(|&(s, n)| self.group_modes.get(s as usize..(s + n) as usize))
@@ -271,7 +279,7 @@ impl ModeTable {
 }
 
 /// `get_total_unique_patterns`.
-fn total_unique_patterns(size_index: usize, num_parts: u32) -> u32 {
+pub(crate) fn total_unique_patterns(size_index: usize, num_parts: u32) -> u32 {
     tables::TOTAL_UNIQUE_PATTERNS
         .get(size_index)
         .and_then(|p| p.get((num_parts as usize).wrapping_sub(2)))
@@ -279,7 +287,7 @@ fn total_unique_patterns(size_index: usize, num_parts: u32) -> u32 {
 }
 
 /// `unique_pat_index_to_part_seed`.
-fn part_seed(size_index: usize, num_parts: u32, unique: u32) -> Result<u16> {
+pub(crate) fn part_seed(size_index: usize, num_parts: u32, unique: u32) -> Result<u16> {
     let t = match num_parts {
         2 => &tables::UNIQUE_TO_SEED_P2,
         3 => &tables::UNIQUE_TO_SEED_P3,
@@ -292,12 +300,12 @@ fn part_seed(size_index: usize, num_parts: u32, unique: u32) -> Result<u16> {
 }
 
 /// `part_hash_index` / `tm_hash_index` (Fibonacci hashing).
-fn fib_hash(x: u32, size: usize) -> usize {
+pub(crate) fn fib_hash(x: u32, size: usize) -> usize {
     (x.wrapping_mul(2654435769) as usize) & (size - 1)
 }
 
 /// `cem_to_ldrcem_index`.
-fn cem_to_ldrcem_index(cem: u32) -> usize {
+pub(crate) fn cem_to_ldrcem_index(cem: u32) -> usize {
     match cem {
         CEM_LDR_LUM_DIRECT => 0,
         CEM_LDR_LUM_ALPHA_DIRECT => 1,
@@ -632,7 +640,7 @@ impl Grid {
 
 /// Solid color predictor: the previous block's solid color, or the midpoint of its first
 /// partition's endpoints.
-fn prev_solid_color(prev: Option<&LogAstcBlock>) -> [u32; 4] {
+pub(crate) fn prev_solid_color(prev: Option<&LogAstcBlock>) -> [u32; 4] {
     let Some(p) = prev else {
         return [0; 4];
     };

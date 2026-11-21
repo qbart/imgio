@@ -1,0 +1,117 @@
+--- a/encoder/basisu_astc_ldr_encode.cpp
++++ b/encoder/basisu_astc_ldr_encode.cpp
+@@ -13593,7 +13593,7 @@
+ 
+ static convar g_astc_refine_try_nonprimary_candidates("astc_refine_try_nonprimary_candidates", 1, 0, 1);
+ static convar g_astc_refine_mutate_part_id_prob("astc_refine_mutate_part_id_prob", 10, 0, 100);
+-static convar g_astc_refine_mutate_endpoint_edge("astc_refine_mutate_endpoint_edge", 1, 0, 1);
++static convar g_astc_refine_mutate_endpoint_edge("astc_refine_mutate_endpoint_edge", getenv("XU_NO_EDGE") ? 0 : 1, 0, 1);
+ static convar g_astc_refine_mutate_dct("astc_refine_mutate_dct", 1, 0, 1);
+ static convar g_astc_refine_mutate_endpoints("astc_refine_mutate_endpoints", 1, 0, 1);
+ static convar g_astc_refine_base_seed("astc_refine_base_seed", 0, INT_MIN, INT_MAX);
+@@ -14740,6 +14740,61 @@
+ }
+ 
+ // merges output candidates (with no de-dup) from enc_out2 to enc_out, returns # of better blocks found in enc_out2 vs. enc_out
++// ---- imgio XU dump hook (debug only) ----
++static void xu_w32(FILE* f, uint32_t v) { fwrite(&v, 4, 1, f); }
++static void xu_dump_log_blk(FILE* f, const astc_helpers::log_astc_block& b)
++{
++	uint8_t h[12] = { (uint8_t)b.m_error_flag, (uint8_t)b.m_solid_color_flag_ldr, (uint8_t)b.m_solid_color_flag_hdr, b.m_user_mode,
++		b.m_grid_width, b.m_grid_height, (uint8_t)b.m_dual_plane, b.m_weight_ise_range, b.m_endpoint_ise_range, b.m_color_component_selector,
++		b.m_num_partitions, (uint8_t)b.m_uses_suboptimal_cem_encoding };
++	fwrite(h, 12, 1, f);
++	fwrite(&b.m_partition_id, 2, 1, f);
++	fwrite(b.m_color_endpoint_modes, 4, 1, f);
++	fwrite(b.m_weights, 64, 1, f);
++	fwrite(b.m_endpoints, 18, 1, f);
++}
++static void xu_dump_enc_out(const char* pEnv, const image& img, const ldr_astc_block_encode_image_output& eo)
++{
++	const char* pFn = getenv(pEnv);
++	if (!pFn) return;
++	FILE* f = fopen(pFn, "wb");
++	if (!f) return;
++	fwrite("XUD1", 4, 1, f);
++	xu_w32(f, img.get_width()); xu_w32(f, img.get_height());
++	const uint32_t nbx = eo.m_image_block_info.get_width(), nby = eo.m_image_block_info.get_height();
++	xu_w32(f, nbx); xu_w32(f, nby);
++	fwrite(img.get_ptr(), 4, img.get_width() * img.get_height(), f);
++	for (uint32_t by = 0; by < nby; by++)
++		for (uint32_t bx = 0; bx < nbx; bx++)
++		{
++			const auto& bi = eo.m_image_block_info(bx, by);
++			xu_w32(f, bi.m_packed_out_block_index);
++			uint8_t fl[4] = { (uint8_t)bi.m_low_freq_block_flag, (uint8_t)bi.m_super_strong_edges, (uint8_t)bi.m_very_strong_edges, (uint8_t)bi.m_strong_edges };
++			fwrite(fl, 4, 1, f);
++			xu_w32(f, bi.m_out_blocks.size_u32());
++			for (uint32_t i = 0; i < bi.m_out_blocks.size(); i++)
++			{
++				const auto& ob = bi.m_out_blocks[i];
++				fwrite(&ob.m_trial_mode_index, 2, 1, f);
++				fwrite(&ob.m_blur_id, 2, 1, f);
++				fwrite(&ob.m_sse, 8, 1, f);
++				xu_dump_log_blk(f, ob.m_log_blk);
++				for (uint32_t p = 0; p < 2; p++)
++				{
++					const auto& s = ob.m_packed_dct_plane_data[p];
++					xu_w32(f, s.m_dc_sym); xu_w32(f, s.m_num_dc_levels); xu_w32(f, s.m_max_coeff_mag); xu_w32(f, s.m_max_zigzag_index);
++					xu_w32(f, s.m_coeffs.size_u32());
++					for (uint32_t c = 0; c < s.m_coeffs.size(); c++)
++					{
++						fwrite(&s.m_coeffs[c].m_num_zeros, 2, 1, f);
++						fwrite(&s.m_coeffs[c].m_coeff, 2, 1, f);
++					}
++				}
++			}
++		}
++	fclose(f);
++}
++// ---- end dump hook ----
+ static uint32_t merge_output_candidates(ldr_astc_block_encode_image_output& enc_out, const ldr_astc_block_encode_image_output& enc_out2)
+ {
+ 	uint32_t total_better_blocks = 0;
+@@ -15088,6 +15143,7 @@
+ 		encoded_flag = true;
+ 	}
+ 
++	xu_dump_enc_out("XU_DUMP_FIRST", orig_img, enc_out);
+ 	// combine the outputs now
+ 	if ((encoded_flag) && (global_cfg.m_merge_basisu_into_output))
+ 	{
+@@ -15110,6 +15166,7 @@
+ 		if (global_cfg.m_debug_output)
+ 			fmt_debug_printf("Merging basisu output\n");
+ 
++		xu_dump_enc_out("XU_DUMP_BASISU", orig_img, *pEnc_out_basisu);
+ 		const uint32_t total_better_blocks_basisu = merge_output_candidates(enc_out, *pEnc_out_basisu);
+ 
+ 		if (global_cfg.m_debug_output)
+@@ -15140,6 +15197,19 @@
+ 
+ 	assert(encoded_flag);
+ 
++	xu_dump_enc_out("XU_DUMP_PRE", orig_img, enc_out);
++	if (const char* pCfgFn = getenv("XU_DUMP_CFG"))
++	{
++		if (FILE* cf = fopen(pCfgFn, "w"))
++		{
++			fprintf(cf, "%u %u %d %u %u %u %u %d %d %d %u %d %.9g %u %d %.9g\n",
++				global_cfg.m_astc_block_width, global_cfg.m_astc_block_height, (int)global_cfg.m_astc_decode_mode_srgb,
++				enc_cfg.m_cem_enc_params.m_comp_weights[0], enc_cfg.m_cem_enc_params.m_comp_weights[1], enc_cfg.m_cem_enc_params.m_comp_weights[2], enc_cfg.m_cem_enc_params.m_comp_weights[3],
++				(int)global_cfg.m_scd_enabled, (int)global_cfg.m_scd_will_postfilter, (int)global_cfg.m_scd_preserve_chroma, global_cfg.m_num_scd_passes,
++				(int)global_cfg.m_use_dct, (double)enc_cfg.m_base_q, global_cfg.m_effort_level, (int)global_cfg.m_sharpen_flag, (double)global_cfg.m_sharpen_amount);
++			fclose(cf);
++		}
++	}
+ 	if (global_cfg.m_debug_output)
+ 		display_candidate_statistics(enc_out);
+ 
+@@ -15159,6 +15229,7 @@
+ 	if (global_cfg.m_debug_output)
+ 		display_candidate_statistics(enc_out);
+ 
++	xu_dump_enc_out("XU_DUMP", orig_img, enc_out);
+ 	basist::astc_ldr_t::xuastc_ldr_syntax syntax = global_cfg.m_compressed_syntax;
+ 	
+ 	if (syntax >= basist::astc_ldr_t::xuastc_ldr_syntax::cTotal)

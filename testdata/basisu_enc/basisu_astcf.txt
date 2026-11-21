@@ -1,0 +1,9 @@
+a_rgb_37x29_6x6_e3 6 6 3 1 0 0 0 0 0	bd496200df9033bb
+a_rgba_64x48_10x8_e2 10 8 2 1 0 0 0 0 0	9146e7b561e6f165
+a_mosaic_rgba_50x38_4x4_e1 4 4 1 1 0 0 0 0 0	7596cca3e7fdcdbe
+l_rgba_64x48_8x8_e2 8 8 2 0 0 0 0 0 0	d76afc06d2f61c5e
+q_rgba_64x48_5x5_e1 5 5 1 1 60 0 0 0 0	d8afce5abdfd0f2d
+d_rgba_64x48_12x12_e3 12 12 3 1 0 1 1 0 0	c795978fec58c3e7
+f_mosaic_rgba_50x38_4x4_e0 4 4 0 1 0 0 0 0 0	24062765b0041a08
+fq_rgba_64x48_4x4_e0 4 4 0 0 30 0 0 0 0	4fa522ac1e8406e3
+x_rgba_64x48_6x6_e3 6 6 3 1 0 0 1 1 0	fc97239d741604b1

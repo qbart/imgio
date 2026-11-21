@@ -226,7 +226,7 @@ fn set_solid(log: &mut LogAstcBlock, c: Px) {
 // ---------------------------------------------------------------------------------------------
 // astc_ldr_t helpers.
 
-fn blue_contract_enc(orig: Px, did_clamp: &mut bool, encoded_b: i32) -> Px {
+pub(crate) fn blue_contract_enc(orig: Px, did_clamp: &mut bool, encoded_b: i32) -> Px {
     let tr = orig[0] as i32 * 2 - encoded_b;
     let tg = orig[1] as i32 * 2 - encoded_b;
     if !(0..=255).contains(&tr) || !(0..=255).contains(&tg) {
@@ -240,7 +240,7 @@ fn blue_contract_enc(orig: Px, did_clamp: &mut bool, encoded_b: i32) -> Px {
     ]
 }
 
-fn bit_transfer_signed_enc(a: &mut i32, b: &mut i32) {
+pub(crate) fn bit_transfer_signed_enc(a: &mut i32, b: &mut i32) {
     let bit = (*b & 0x80) != 0;
     *b = (*b << 1) & 0xFF;
     *a &= 0x3F;
@@ -310,8 +310,8 @@ fn base_ofs_used_bc(vals: &[u8], t: Tabs) -> bool {
     d[1] + d[3] + d[5] < 0
 }
 
-/// `requantize_ise_endpoints` from 256 levels for CEM 6 (base+scale) or 9 (base+offset).
-fn requantize_from_256(cem: u32, src: &[u8; 8], dst_range: u32, dst: &mut [u8]) -> bool {
+/// `requantize_ise_endpoints` from 256 levels for CEM 6 (base+scale) or 9/13 (base+offset).
+pub(crate) fn requantize_from_256(cem: u32, src: &[u8; 8], dst_range: u32, dst: &mut [u8]) -> bool {
     let n = ah::get_num_cem_values(cem) as usize;
     if dst.len() < n {
         return false;
@@ -321,7 +321,7 @@ fn requantize_from_256(cem: u32, src: &[u8; 8], dst_range: u32, dst: &mut [u8]) 
         return true;
     }
     let t = Tabs::endpoint(dst_range);
-    if cem == CEM_LDR_RGB_BASE_PLUS_OFFSET {
+    if cem == CEM_LDR_RGB_BASE_PLUS_OFFSET || cem == ah::CEM_LDR_RGBA_BASE_PLUS_OFFSET {
         for i in 0..n {
             dst[i] = if i & 1 != 0 {
                 quantize_preserve2(dst_range, src[i])
@@ -1253,7 +1253,7 @@ fn pack_from_bc7(bc7: &[u8; 16], log: &mut LogAstcBlock, px: Option<&[Px; 16]>) 
 }
 
 /// `fast_pack_astc(log_astc_block&, const color_rgba*, flags)`: encodes pixels via `bc7f`.
-fn pack_from_pixels(log: &mut LogAstcBlock, px: &[Px; 16], override_flags: u32) -> bool {
+pub(crate) fn pack_from_pixels(log: &mut LogAstcBlock, px: &[Px; 16], override_flags: u32) -> bool {
     log.clear();
     if px.iter().all(|p| *p == px[0]) {
         set_solid(log, px[0]);

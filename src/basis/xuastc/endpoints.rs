@@ -15,7 +15,7 @@ use crate::basis::ll::astc_6x6_hdr::quant_preserve2;
 use std::sync::OnceLock;
 
 /// `MAX_CEM_ENDPOINT_VALS`.
-pub(super) const MAX_CEM_VALS: usize = 8;
+pub(crate) const MAX_CEM_VALS: usize = 8;
 
 type Rgba = [u8; 4];
 
@@ -79,7 +79,7 @@ fn has_alpha(cem: u32) -> bool {
 }
 
 /// `cem_supports_bc`.
-pub(super) fn cem_supports_bc(cem: u32) -> bool {
+pub(crate) fn cem_supports_bc(cem: u32) -> bool {
     matches!(
         cem,
         CEM_LDR_RGB_DIRECT
@@ -100,7 +100,7 @@ fn base_cem_without_alpha(cem: u32) -> u32 {
 }
 
 /// `used_blue_contraction`.
-pub(super) fn used_blue_contraction(cem: u32, vals: &[u8], range: u32) -> bool {
+pub(crate) fn used_blue_contraction(cem: u32, vals: &[u8], range: u32) -> bool {
     let d = |i: usize| i32::from(dequant(range, vals.get(i).copied().unwrap_or(0)));
     match cem {
         CEM_LDR_RGB_DIRECT | CEM_LDR_RGBA_DIRECT => d(1) + d(3) + d(5) < d(0) + d(2) + d(4),
@@ -133,7 +133,7 @@ fn apply_delta(range: u32, ise_val: u8, delta: i32) -> u8 {
 }
 
 /// `decode_endpoints`: low and high RGBA8 endpoints of one partition.
-pub(super) fn decode_endpoints(cem: u32, vals: &[u8], range: u32) -> (Rgba, Rgba) {
+pub(crate) fn decode_endpoints(cem: u32, vals: &[u8], range: u32) -> (Rgba, Rgba) {
     let n = (ah::get_num_cem_values(cem) as usize).min(MAX_CEM_VALS);
     let mut dq = [0u8; MAX_CEM_VALS];
     for (d, &v) in dq.iter_mut().zip(vals).take(n) {
@@ -199,7 +199,7 @@ fn base_ofs_delta_sum(dst: &[u8; MAX_CEM_VALS], range: u32) -> i32 {
 }
 
 /// `requantize_ise_endpoints`: preserves blue contraction and base+offset MSBs.
-pub(super) fn requantize_ise_endpoints(
+pub(crate) fn requantize_ise_endpoints(
     cem: u32,
     src_range: u32,
     src: &[u8; MAX_CEM_VALS],
@@ -392,7 +392,7 @@ fn pack_base_offset(
 
 /// `convert_endpoints_across_cems` with `always_repack` and
 /// `auto_disable_blue_contraction_if_clamped` false (the decoder's prediction path).
-pub(super) fn convert_endpoints_across_cems(
+pub(crate) fn convert_endpoints_across_cems(
     prev_cem: u32,
     prev_range: u32,
     prev: &[u8; MAX_CEM_VALS],

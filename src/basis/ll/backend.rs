@@ -4,7 +4,6 @@
 //! Port of `basisu_backend.cpp`: ETC1S endpoint / selector codebook ordering, endpoint
 //! prediction and selector history RDO, Huffman coding of the slice data and codebooks.
 
-use super::BasisTexFormat;
 use super::bitreader::ApproxMoveToFront;
 use super::enc::{ColorRgba, color_distance, crc16};
 use super::etc_enc::{EtcBlock, unpack_etc1};
@@ -16,6 +15,7 @@ use super::etc1s::{
 };
 use super::frontend::{BasisuFrontend, C_BASIS_TEX_TYPE_VIDEO_FRAMES};
 use super::huffman_enc::{BitwiseCoder, Histogram, HuffmanEncodingTable, PaletteIndexReorderer};
+use crate::basis::file::BasisTexFormat;
 
 /// `basist::NO_ENDPOINT_PRED_INDEX`.
 pub const NO_ENDPOINT_PRED_INDEX: u32 = 3;

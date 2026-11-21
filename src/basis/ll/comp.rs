@@ -9,12 +9,17 @@
 //! imgio adds back the C++ y flip and mipmap generation (`m_mip_gen`, `generate_mipmaps` with
 //! `image_resample` on the basisu resampler in `crate::mip`).
 //!
+//! basisu v2.50 additions: XUASTC LDR / ASTC LDR 4x4..12x12 (`encode_slices_to_xuastc_or_astc_ldr`
+//! on `crate::basis::xuastc::enc`, `set_format_mode`, the XUASTC / ASTC LDR part of
+//! `set_format_mode_and_quality_effort`) and the `.basis` key/value data (`m_key_values`,
+//! `BasisULibVers`, `KTXmapRange`; the latter two only with `add_basisu_v2_keys`, so the default
+//! output stays that of the pre-2.0 KTX-Software `basis_compressor`).
+//!
 //! Not ported: source file / DDS / alpha file loading, source resampling, normal map
 //! renormalization, user mipmap chains, `m_compute_stats` / `m_validate_output_data` transcode
-//! checks, KTX2 output, debug images, OpenCL, `m_status_output` / warning prints. The XUASTC /
-//! ASTC LDR modes return `FailedEncodeUastc`.
+//! checks, KTX2 output, debug images, OpenCL, `m_status_output` / warning prints, XUBC7,
+//! astcenc (`cASTCENC` selections behave as with `BASISU_SUPPORT_ASTCENC` = 0).
 
-use super::BasisTexFormat;
 use super::astc_hdr_6x6_enc::{AstcHdr6x6GlobalConfig, compress_photo};
 use super::astc_hdr_enc::{
     ASTC_HDR_MAX_VAL, MAX_HALF_FLOAT, compute_block_error, float_to_half_non_neg_no_nan_inf,
@@ -22,7 +27,10 @@ use super::astc_hdr_enc::{
 use super::backend::{
     BasisuBackend, BasisuBackendOutput, BasisuBackendParams, BasisuBackendSliceDesc,
 };
-use super::basis_file::BasisuFile;
+use super::basis_file::{
+    BASISU_DEBLOCK_FILTER_ID_NAME, BASISU_HDR_MAP_RANGE_KEY_NAME, BASISU_LIB_VERSION_KEY_NAME,
+    BASISU_LIB_VERSION_STRING, BasisuFile, KeyValue, add_key_value, find_key_value,
+};
 use super::bc6h::astc_hdr_transcode_to_bc6h;
 use super::enc::{ColorRgba, crc16};
 use super::frontend::{
@@ -38,6 +46,7 @@ use super::uastc_enc::{
     UASTC_RDO_DEFAULT_SKIP_BLOCK_RMS_THRESH, UASTC_RDO_DEFAULT_SMOOTH_BLOCK_MAX_ERROR_SCALE,
     UastcRdoParams, encode_uastc, uastc_rdo,
 };
+use crate::basis::file::BasisTexFormat;
 use crate::mip::resampler::{
     BASISU_RESAMPLER_MAX_DIMENSION, BoundaryOp, Resampler, Status as ResamplerStatus,
 };
@@ -46,7 +55,73 @@ use super::uastc_hdr_4x4_enc::{
     AstcHdr4x4PackResults, UastcHdr4x4CodecOptions, astc_hdr_4x4_enc_block,
     astc_hdr_4x4_pack_results_to_block,
 };
+use crate::astc::helpers::pack_astc_block;
+use crate::basis::xuastc::enc::{
+    AstcLdrEncodeConfig, CompressOutput, DCT_QUALITY_MAX, DCT_QUALITY_MIN, EFFORT_LEVEL_DEF,
+    EFFORT_LEVEL_MAX, EFFORT_LEVEL_MIN, XuastcSyntax,
+};
 use std::sync::atomic::{AtomicBool, Ordering};
+
+/// `BASISU_XUASTC_LDR_DEFAULT_SHARPEN_AMOUNT`.
+pub const BASISU_XUASTC_LDR_DEFAULT_SHARPEN_AMOUNT: f32 = 1.1;
+/// `basist::BASISU_DEBLOCKING_BLOCK_SIZE_THRESHOLD`: block texels from which deblocking is on by
+/// default (10x8 or larger).
+pub const BASISU_DEBLOCKING_BLOCK_SIZE_THRESHOLD: u32 = 80;
+
+/// `xuastc_ldr_sharpen_mode`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum XuastcLdrSharpenMode {
+    /// Never sharpen mipmap levels before compression (default).
+    #[default]
+    Disabled,
+    /// Only sharpen 10x8 or larger block sizes.
+    OnlyLargestBlocks,
+    /// Sharpen all block sizes.
+    AllBlockSizes,
+}
+
+/// `xuastc_ldr_deblocking_mode`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum XuastcLdrDeblockingMode {
+    /// No SCD, no deblocking filter, no deblocking filter ID written.
+    Disabled,
+    /// SCD + deblocking filter on 10x8 or larger block sizes (default).
+    #[default]
+    UseScdAndFilteringOnlyLargestBlocks,
+    /// SCD + deblocking filter on all block sizes.
+    UseScdAndFilteringAllBlockSizes,
+    /// SCD enabled, but no filtering, all block sizes.
+    UseScdNoFiltering,
+    /// SCD disabled, filtering on the larger block sizes (filter ID written).
+    NoScdButEnableFilteringOnLargestBlocks,
+    /// SCD disabled, filtering on all block sizes (filter ID written).
+    NoScdButEnableFilteringOnAllBlocks,
+}
+
+/// `xuastc_ldr_astc_comp_selection`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum XuastcLdrAstcCompSelection {
+    /// astcf, merged with the full basisu encoder depending on the effort level (default).
+    #[default]
+    Auto,
+    BasisU,
+    /// Not compiled in (`BASISU_SUPPORT_ASTCENC` = 0): the encoder ignores astcenc.
+    Astcenc,
+    Astcf,
+    BasisUAndAstcenc,
+    BasisUAndAstcf,
+    UseAll,
+}
+
+/// `basis_tex_format_is_xuastc_ldr`.
+fn basis_tex_format_is_xuastc_ldr(f: BasisTexFormat) -> bool {
+    matches!(f, BasisTexFormat::XuastcLdr(_))
+}
+
+/// `basis_tex_format_is_astc_ldr`.
+fn basis_tex_format_is_astc_ldr(f: BasisTexFormat) -> bool {
+    matches!(f, BasisTexFormat::AstcLdr(_))
+}
 
 pub const BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION: u32 = 16384;
 pub const BASISU_DEFAULT_ENDPOINT_RDO_THRESH: f32 = 1.5;
@@ -555,6 +630,37 @@ pub struct BasisCompressorParams {
     pub astc_hdr_6x6_options: AstcHdr6x6GlobalConfig,
     /// `m_pJob_pool->get_total_threads()`; 0 = no job pool (`init` fails like C++).
     pub job_pool_threads: u32,
+    /// `m_key_values`: written to the `.basis` key/value data (the XUASTC / ASTC LDR encoder
+    /// adds `DeblockFilterID` here).
+    pub key_values: Vec<KeyValue>,
+    /// imgio: add the keys basisu v2.x's `create_basis_file_and_transcode` always writes
+    /// (`BasisULibVers`, and `KTXmapRange` for HDR). Off = pre-2.0 output (default).
+    pub add_basisu_v2_keys: bool,
+    /// `m_xuastc_or_astc_ldr_basis_tex_format` (-1 = `None`): selects XUASTC LDR / ASTC LDR
+    /// when `uastc` is set and `hdr` is not.
+    pub xuastc_or_astc_ldr_basis_tex_format: Option<BasisTexFormat>,
+    pub xuastc_ldr_effort_level: Param<i32>,
+    pub xuastc_ldr_use_dct: bool,
+    pub xuastc_ldr_use_lossy_supercompression: bool,
+    pub xuastc_ldr_force_disable_subsets: bool,
+    pub xuastc_ldr_force_disable_rgb_dual_plane: bool,
+    pub xuastc_ldr_syntax: XuastcSyntax,
+    /// `m_ldr_channel_weights` (default 9, 11, 1, 11).
+    pub ldr_channel_weights: [u32; 4],
+    pub xuastc_ldr_blurring: bool,
+    pub xuastc_ldr_deblocking_mode: XuastcLdrDeblockingMode,
+    /// SCD passes 2..=256; 256 = by effort level (default).
+    pub xuastc_ldr_num_deblocking_passes: Param<u32>,
+    pub xuastc_ldr_heavy_subset_usage: bool,
+    pub xuastc_ldr_sharpen_mode: XuastcLdrSharpenMode,
+    pub xuastc_ldr_sharpen_amount: Param<f32>,
+    pub ls_min_psnr: Param<f32>,
+    pub ls_min_alpha_psnr: Param<f32>,
+    pub ls_thresh_psnr: Param<f32>,
+    pub ls_thresh_alpha_psnr: Param<f32>,
+    pub ls_thresh_edge_psnr: Param<f32>,
+    pub ls_thresh_edge_alpha_psnr: Param<f32>,
+    pub xuastc_ldr_astc_comp_selection: XuastcLdrAstcCompSelection,
 }
 
 impl Default for BasisCompressorParams {
@@ -639,6 +745,38 @@ impl Default for BasisCompressorParams {
             uastc_hdr_4x4_options: UastcHdr4x4CodecOptions::default(),
             astc_hdr_6x6_options: AstcHdr6x6GlobalConfig::default(),
             job_pool_threads: 0,
+            key_values: Vec::new(),
+            add_basisu_v2_keys: false,
+            xuastc_or_astc_ldr_basis_tex_format: None,
+            xuastc_ldr_effort_level: Param::new(
+                EFFORT_LEVEL_DEF as i32,
+                EFFORT_LEVEL_MIN as i32,
+                EFFORT_LEVEL_MAX as i32,
+            ),
+            xuastc_ldr_use_dct: false,
+            xuastc_ldr_use_lossy_supercompression: false,
+            xuastc_ldr_force_disable_subsets: false,
+            xuastc_ldr_force_disable_rgb_dual_plane: false,
+            xuastc_ldr_syntax: XuastcSyntax::FullZstd,
+            ldr_channel_weights: [9, 11, 1, 11],
+            xuastc_ldr_blurring: false,
+            xuastc_ldr_deblocking_mode:
+                XuastcLdrDeblockingMode::UseScdAndFilteringOnlyLargestBlocks,
+            xuastc_ldr_num_deblocking_passes: Param::new(256, 2, 256),
+            xuastc_ldr_heavy_subset_usage: false,
+            xuastc_ldr_sharpen_mode: XuastcLdrSharpenMode::Disabled,
+            xuastc_ldr_sharpen_amount: Param::new(
+                BASISU_XUASTC_LDR_DEFAULT_SHARPEN_AMOUNT,
+                0.0,
+                10.0,
+            ),
+            ls_min_psnr: Param::new(35.0, 0.0, 100.0),
+            ls_min_alpha_psnr: Param::new(38.0, 0.0, 100.0),
+            ls_thresh_psnr: Param::new(1.5, 0.0, 100.0),
+            ls_thresh_alpha_psnr: Param::new(0.75, 0.0, 100.0),
+            ls_thresh_edge_psnr: Param::new(1.0, 0.0, 100.0),
+            ls_thresh_edge_alpha_psnr: Param::new(0.5, 0.0, 100.0),
+            xuastc_ldr_astc_comp_selection: XuastcLdrAstcCompSelection::Auto,
         }
     }
 }
@@ -653,6 +791,102 @@ impl BasisCompressorParams {
         self.perceptual = srgb_flag;
         self.mip_srgb = srgb_flag;
         self.ktx2_and_basis_srgb_transfer_function = srgb_flag;
+    }
+
+    /// `set_ldr_srgb_channel_weights`: 9, 11, 1, 11 (sRGB / photo) or 1, 1, 1, 1 (linear).
+    pub fn set_ldr_srgb_channel_weights(&mut self, srgb_flag: bool) {
+        self.ldr_channel_weights = if srgb_flag {
+            [9, 11, 1, 11]
+        } else {
+            [1, 1, 1, 1]
+        };
+    }
+
+    /// `set_format_mode` (`m_format_mode` itself only matters for XUBC7, not ported).
+    pub fn set_format_mode(&mut self, mode: BasisTexFormat) {
+        self.xuastc_or_astc_ldr_basis_tex_format = None;
+        self.hdr_mode = HdrModes::UastcHdr4x4;
+        match mode {
+            BasisTexFormat::Etc1s => {
+                self.hdr = false;
+                self.uastc = false;
+            }
+            BasisTexFormat::UastcLdr4x4 | BasisTexFormat::Xubc7 => {
+                self.hdr = false;
+                self.uastc = true;
+            }
+            BasisTexFormat::UastcHdr4x4 => {
+                self.hdr = true;
+                self.uastc = true;
+            }
+            BasisTexFormat::AstcHdr6x6 => {
+                self.hdr = true;
+                self.uastc = true;
+                self.hdr_mode = HdrModes::AstcHdr6x6;
+            }
+            BasisTexFormat::UastcHdr6x6Intermediate => {
+                self.hdr = true;
+                self.uastc = true;
+                self.hdr_mode = HdrModes::UastcHdr6x6Intermediate;
+            }
+            BasisTexFormat::XuastcLdr(_) | BasisTexFormat::AstcLdr(_) => {
+                self.xuastc_or_astc_ldr_basis_tex_format = Some(mode);
+                self.hdr = false;
+                self.uastc = true;
+            }
+        }
+    }
+
+    /// `set_format_mode_and_quality_effort` for the XUASTC LDR / ASTC LDR modes (`quality` and
+    /// `effort` -1 = unset); false for the other modes (not ported: `encode_basis` sets their
+    /// options directly).
+    pub fn set_format_mode_and_quality_effort(
+        &mut self,
+        mode: BasisTexFormat,
+        quality: i32,
+        effort: i32,
+        set_defaults: bool,
+    ) -> bool {
+        let (xuastc, astc) = (
+            basis_tex_format_is_xuastc_ldr(mode),
+            basis_tex_format_is_astc_ldr(mode),
+        );
+        if !xuastc && !astc {
+            return false;
+        }
+        // set_format_mode_and_effort
+        self.set_format_mode(mode);
+        let effort = if effort > 0 {
+            effort.clamp(0, 10)
+        } else {
+            effort
+        };
+        if effort >= 0 {
+            self.xuastc_ldr_effort_level.set(effort);
+        } else if set_defaults {
+            self.xuastc_ldr_effort_level.set(EFFORT_LEVEL_DEF as i32);
+        }
+
+        let quality = if quality > 0 {
+            quality.clamp(0, 100)
+        } else {
+            quality
+        };
+        // ASTC LDR 4x4-12x12: nothing to do for quality, it doesn't support RDO.
+        if xuastc {
+            if (0..100).contains(&quality) {
+                // Enable DCT + lossy supercompression
+                self.quality_level = quality;
+                self.xuastc_ldr_use_dct = true;
+                self.xuastc_ldr_use_lossy_supercompression = true;
+            } else if quality == 100 || set_defaults {
+                // Disable DCT + lossy supercompression
+                self.quality_level = -1;
+                self.xuastc_ldr_use_dct = false;
+                self.xuastc_ldr_use_lossy_supercompression = false;
+            }
+        }
+        true
     }
 }
 
@@ -678,6 +912,7 @@ pub enum BasisCompressorErrorCode {
 #[derive(Default)]
 pub struct BasisCompressor {
     params: BasisCompressorParams,
+    fmt_mode: Option<BasisTexFormat>,
     fmt_mode_block_width: u32,
     fmt_mode_block_height: u32,
     slice_descs: Vec<BasisuBackendSliceDesc>,
@@ -696,6 +931,12 @@ pub struct BasisCompressor {
     total_slice_orig_texels: u32,
     basis_file_size: u32,
     basis_bits_per_texel: f32,
+    /// imgio: the XUASTC / ASTC LDR encoder's error behind a `FailedEncodeUastc`.
+    encode_error: Option<crate::Error>,
+    /// imgio test hook: per slice, an `astc_ldr::compress_image` result used instead of running
+    /// the encoder (checks everything around the encoder against C++ goldens).
+    #[cfg(test)]
+    pub(crate) injected_xuastc_outputs: Option<Vec<Option<CompressOutput>>>,
 }
 
 use BasisCompressorErrorCode as Ec;
@@ -733,6 +974,16 @@ impl BasisCompressor {
 
     pub fn get_any_source_image_has_alpha(&self) -> bool {
         self.any_source_image_has_alpha
+    }
+
+    /// `get_fmt_mode` (valid after `process` picked it).
+    pub fn get_fmt_mode(&self) -> BasisTexFormat {
+        self.fmt_mode.unwrap_or(BasisTexFormat::Etc1s)
+    }
+
+    /// imgio: the error the XUASTC / ASTC LDR block encoder returned, if `process` failed in it.
+    pub fn take_encode_error(&mut self) -> Option<crate::Error> {
+        self.encode_error.take()
     }
 
     fn get_block_width(&self) -> u32 {
@@ -788,15 +1039,36 @@ impl BasisCompressor {
         self.sanity_check_input_params()
     }
 
-    /// `pick_format_mode`.
+    /// `pick_format_mode` (XUBC7 is not ported).
     fn pick_format_mode(&mut self) -> bool {
         self.fmt_mode_block_width = 4;
         self.fmt_mode_block_height = 4;
-        if self.params.hdr && self.params.hdr_mode != HdrModes::UastcHdr4x4 {
-            self.fmt_mode_block_width = 6;
-            self.fmt_mode_block_height = 6;
-        }
+        let p = &self.params;
+        let mode = if p.hdr {
+            match p.hdr_mode {
+                HdrModes::UastcHdr4x4 => BasisTexFormat::UastcHdr4x4,
+                HdrModes::AstcHdr6x6 => BasisTexFormat::AstcHdr6x6,
+                HdrModes::UastcHdr6x6Intermediate => BasisTexFormat::UastcHdr6x6Intermediate,
+            }
+        } else if p.uastc {
+            match p.xuastc_or_astc_ldr_basis_tex_format {
+                None => BasisTexFormat::UastcLdr4x4,
+                Some(m) if basis_tex_format_is_xuastc_ldr(m) || basis_tex_format_is_astc_ldr(m) => {
+                    m
+                }
+                Some(_) => return false,
+            }
+        } else {
+            BasisTexFormat::Etc1s
+        };
+        (self.fmt_mode_block_width, self.fmt_mode_block_height) = mode.block_dim();
+        self.fmt_mode = Some(mode);
         true
+    }
+
+    fn is_xuastc_or_astc_ldr(&self) -> bool {
+        self.fmt_mode
+            .is_some_and(|m| basis_tex_format_is_xuastc_ldr(m) || basis_tex_format_is_astc_ldr(m))
     }
 
     /// `basis_compressor::process`.
@@ -827,7 +1099,11 @@ impl BasisCompressor {
                 return ec;
             }
         } else if self.params.uastc {
-            let ec = self.encode_slices_to_uastc_4x4_ldr();
+            let ec = if self.is_xuastc_or_astc_ldr() {
+                self.encode_slices_to_xuastc_or_astc_ldr()
+            } else {
+                self.encode_slices_to_uastc_4x4_ldr()
+            };
             if ec != Ec::Success {
                 return ec;
             }
@@ -952,6 +1228,243 @@ impl BasisCompressor {
             let data: Vec<u8> = tex.iter().flat_map(|b| b.iter().copied()).collect();
             out.slice_image_crcs[slice_index] = crc16(&data, 0);
             out.slice_image_data[slice_index] = data;
+        }
+        Ec::Success
+    }
+
+    /// The `astc_ldr_encode_config` `encode_slices_to_xuastc_or_astc_ldr` derives from the
+    /// params for a `block_width` x `block_height` format (`xuastc`: XUASTC LDR, else ASTC LDR).
+    /// The caller writes `DeblockFilterID` if `scd_will_postfilter` is set.
+    pub fn xuastc_or_astc_ldr_config(
+        params: &BasisCompressorParams,
+        block_width: u32,
+        block_height: u32,
+        xuastc: bool,
+        any_source_image_has_alpha: bool,
+    ) -> AstcLdrEncodeConfig {
+        let p = params;
+        let very_large_blocks_flag =
+            block_width * block_height >= BASISU_DEBLOCKING_BLOCK_SIZE_THRESHOLD;
+        let mut cfg = AstcLdrEncodeConfig {
+            astc_block_width: block_width,
+            astc_block_height: block_height,
+            block_blurring_p1: p.xuastc_ldr_blurring,
+            block_blurring_p2: p.xuastc_ldr_blurring,
+            effort_level: p
+                .xuastc_ldr_effort_level
+                .get()
+                .clamp(EFFORT_LEVEL_MIN as i32, EFFORT_LEVEL_MAX as i32)
+                as u32,
+            force_disable_subsets: p.xuastc_ldr_force_disable_subsets,
+            force_disable_rgb_dual_plane: p.xuastc_ldr_force_disable_rgb_dual_plane,
+            astc_decode_mode_srgb: p.ktx2_and_basis_srgb_transfer_function,
+            use_astcf: false,
+            merge_basisu_into_output: false,
+            ..Default::default()
+        };
+
+        // (astcenc is not compiled in: `m_use_astcenc` is ignored by the encoder.)
+        use XuastcLdrAstcCompSelection as Sel;
+        match p.xuastc_ldr_astc_comp_selection {
+            Sel::Auto => match cfg.effort_level {
+                0 => {
+                    // 4x4: special case, switches to bc7f->ASTC LDR 4x4 transcoding.
+                    if block_width != 4 || block_height != 4 {
+                        cfg.use_astcf = true;
+                    }
+                }
+                1 | 2 => cfg.use_astcf = true,
+                3 => {
+                    if block_width * block_height > 64 || any_source_image_has_alpha {
+                        cfg.merge_basisu_into_output = true;
+                    }
+                    cfg.use_astcf = true;
+                }
+                _ => {
+                    cfg.merge_basisu_into_output = true;
+                    cfg.use_astcf = true;
+                }
+            },
+            Sel::BasisU | Sel::Astcenc => {}
+            Sel::Astcf => cfg.use_astcf = true,
+            Sel::BasisUAndAstcenc => cfg.merge_basisu_into_output = true,
+            Sel::BasisUAndAstcf | Sel::UseAll => {
+                cfg.use_astcf = true;
+                cfg.merge_basisu_into_output = true;
+            }
+        }
+
+        cfg.sharpen_flag = match p.xuastc_ldr_sharpen_mode {
+            XuastcLdrSharpenMode::Disabled => false,
+            XuastcLdrSharpenMode::OnlyLargestBlocks => very_large_blocks_flag,
+            XuastcLdrSharpenMode::AllBlockSizes => true,
+        };
+        cfg.sharpen_amount = p.xuastc_ldr_sharpen_amount.get();
+        cfg.compressed_syntax = p.xuastc_ldr_syntax;
+
+        if xuastc && p.quality_level >= DCT_QUALITY_MIN && p.quality_level < DCT_QUALITY_MAX {
+            // Enable weight grid DCT
+            cfg.dct_quality = p.quality_level.clamp(DCT_QUALITY_MIN, DCT_QUALITY_MAX) as f32;
+            cfg.use_dct = p.xuastc_ldr_use_dct;
+        }
+        cfg.lossy_supercompression = p.xuastc_ldr_use_lossy_supercompression;
+        cfg.comp_weights = p.ldr_channel_weights;
+
+        cfg.replacement_min_psnr = p.ls_min_psnr.get();
+        cfg.psnr_trial_diff_thresh = p.ls_thresh_psnr.get();
+        cfg.psnr_trial_diff_thresh_edge = p.ls_thresh_edge_psnr.get();
+        cfg.replacement_min_psnr_alpha = p.ls_min_alpha_psnr.get();
+        cfg.psnr_trial_diff_thresh_alpha = p.ls_thresh_alpha_psnr.get();
+        cfg.psnr_trial_diff_thresh_edge_alpha = p.ls_thresh_edge_alpha_psnr.get();
+
+        // By default: No SCD, no deblocking post filtering
+        cfg.scd_enabled = false;
+        cfg.scd_will_postfilter = false;
+        cfg.num_scd_passes = 0;
+        // SCD passes factor in a chroma mismatch penalty if m_perceptual is true (the default).
+        cfg.scd_preserve_chroma = p.perceptual;
+
+        use XuastcLdrDeblockingMode as Dm;
+        let mode = p.xuastc_ldr_deblocking_mode;
+        if (very_large_blocks_flag && mode == Dm::UseScdAndFilteringOnlyLargestBlocks)
+            || mode == Dm::UseScdAndFilteringAllBlockSizes
+        {
+            cfg.scd_enabled = true;
+            cfg.scd_will_postfilter = true;
+        } else if mode == Dm::UseScdNoFiltering {
+            cfg.scd_enabled = true;
+        } else if mode == Dm::NoScdButEnableFilteringOnAllBlocks
+            || (very_large_blocks_flag && mode == Dm::NoScdButEnableFilteringOnLargestBlocks)
+        {
+            cfg.scd_will_postfilter = true;
+        }
+
+        if p.xuastc_ldr_num_deblocking_passes.get() >= 256 {
+            cfg.num_scd_passes = match cfg.effort_level {
+                0 | 1 => 0,
+                2 => 2,
+                3 => 8,
+                4 => 10,
+                5 => 12,
+                6 => 14,
+                7 => 16,
+                8 | 9 => 20,
+                _ => 32,
+            };
+        } else if cfg.scd_enabled {
+            cfg.num_scd_passes = p.xuastc_ldr_num_deblocking_passes.get();
+        }
+        if cfg.num_scd_passes == 0 {
+            cfg.scd_enabled = false;
+        }
+
+        cfg.try_simplified_latent_configs = p.xuastc_ldr_heavy_subset_usage;
+        cfg
+    }
+
+    /// `encode_slices_to_xuastc_or_astc_ldr`: XUASTC LDR 4x4-12x12 (the slice payload is the
+    /// supercompressed bitstream) or ASTC LDR 4x4-12x12 (the packed physical blocks).
+    fn encode_slices_to_xuastc_or_astc_ldr(&mut self) -> BasisCompressorErrorCode {
+        let Some(fmt_mode) = self.fmt_mode else {
+            return Ec::FailedInvalidParameters;
+        };
+        let xuastc = basis_tex_format_is_xuastc_ldr(fmt_mode);
+        let (block_width, block_height) = fmt_mode.block_dim();
+
+        let out = &mut self.uastc_backend_output;
+        out.tex_format = fmt_mode;
+        out.etc1s = false;
+        out.srgb = self.params.ktx2_and_basis_srgb_transfer_function;
+        out.slice_desc = self.slice_descs.clone();
+        out.slice_image_data = vec![Vec::new(); self.slice_descs.len()];
+        out.slice_image_crcs = vec![0; self.slice_descs.len()];
+
+        let cfg = Self::xuastc_or_astc_ldr_config(
+            &self.params,
+            block_width,
+            block_height,
+            xuastc,
+            self.any_source_image_has_alpha,
+        );
+        if cfg.scd_will_postfilter {
+            // Write the key-value field with the deblocking filter ID (there's only one defined
+            // currently).
+            const DEBLOCK_FILTER_ID: u32 = 1;
+            add_key_value(
+                &mut self.params.key_values,
+                BASISU_DEBLOCK_FILTER_ID_NAME,
+                &DEBLOCK_FILTER_ID.to_string(),
+            );
+        }
+
+        for (slice_index, slice_desc) in self.slice_descs.iter().enumerate() {
+            let slice_source_image = &self.slice_images[slice_index];
+            let temp_image;
+            let source_image = if slice_source_image.get_width() != slice_desc.orig_width
+                || slice_source_image.get_height() != slice_desc.orig_height
+            {
+                // Copy to the original dimensions (no need to pad to block multiples).
+                let mut t = slice_source_image.clone();
+                t.resize(slice_desc.orig_width, slice_desc.orig_height);
+                temp_image = t;
+                &temp_image
+            } else {
+                slice_source_image
+            };
+
+            #[cfg(test)]
+            let injected = self
+                .injected_xuastc_outputs
+                .as_mut()
+                .and_then(|v| v.get_mut(slice_index))
+                .and_then(Option::take);
+            #[cfg(not(test))]
+            let injected: Option<CompressOutput> = None;
+            let comp = match injected.map_or_else(
+                || {
+                    crate::basis::xuastc::enc::compress_image(
+                        source_image,
+                        &cfg,
+                        self.params.job_pool_threads,
+                    )
+                },
+                Ok,
+            ) {
+                Ok(c) => c,
+                Err(e) => {
+                    self.encode_error = Some(e);
+                    return Ec::FailedEncodeUastc;
+                }
+            };
+
+            // gpu_image::init(tex_fmt, orig_width, orig_height)
+            let num_blocks_x = slice_desc.orig_width.div_ceil(block_width);
+            let num_blocks_y = slice_desc.orig_height.div_ceil(block_height);
+            let total_blocks = (num_blocks_x * num_blocks_y) as usize;
+            if comp.coded_blocks.len() != total_blocks {
+                return Ec::FailedEncodeUastc;
+            }
+            let mut tex = Vec::with_capacity(total_blocks * 16);
+            for log_blk in &comp.coded_blocks {
+                let mut phys = [0u8; 16];
+                if !pack_astc_block(&mut phys, log_blk) {
+                    return Ec::FailedEncodeUastc;
+                }
+                tex.extend_from_slice(&phys);
+            }
+
+            let dst_buf = if xuastc {
+                // Supercompressed XUASTC LDR 4x4-12x12
+                if comp.comp_data.is_empty() {
+                    return Ec::FailedEncodeUastc;
+                }
+                comp.comp_data
+            } else {
+                // Plain ASTC LDR 4x4-12x12
+                tex
+            };
+            out.slice_image_crcs[slice_index] = crc16(&dst_buf, 0);
+            out.slice_image_data[slice_index] = dst_buf;
         }
         Ec::Success
     }
@@ -1387,6 +1900,10 @@ impl BasisCompressor {
 
     /// `extract_source_blocks`.
     fn extract_source_blocks(&mut self) -> bool {
+        // No need to extract blocks in XUASTC/ASTC LDR modes either.
+        if self.is_xuastc_or_astc_ldr() {
+            return true;
+        }
         if self.params.hdr {
             // No need to extract blocks in 6x6 mode, but the 4x4 compressors want 4x4 blocks.
             if self.params.hdr_mode != HdrModes::UastcHdr4x4 {
@@ -1596,6 +2113,30 @@ impl BasisCompressor {
 
     /// `create_basis_file_and_transcode` (the optional transcode validation is not ported).
     fn create_basis_file_and_transcode(&mut self) -> bool {
+        let mut key_values = self.params.key_values.clone();
+        if self.params.add_basisu_v2_keys {
+            if find_key_value(&key_values, BASISU_LIB_VERSION_KEY_NAME).is_some() {
+                return false;
+            }
+            add_key_value(
+                &mut key_values,
+                BASISU_LIB_VERSION_KEY_NAME,
+                BASISU_LIB_VERSION_STRING,
+            );
+            // (LDR upconversion keys: source files are not read, so no LDR image is upconverted.)
+            if self.params.hdr
+                && find_key_value(&key_values, BASISU_HDR_MAP_RANGE_KEY_NAME).is_none()
+            {
+                // basisu_map_range { m_scale = bits of m_hdr_image_scale, m_offset = 0 }
+                let mut val = self.hdr_image_scale.to_bits().to_le_bytes().to_vec();
+                val.extend_from_slice(&[0; 4]);
+                // (C++ enlarges the vector directly: always appended.)
+                key_values.push(KeyValue {
+                    key: [BASISU_HDR_MAP_RANGE_KEY_NAME.as_bytes(), &[0]].concat(),
+                    value: val,
+                });
+            }
+        }
         let encoded_output = if self.params.uastc {
             &self.uastc_backend_output
         } else {
@@ -1608,6 +2149,7 @@ impl BasisCompressor {
             self.params.userdata1,
             self.params.y_flip,
             self.params.us_per_frame,
+            &key_values,
         ) {
             return false;
         }
@@ -1880,7 +2422,7 @@ fn resample_dims_ok(src_w: u32, src_h: u32, dst_w: u32, dst_h: u32, num_comps: u
 /// `image_resample(const image&, image&, srgb, filter, filter_scale, wrapping, first_comp,
 /// num_comps)` (`basisu_enc.cpp`).
 #[allow(clippy::too_many_arguments)]
-fn image_resample(
+pub(crate) fn image_resample(
     src: &Image,
     dst: &mut Image,
     srgb: bool,

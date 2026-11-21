@@ -381,19 +381,30 @@ pub fn write_basis(basis: &[u8], opts: &BasisKtx2Options) -> Result<Buffer> {
 }
 
 /// Encodes `images` with [`crate::basis::encode_basis`] and writes the result as KTX2
-/// ([`write_basis`]), adding `KTXwriter` = "imgio `<version>`" unless `ktx2.key_values` has one.
+/// ([`write_basis`]), adding `KTXwriter` = "imgio `<version>`" unless `ktx2.key_values` has one,
+/// and the encoder's `DeblockFilterID` (ASTC LDR / XUASTC LDR deblocking, as basisu's
+/// `m_key_values`) unless `ktx2.key_values` has one.
 pub fn encode_basis(
     images: &[crate::Surface],
     opts: &crate::basis::BasisEncodeOptions,
     ktx2: &BasisKtx2Options,
 ) -> Result<Buffer> {
+    use crate::basis::ll::basis_file::{
+        BASISU_DEBLOCK_FILTER_ID_NAME, basis_file_key_values, find_key_value,
+    };
     let basis = crate::basis::encode_basis(images, opts)?;
     const WRITER: &[u8] = concat!("imgio ", env!("CARGO_PKG_VERSION"), "\0").as_bytes();
-    if ktx2.key_values.iter().any(|(k, _)| *k == "KTXwriter") {
-        return write_basis(&basis, ktx2);
-    }
+    let has = |key: &str| ktx2.key_values.iter().any(|(k, _)| *k == key);
+    let basis_kv = basis_file_key_values(&basis).ok_or(Error::InvalidData)?;
     let mut kv: Vec<(&str, &[u8])> = ktx2.key_values.to_vec();
-    kv.push(("KTXwriter", WRITER));
+    if !has("KTXwriter") {
+        kv.push(("KTXwriter", WRITER));
+    }
+    if let Some(d) = find_key_value(&basis_kv, BASISU_DEBLOCK_FILTER_ID_NAME)
+        && !has(BASISU_DEBLOCK_FILTER_ID_NAME)
+    {
+        kv.push((BASISU_DEBLOCK_FILTER_ID_NAME, &d.value));
+    }
     write_basis(
         &basis,
         &BasisKtx2Options {

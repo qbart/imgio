@@ -1,0 +1,15 @@
+est_part2	7fa19cd16cd68e5f	200
+est_part2_bf	8c72a5438e84e5d6	200
+est_part3	289d61563a46d45f	200
+est_part3_bf	413838972bc223b0	200
+est_sse	ed95a0abed81fc5d	200
+full_encode	6c8893f51241d1fa	200
+full_encode_stats	fdf3257a0bd31247	200
+polish	839bf0e3647efb48	1166
+refine_only	93eae7ec9d854bc1	775
+refine_only_subsets	727298cb615c7a9f	391
+sobel	2be9e72f519c2dc5	200
+surrogate	6e0ab889ce6338d3	1166
+surrogate_decode	b2375b30d0cb0652	1166
+trial	8bb0f84d1293a32a	1166
+trial_skip	a98b67e089ac8cc6	34

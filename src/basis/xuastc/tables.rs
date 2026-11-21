@@ -6,11 +6,11 @@
 #![allow(clippy::excessive_precision, clippy::approx_constant)]
 
 /// `BU_TOTAL_ASTC_CFGS`.
-pub(super) const TOTAL_ASTC_CFGS: usize = 10311;
+pub(crate) const TOTAL_ASTC_CFGS: usize = 10311;
 
 /// `s_astc_cfg_table`: 3 bytes (little endian) per packed configuration.
 #[rustfmt::skip]
-pub(super) static ASTC_CFG_TABLE: [u8; 30933] = [
+pub(crate) static ASTC_CFG_TABLE: [u8; 30933] = [
     176, 72, 0, 208, 72, 0, 240, 72, 0, 16, 73, 0, 48, 73, 0, 80, 73, 0, 112, 73, 0, 176, 130, 0, 208, 130, 0, 240, 130, 0, 16, 131,
     0, 48, 131, 0, 80, 131, 0, 112, 131, 0, 176, 132, 0, 208, 132, 0, 240, 132, 0, 16, 133, 0, 48, 133, 0, 80, 133, 0, 112, 133, 0, 176,
     134, 0, 208, 134, 0, 240, 134, 0, 16, 135, 0, 48, 135, 0, 80, 135, 0, 112, 135, 0, 176, 194, 0, 208, 194, 0, 240, 194, 0, 16, 195, 0,
@@ -981,7 +981,7 @@ pub(super) static ASTC_CFG_TABLE: [u8; 30933] = [
 ];
 
 /// `g_total_unique_patterns`: `[block_size_index][subsets - 2]`.
-pub(super) const TOTAL_UNIQUE_PATTERNS: [[u16; 2]; 14] = [
+pub(crate) const TOTAL_UNIQUE_PATTERNS: [[u16; 2]; 14] = [
     [437, 329],
     [559, 405],
     [659, 486],
@@ -1921,7 +1921,7 @@ static SEED_12X12_P3: [u16; 626] = [
 ];
 
 /// `g_unique_index_to_astc_part_seed[0]`, by block size index.
-pub(super) static UNIQUE_TO_SEED_P2: [&[u16]; 14] = [
+pub(crate) static UNIQUE_TO_SEED_P2: [&[u16]; 14] = [
     &SEED_4X4_P2,
     &SEED_5X4_P2,
     &SEED_5X5_P2,
@@ -1939,7 +1939,7 @@ pub(super) static UNIQUE_TO_SEED_P2: [&[u16]; 14] = [
 ];
 
 /// `g_unique_index_to_astc_part_seed[1]`, by block size index.
-pub(super) static UNIQUE_TO_SEED_P3: [&[u16]; 14] = [
+pub(crate) static UNIQUE_TO_SEED_P3: [&[u16]; 14] = [
     &SEED_4X4_P3,
     &SEED_5X4_P3,
     &SEED_5X5_P3,
@@ -1959,7 +1959,7 @@ pub(super) static UNIQUE_TO_SEED_P3: [&[u16]; 14] = [
 /// `basisu_idct.h` `idct_1d_N` coefficients, `[N - 2][k][x]`: output `x` accumulates
 /// `C[k][x] * src[k]`; 0.0 marks a term the generated C++ code omits.
 #[rustfmt::skip]
-pub(super) static IDCT: [[[f32; 12]; 12]; 11] = [
+pub(crate) static IDCT: [[[f32; 12]; 12]; 11] = [
     // N = 2
     [
         [7.071067691e-01, 7.071067691e-01, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],

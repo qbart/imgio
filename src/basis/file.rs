@@ -74,6 +74,21 @@ impl BasisTexFormat {
         })
     }
 
+    /// The `basis_tex_format` value (inverse of `from_u32`).
+    pub(crate) fn to_u32(self) -> u32 {
+        let astc = |b: AstcBlock| BASIS_ASTC_ORDER.iter().position(|&o| o == b).unwrap_or(0) as u32;
+        match self {
+            Self::Etc1s => 0,
+            Self::UastcLdr4x4 => 1,
+            Self::UastcHdr4x4 => 2,
+            Self::AstcHdr6x6 => 3,
+            Self::UastcHdr6x6Intermediate => 4,
+            Self::XuastcLdr(b) => 5 + astc(b),
+            Self::AstcLdr(b) => 19 + astc(b),
+            Self::Xubc7 => 33,
+        }
+    }
+
     /// Block footprint of the payload.
     pub fn block_dim(self) -> (u32, u32) {
         match self {

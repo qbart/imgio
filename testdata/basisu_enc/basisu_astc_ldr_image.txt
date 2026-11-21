@@ -1,0 +1,10 @@
+# Golden FNV-1a 64 hashes of basisu v2.50 `ldr_astc_block_encode_image` output (block candidates,
+# chosen index and flags, serialized like the .xud block section) for the regression cases in
+# src/basis/xuastc/enc/block_image.rs (REGRESSION_CASES). Regenerate: build the patched basisu CLI
+# with the .xud dump hook, run `-xuastc_ldr_use_basisu` dumps of the cases (cases.txt line format:
+# name file bw bh effort srgb dct q scd blur merge), then
+# XU_DUMP_DIR=<dumps> cargo test --release print_golden_hashes -- --ignored --nocapture
+1_6x6_rgb_37x29_e3_s1	6f783466afe96012
+1_8x6_mosaic_rgba_50x38_e3_s0	f46abb2fa02e7302
+0_4x4_rgb_37x29_e2_s0	797671ba3e3dfab2
+1_12x12_mosaic_rgba_50x38_e3_s1_scd	c6c6e579cfbfb044

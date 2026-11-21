@@ -9,11 +9,11 @@ use super::endpoints::decode_endpoints;
 use super::tables::IDCT;
 use crate::astc::helpers::{self as ah, BISE_8_LEVELS, LogAstcBlock, MAX_GRID_WEIGHTS};
 
-const DEADZONE_ALPHA: f32 = 0.5;
+pub(crate) const DEADZONE_ALPHA: f32 = 0.5;
 const SCALED_WEIGHT_BASE_CODING_SCALE: f32 = 0.5;
 
 /// `DCT_MEAN_LEVELS1`.
-pub(super) const DCT_MEAN_LEVELS1: u32 = 33;
+pub(crate) const DCT_MEAN_LEVELS1: u32 = 33;
 
 /// Results of `scale_quant_steps()` per weight ISE range.
 #[allow(clippy::excessive_precision)]
@@ -34,7 +34,7 @@ const BASELINE_JPEG_Y: [[i32; 8]; 8] = [
     [72, 92, 95, 98, 112, 100, 103, 99],
 ];
 
-fn coding_scale(weight_ise_range: u32) -> f32 {
+pub(crate) fn coding_scale(weight_ise_range: u32) -> f32 {
     if weight_ise_range <= BISE_8_LEVELS {
         1.0 / 8.0
     } else {
@@ -43,19 +43,19 @@ fn coding_scale(weight_ise_range: u32) -> f32 {
 }
 
 /// `grid_weight_dct::get_num_weight_dc_levels`.
-pub(super) fn num_weight_dc_levels(weight_ise_range: u32) -> u32 {
+pub(crate) fn num_weight_dc_levels(weight_ise_range: u32) -> u32 {
     (64.0 * coding_scale(weight_ise_range)) as u32 + 1
 }
 
 /// `dct_syms::coeff`: zeros skipped before `coeff`.
 #[derive(Clone, Copy, Default)]
-pub(super) struct Coeff {
+pub(crate) struct Coeff {
     pub num_zeros: u16,
     pub coeff: i16,
 }
 
 /// `dct_syms` (the coefficient list holds at most 64 entries).
-pub(super) struct DctSyms {
+pub(crate) struct DctSyms {
     pub dc_sym: u32,
     pub coeffs: [Coeff; 64],
     pub num_coeffs: usize,
@@ -72,7 +72,7 @@ impl Default for DctSyms {
 }
 
 /// `generate_zigzag_order(width, height)` into `out`.
-fn zigzag(width: usize, height: usize, out: &mut [usize; 64]) {
+pub(crate) fn zigzag(width: usize, height: usize, out: &mut [usize; 64]) {
     let mut idx = 0;
     for s in 0..width + height - 1 {
         let x_start = if s < height { 0 } else { s - height + 1 };
@@ -92,7 +92,7 @@ fn zigzag(width: usize, height: usize, out: &mut [usize; 64]) {
 }
 
 /// `grid_weight_dct::compute_level_scale` (adaptive quantization).
-fn compute_level_scale(q: f32, span_len: f32, weight_ise_range: u32) -> f32 {
+pub(crate) fn compute_level_scale(q: f32, span_len: f32, weight_ise_range: u32) -> f32 {
     let q = q.clamp(1.0, 100.0);
     let mut level_scale = if q < 50.0 {
         5000.0 / q
@@ -111,15 +111,15 @@ fn compute_level_scale(q: f32, span_len: f32, weight_ise_range: u32) -> f32 {
 }
 
 /// `sample_quant_table_state`.
-struct QuantState {
-    q: f32,
-    sx: f32,
-    sy: f32,
-    level_scale: f32,
+pub(crate) struct QuantState {
+    pub q: f32,
+    pub sx: f32,
+    pub sy: f32,
+    pub level_scale: f32,
 }
 
 /// `grid_weight_dct::sample_quant_table`.
-fn sample_quant_table(state: &QuantState, x: u32, y: u32) -> i32 {
+pub(crate) fn sample_quant_table(state: &QuantState, x: u32, y: u32) -> i32 {
     if state.q >= 100.0 {
         return 1;
     }
@@ -158,7 +158,7 @@ fn sq(h: u8, l: u8) -> f32 {
 }
 
 /// `grid_weight_dct::get_max_span_len`.
-fn max_span_len(blk: &LogAstcBlock, plane_index: u32) -> f32 {
+pub(crate) fn max_span_len(blk: &LogAstcBlock, plane_index: u32) -> f32 {
     let cem = u32::from(blk.color_endpoint_modes[0]);
     let range = u32::from(blk.endpoint_ise_range);
     if blk.dual_plane {
@@ -220,13 +220,38 @@ fn idct_2d(src: &[f32; 64], dst: &mut [f32; 64], rows: usize, cols: usize) {
 
 /// `grid_weight_dct::decode_block_weights` (symbol path): decodes plane `plane_index` of
 /// `blk` (configuration and endpoints already set) for a `block_w` x `block_h` block.
-pub(super) fn decode_block_weights(
+pub(crate) fn decode_block_weights(
     block_w: u32,
     block_h: u32,
     q: f32,
     plane_index: u32,
     blk: &mut LogAstcBlock,
     syms: &DctSyms,
+) -> bool {
+    decode_block_weights_coeffs(
+        block_w,
+        block_h,
+        q,
+        plane_index,
+        blk,
+        syms.dc_sym,
+        syms.coeffs
+            .iter()
+            .take(syms.num_coeffs)
+            .map(|c| (c.num_zeros, c.coeff)),
+    )
+}
+
+/// [`decode_block_weights`] from a DC symbol and `(num_zeros, coeff)` run/coefficient pairs
+/// (also used by the encoder to reconstruct the weights from its own symbols).
+pub(crate) fn decode_block_weights_coeffs(
+    block_w: u32,
+    block_h: u32,
+    q: f32,
+    plane_index: u32,
+    blk: &mut LogAstcBlock,
+    dc_sym: u32,
+    coeffs: impl Iterator<Item = (u16, i16)>,
 ) -> bool {
     let (gw, gh) = (u32::from(blk.grid_width), u32::from(blk.grid_height));
     if gw < 2 || gh < 2 || gw > block_w || gh > block_h || gw * gh > MAX_GRID_WEIGHTS {
@@ -243,7 +268,7 @@ pub(super) fn decode_block_weights(
 
     let span_len = max_span_len(blk, plane_index);
     let level_scale = compute_level_scale(q, span_len, wrange);
-    let mean_weight = syms.dc_sym as f32 / coding_scale(wrange);
+    let mean_weight = dc_sym as f32 / coding_scale(wrange);
 
     let mut order = [0usize; 64];
     zigzag(gw as usize, gh as usize, &mut order);
@@ -256,8 +281,8 @@ pub(super) fn decode_block_weights(
 
     let mut dct_weights = [0.0f32; 64];
     let mut zig_idx = 1usize;
-    for c in syms.coeffs.iter().take(syms.num_coeffs) {
-        let run_len = usize::from(c.num_zeros);
+    for (num_zeros, coeff) in coeffs {
+        let run_len = usize::from(num_zeros);
         if run_len + zig_idx > total {
             return false;
         }
@@ -268,7 +293,7 @@ pub(super) fn decode_block_weights(
         let dct_idx = order[zig_idx];
         let (y, x) = ((dct_idx as u32) / gw, (dct_idx as u32) % gw);
         let quant = sample_quant_table(&state, x, y);
-        dct_weights[dct_idx] = dequant_deadzone(i32::from(c.coeff), quant, DEADZONE_ALPHA, x, y);
+        dct_weights[dct_idx] = dequant_deadzone(i32::from(coeff), quant, DEADZONE_ALPHA, x, y);
         zig_idx += 1;
     }
 

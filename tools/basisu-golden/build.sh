@@ -36,6 +36,12 @@ cmake --build "$BU" --target basisu_encoder -j8 >/dev/null
 g++ -O2 -std=c++17 -I../../ref/basisu/transcoder -I../../ref/basisu/encoder -DBASISU_SUPPORT_SSE=0 \
     unpack.cpp "$BU/libbasisu_encoder.a" -lpthread -o "$OUT.unpack"
 "$OUT.unpack" $B/*.basis > $B/golden_decode.txt
+# ASTC LDR / XUASTC LDR common encoder API golden (testdata/basisu_enc/basisu_astc_ldr_common.txt).
+# BASISU_ENC_LIB overrides the basisu_encoder static library (default: the one built above).
+BASISU_ENC_LIB=${BASISU_ENC_LIB:-$BU/libbasisu_encoder.a}
+g++ -O2 -std=c++17 -I../../ref/basisu/transcoder -I../../ref/basisu/encoder -DBASISU_SUPPORT_SSE=0 \
+    astc_ldr_common.cpp "$BASISU_ENC_LIB" -lpthread -o "$OUT.astc_ldr_common"
+"$OUT.astc_ldr_common" > ../../testdata/basisu_enc/basisu_astc_ldr_common.txt
 # Block encoder golden (testdata/encode/golden.txt) from testdata/images/raw.
 g++ -O2 -std=c++17 -I../../ref/basisu/transcoder -I../../ref/basisu/zstd -DBASISD_SUPPORT_KTX2_ZSTD=0 \
     encode.cpp -o "$OUT.encode"
@@ -53,3 +59,8 @@ cmake --build "$BUX" --target basisu_encoder -j8 >/dev/null
 g++ -O2 -std=c++17 -ffp-contract=off -I../../ref/basisu/transcoder -I../../ref/basisu/encoder \
     -DBASISU_SUPPORT_SSE=0 xubc7_encode.cpp "$BUX/libbasisu_encoder.a" -lpthread -o "$OUT.xubc7"
 "$OUT.xubc7" ../../testdata/images/raw/*.rgba > ../../testdata/encode/xubc7_golden.txt
+# XUASTC LDR full encoder, block level (testdata/basisu_enc/basisu_astc_ldr_block.txt). Includes
+# basisu_astc_ldr_encode.cpp directly (static functions); links the basisu_encoder library above.
+g++ -O2 -std=c++17 -I../../ref/basisu/transcoder -I../../ref/basisu/encoder -DBASISU_SUPPORT_SSE=0 \
+    astc_ldr_block.cpp "$BU/libbasisu_encoder.a" -lpthread -o "$OUT.astc_ldr_block"
+"$OUT.astc_ldr_block" 200 > ../../testdata/basisu_enc/basisu_astc_ldr_block.txt

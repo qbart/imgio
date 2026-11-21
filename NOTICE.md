@@ -14,6 +14,8 @@ state that they were modified (Apache-2.0 §4(b)).
 
 | `src/basis/ll/*` | Basis Universal transcoder, via ktx-rs `src/basisu`; `etc1f*.rs`, `bc7f*.rs`, `bc7u.rs`, `fxt1.rs` directly from `basisu_transcoder.cpp` / `basisu_etc1_mods.inl` | Binomial LLC | Apache-2.0 |
 | `src/basis/ll/{astc_hdr_6x6_enc,astc_hdr_downsample_tables,astc_hdr_enc,backend,basis_file,bc7enc,comp,enc,etc_enc,etc_enc_tables,frontend,gpu_texture,huffman_enc,job_pool,uastc_enc,uastc_hdr_4x4_enc,vq}.rs` | Basis Universal encoder (`encoder/basisu_*.cpp`), via ktx-rs `src/basisu` | Binomial LLC | Apache-2.0 |
+| `src/basis/ll/{comp,basis_file}.rs` (v2 parts), `src/basis/encode.rs` (ASTC / XUASTC LDR options) | Basis Universal v2.50 `basisu_comp.{h,cpp}` (`encode_slices_to_xuastc_or_astc_ldr`, `set_format_mode`, `set_format_mode_and_quality_effort`, XUASTC LDR params), `basisu_basis_file.cpp` (key/value data), `basisu_tool.cpp` (option mapping) | Binomial LLC | Apache-2.0 |
+| `src/basis/xuastc/enc/*` | Basis Universal v2.50 encoder `basisu_astc_ldr_encode.cpp`, `basisu_astc_ldr_fencode.cpp`, `basisu_astc_ldr_common.cpp`, `basisu_astc_ldr_pseudoinv_tab.inl`, parts of `basisu_enc.h` (`rand`, `bitwise_coder`), `basisu_containers.h` (`hash_map`) and `basisu_transcoder_internal.h` (`arith_enc`, `grid_weight_dct`); `rand.rs` / `containers.rs` also reproduce the output order of libstdc++ (GCC 13) `std::mt19937`, its int / real / normal distributions and `std::priority_queue` (algorithms reimplemented, no code copied) | Binomial LLC | Apache-2.0 |
 | `src/basis/ll/scoped.rs` | ktx-rs `src/scoped.rs` | KTX Rust port contributors | Apache-2.0 |
 | `src/basis/ll/tests/*`, `testdata/basisu_enc/basisu_*.txt` | ktx-rs `tests/basisu_*.rs` and their golden data (hashes of C++ basisu encoder output) | Mark Callow, The Khronos Group Inc. and KTX-Software contributors | Apache-2.0 |
 | `src/basis/xubc7/*`, `src/basis/deblock.rs`, `src/basis/pvrtc1_enc.rs` | Basis Universal `basisu_transcoder.cpp`, `basisu_xbc7_decoder.{h,inl}` | Binomial LLC | Apache-2.0 |
@@ -66,9 +68,13 @@ Not included in the published crate.
 | `testdata/encode/golden.txt` | hashes of C++ Basis Universal v2.50 block encoder output (`tools/basisu-golden/encode.cpp`) | Apache-2.0 |
 | `testdata/encode/bc7e_golden.txt` | hashes of C++ Basis Universal v2.50 `bc7e_scalar` output (`tools/basisu-golden/bc7e.cpp`) | Apache-2.0 |
 | `testdata/encode/xubc7_golden.txt` | sizes and hashes of C++ Basis Universal v2.50 `xbc7::pack_image` (XUBC7) streams of `testdata/images/raw` and derived crops / tilings (`tools/basisu-golden/xubc7_encode.cpp`) | Apache-2.0 |
+| `testdata/basisu_enc/basisu_astc_ldr_common.txt` | hashes of C++ Basis Universal v2.50 `astc_ldr` common encoder API output on synthetic blocks (`tools/basisu-golden/astc_ldr_common.cpp`) | Apache-2.0 |
+| `testdata/basisu_enc/basisu_astc_ldr_block.txt` | hashes of the C++ Basis Universal v2.50 XUASTC LDR full encoder block-level functions on synthetic blocks (`tools/basisu-golden/astc_ldr_block.cpp`) | Apache-2.0 |
+| `testdata/basisu_enc/basisu_astc_ldr_image.txt`, `testdata/basisu_enc/basisu_astcf.txt` | hashes of the candidate lists of the C++ Basis Universal v2.50 full ("basisu") and fast ("astcf") ASTC LDR image encoders on `testdata/images`, from a debug-hooked build (`docs/spec/xuastc_encode.md`) | Apache-2.0 |
+| `testdata/basisu_enc/scd_*` | crops of `testdata/images` (`rgba_64x48` 36x24 at (10,8), `mosaic_rgba_50x38` 22x15 at (5,5)) and the zstd-compressed candidate dumps of the Basis Universal v2.50 XUASTC LDR encoder before SCD, from a debug-hooked build (`docs/spec/xuastc_encode.md`) | Apache-2.0 |
 | `testdata/basis/*.basis` | `testdata/images` encoded by the Basis Universal v2.50 CLI (`scripts/gen_basis_testdata.sh`) | Apache-2.0 |
 | `testdata/basis/golden*.txt` | hashes of C++ Basis Universal v2.50 transcoder output (also with decode flags) and of its `gpu_image::unpack` decodes (`tools/basisu-golden`) | Apache-2.0 |
-| `testdata/basisu_enc/cli_*.basis` | `testdata/images` encoded by the Basis Universal v2.50 CLI (`scripts/gen_basis_testdata.sh`) | Apache-2.0 |
+| `testdata/basisu_enc/cli_*.basis` | `testdata/images` encoded by the Basis Universal v2.50 CLI (`scripts/gen_basis_testdata.sh`): ETC1S / UASTC and ASTC LDR / XUASTC LDR (`cli_astc*`, `cli_xuastc*`) encoder references | Apache-2.0 |
 | `testdata/ktx2/*.ktx2` | `testdata/images` encoded by the Basis Universal v2.50 CLI (`scripts/gen_basis_testdata.sh`) | Apache-2.0 |
 | `testdata/ktx2/golden*.txt` | hashes of C++ Basis Universal v2.50 `ktx2_transcoder` output (also with decode flags) | Apache-2.0 |
 | `testdata/ktx2/mips/*` | `testdata/images` PNGs mipmapped by `ktx create --generate-mipmap` (ktx-rs port; `tools/ktx2-golden/gen.py`) | Apache-2.0 |

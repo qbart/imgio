@@ -9,25 +9,25 @@
 
 use crate::{Error, Result};
 
-const DM_LEN_SHIFT: u32 = 15;
-const DM_MAX_COUNT: u32 = 1 << DM_LEN_SHIFT;
-const BM_LEN_SHIFT: u32 = 13;
-const BM_MAX_COUNT: u32 = 1 << BM_LEN_SHIFT;
-const ARITH_MIN_LEN: u32 = 1 << 24;
-const ARITH_MAX_LEN: u32 = u32::MAX;
+pub(super) const DM_LEN_SHIFT: u32 = 15;
+pub(super) const DM_MAX_COUNT: u32 = 1 << DM_LEN_SHIFT;
+pub(super) const BM_LEN_SHIFT: u32 = 13;
+pub(super) const BM_MAX_COUNT: u32 = 1 << BM_LEN_SHIFT;
+pub(super) const ARITH_MIN_LEN: u32 = 1 << 24;
+pub(super) const ARITH_MAX_LEN: u32 = u32::MAX;
 /// `ArithMinExpectedDataBufSize`.
-pub(super) const ARITH_MIN_EXPECTED_DATA_BUF_SIZE: usize = 5;
+pub(crate) const ARITH_MIN_EXPECTED_DATA_BUF_SIZE: usize = 5;
 /// `ArithMaxSyms`.
 const ARITH_MAX_SYMS: u32 = 2048;
 
 /// `arith_bit_model`.
 #[derive(Clone, Copy)]
-pub(super) struct BitModel {
-    bit0_prob: u32,
-    bit0_count: u32,
-    bit_count: u32,
-    bits_until_update: i32,
-    update_interval: u32,
+pub(crate) struct BitModel {
+    pub(super) bit0_prob: u32,
+    pub(super) bit0_count: u32,
+    pub(super) bit_count: u32,
+    pub(super) bits_until_update: i32,
+    pub(super) update_interval: u32,
 }
 
 impl Default for BitModel {
@@ -43,7 +43,7 @@ impl Default for BitModel {
 }
 
 impl BitModel {
-    fn update(&mut self) {
+    pub(super) fn update(&mut self) {
         if self.bit_count >= BM_MAX_COUNT {
             self.bit_count = (self.bit_count + 1) >> 1;
             self.bit0_count = (self.bit0_count + 1) >> 1;
@@ -60,32 +60,32 @@ impl BitModel {
 
 /// `arith_gamma_contexts`.
 #[derive(Default)]
-pub(super) struct GammaContexts {
-    prefix: [BitModel; 3],
-    tail: [BitModel; 4],
+pub(crate) struct GammaContexts {
+    pub(super) prefix: [BitModel; 3],
+    pub(super) tail: [BitModel; 4],
 }
 
 /// `arith_data_model`. A model with no symbols (`Default`) is "uninitialized".
 #[derive(Default, Clone)]
-pub(super) struct DataModel {
-    num_data_syms: u32,
-    sym_freqs: Vec<u32>,
-    total_sym_freq: u32,
-    cum_sym_freqs: Vec<u32>,
-    update_interval: u32,
-    num_syms_until_next_update: i32,
+pub(crate) struct DataModel {
+    pub(super) num_data_syms: u32,
+    pub(super) sym_freqs: Vec<u32>,
+    pub(super) total_sym_freq: u32,
+    pub(super) cum_sym_freqs: Vec<u32>,
+    pub(super) update_interval: u32,
+    pub(super) num_syms_until_next_update: i32,
 }
 
 impl DataModel {
     /// `arith_data_model(num_syms, faster_update)`.
-    pub(super) fn new(num_syms: u32, faster_update: bool) -> Self {
+    pub(crate) fn new(num_syms: u32, faster_update: bool) -> Self {
         let mut m = Self::default();
         m.init(num_syms, faster_update);
         m
     }
 
     /// `init`: `num_syms` must be in [2, 2048].
-    pub(super) fn init(&mut self, num_syms: u32, faster_update: bool) {
+    pub(crate) fn init(&mut self, num_syms: u32, faster_update: bool) {
         let num_syms = num_syms.clamp(2, ARITH_MAX_SYMS);
         self.num_data_syms = num_syms;
         self.sym_freqs = vec![1; num_syms as usize];
@@ -100,11 +100,11 @@ impl DataModel {
         }
     }
 
-    pub(super) fn num_data_syms(&self) -> u32 {
+    pub(crate) fn num_data_syms(&self) -> u32 {
         self.num_data_syms
     }
 
-    fn update(&mut self) {
+    pub(super) fn update(&mut self) {
         if self.num_data_syms == 0 {
             return;
         }
@@ -131,7 +131,7 @@ impl DataModel {
 }
 
 /// `arith_dec`.
-pub(super) struct ArithDec<'a> {
+pub(crate) struct ArithDec<'a> {
     buf: &'a [u8],
     pos: usize,
     value: u32,
@@ -140,7 +140,7 @@ pub(super) struct ArithDec<'a> {
 
 impl<'a> ArithDec<'a> {
     /// `init`: needs at least [`ARITH_MIN_EXPECTED_DATA_BUF_SIZE`] bytes.
-    pub(super) fn new(buf: &'a [u8]) -> Result<Self> {
+    pub(crate) fn new(buf: &'a [u8]) -> Result<Self> {
         if buf.len() < ARITH_MIN_EXPECTED_DATA_BUF_SIZE {
             return Err(Error::InvalidData);
         }
@@ -170,7 +170,7 @@ impl<'a> ArithDec<'a> {
         }
     }
 
-    pub(super) fn get_bit(&mut self) -> u32 {
+    pub(crate) fn get_bit(&mut self) -> u32 {
         self.length >>= 1;
         let bit = u32::from(self.value >= self.length);
         if bit != 0 {
@@ -183,7 +183,7 @@ impl<'a> ArithDec<'a> {
     }
 
     /// `get_bits` (1 to 20 bits; other counts return 0 like the C++ code).
-    pub(super) fn get_bits(&mut self, num_bits: u32) -> u32 {
+    pub(crate) fn get_bits(&mut self, num_bits: u32) -> u32 {
         if !(1..=20).contains(&num_bits) {
             return 0;
         }
@@ -196,7 +196,7 @@ impl<'a> ArithDec<'a> {
         v
     }
 
-    pub(super) fn decode_truncated_binary(&mut self, n: u32) -> u32 {
+    pub(crate) fn decode_truncated_binary(&mut self, n: u32) -> u32 {
         let n = n.max(2);
         let k = 31 - n.leading_zeros();
         let u = (1u32 << (k + 1)) - n;
@@ -207,7 +207,7 @@ impl<'a> ArithDec<'a> {
         result
     }
 
-    pub(super) fn decode_bit(&mut self, dm: &mut BitModel) -> bool {
+    pub(crate) fn decode_bit(&mut self, dm: &mut BitModel) -> bool {
         let x = dm.bit0_prob.wrapping_mul(self.length >> BM_LEN_SHIFT);
         let bit = self.value >= x;
         if !bit {
@@ -229,7 +229,7 @@ impl<'a> ArithDec<'a> {
     }
 
     /// `decode_gamma`: 0 when the prefix is impossibly long (corrupt data).
-    pub(super) fn decode_gamma(&mut self, ctxs: &mut GammaContexts) -> u32 {
+    pub(crate) fn decode_gamma(&mut self, ctxs: &mut GammaContexts) -> u32 {
         let mut k = 0usize;
         while self.decode_bit(&mut ctxs.prefix[k.min(2)]) {
             k += 1;
@@ -245,7 +245,7 @@ impl<'a> ArithDec<'a> {
         n
     }
 
-    pub(super) fn decode_sym(&mut self, dm: &mut DataModel) -> u32 {
+    pub(crate) fn decode_sym(&mut self, dm: &mut DataModel) -> u32 {
         if dm.num_data_syms == 0 {
             return 0;
         }

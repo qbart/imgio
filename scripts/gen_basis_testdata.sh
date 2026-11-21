@@ -48,6 +48,28 @@ enc cli_etc1s_mipmap_rgba_64x48.basis -basis -etc1s -q 128 -no_multithreading -m
     -file "$I/rgba_64x48.png"
 enc cli_uastc_yflip_rgb_37x29.basis -basis -uastc -no_multithreading -y_flip -file "$I/rgb_37x29.png"
 
+# ASTC LDR / XUASTC LDR encoder references (tests/basis_encode_xuastc.rs): byte-exact files.
+# Hybrid / zstd syntaxes need > 64 blocks (smaller images are always full arithmetic).
+enc cli_astc4x4_rgba_64x48.basis -basis -ldr_4x4 -file "$I/rgba_64x48.png"
+enc cli_astc4x4_e0_rgb_37x29.basis -basis -ldr_4x4 -effort 0 -file "$I/rgb_37x29.png"
+enc cli_astc6x6_linear_mip_rgb_37x29.basis -basis -ldr_6x6 -linear -mipmap -file "$I/rgb_37x29.png"
+enc cli_astc8x6_e1_rgba_64x48.basis -basis -ldr_8x6 -effort 1 -file "$I/rgba_64x48.png"
+enc cli_astc12x12_rgba_64x48.basis -basis -ldr_12x12 -file "$I/rgba_64x48.png"
+enc cli_xuastc4x4_zstd_rgb_37x29.basis -basis -ldr_4x4i -file "$I/rgb_37x29.png"
+enc cli_xuastc5x5_e5_mip_rgb_37x29.basis -basis -ldr_5x5i -effort 5 -mipmap -file "$I/rgb_37x29.png"
+enc cli_xuastc6x6_arith_mip_rgba_64x48.basis -basis -ldr_6x6i -xuastc_arith -mipmap \
+    -file "$I/rgba_64x48.png"
+enc cli_xuastc6x5_hybrid_linear_rgba_64x48.basis -basis -ldr_6x5i -xuastc_hybrid -linear \
+    -file "$I/rgba_64x48.png"
+enc cli_xuastc6x6_q60_rgba_64x48.basis -basis -ldr_6x6i -quality 60 -file "$I/rgba_64x48.png"
+enc cli_xuastc6x6_hybrid_q60_rgba_64x48.basis -basis -ldr_6x6i -xuastc_hybrid -quality 60 \
+    -file "$I/rgba_64x48.png"
+enc cli_xuastc8x6_arith_q60_mosaic_rgba_50x38.basis -basis -ldr_8x6i -xuastc_arith -quality 60 \
+    -file "$I/mosaic_rgba_50x38.png"
+enc cli_xuastc12x12_rgba_64x48.basis -basis -ldr_12x12i -file "$I/rgba_64x48.png"
+enc cli_xuastc12x12_nodeblock_rgba_64x48.basis -basis -ldr_12x12i -xuastc_ldr_no_deblocking \
+    -file "$I/rgba_64x48.png"
+
 # Plain ASTC LDR (basisu v2 tex formats 19..32)
 enc astc_ldr4x4_rgba.basis -basis -ldr_4x4 -file "$I/rgba_64x48.png" -mipmap
 enc astc_ldr6x5_rgb.basis -basis -ldr_6x5 -linear -file "$I/rgb_37x29.png"

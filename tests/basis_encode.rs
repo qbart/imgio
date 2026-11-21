@@ -286,6 +286,30 @@ fn y_flip() -> R<()> {
     Ok(())
 }
 
+/// HDR files carry basisu 2.50's `BasisULibVers` + `KTXmapRange` (scale 1.0) key/value data:
+/// the same bytes as the 2.50 tool's testdata/basis/*hdr*.basis (from the .hdr source).
+#[test]
+fn hdr_v2_keys() -> R<()> {
+    let (w, h, px) = raw("hdr_40x24.rgba16f")?;
+    let src = Surface::new(Format::Rgba16Float, w, h, &px)?;
+    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/basis/");
+    let ext = |b: &[u8]| -> Vec<u8> {
+        let le = |o: usize| u32::from_le_bytes([b[o], b[o + 1], b[o + 2], b[o + 3]]) as usize;
+        b[le(69)..le(69) + le(73)].to_vec()
+    };
+    for (codec, cpp) in [
+        (BasisCodec::UastcHdr4x4, "uastc_hdr4x4.basis"),
+        (BasisCodec::AstcHdr6x6, "astc_hdr6x6.basis"),
+        (BasisCodec::UastcHdr6x6Intermediate, "uastc_hdr6x6i.basis"),
+    ] {
+        let ours = encode_basis(&[src], &ldr_opts(codec))?;
+        let theirs = std::fs::read(format!("{dir}{cpp}"))?;
+        assert_eq!(ext(&ours).len(), 55, "{cpp}");
+        assert_eq!(ext(&ours), ext(&theirs), "{cpp}");
+    }
+    Ok(())
+}
+
 #[test]
 fn bad_input() -> R<()> {
     let px = [0u8; 16];
@@ -385,13 +409,15 @@ const INPUTS: [(u32, u32, u32, u32, u32, u32, bool); 13] = [
     (0, 1, 96, 80, 0, 1, false),
 ];
 
-/// The golden configs `encode_basis` can express: (golden cfg index, options).
+/// The golden configs `encode_basis` can express: (golden cfg index, options). The goldens
+/// come from the pre-2.0 C++ `basis_compressor`, so without the v2 key/value data.
 fn golden_cfgs() -> Vec<(usize, BasisEncodeOptions)> {
     let e = |quality: u32, level: u32, srgb: bool| BasisEncodeOptions {
         etc1s_quality: quality,
         etc1s_level: level,
         srgb,
         threads: 1,
+        basisu_v2_keys: false,
         ..Default::default()
     };
     let u = |level: u32, lambda: f32| BasisEncodeOptions {
@@ -399,6 +425,7 @@ fn golden_cfgs() -> Vec<(usize, BasisEncodeOptions)> {
         uastc_level: level,
         uastc_rdo_lambda: lambda,
         threads: 1,
+        basisu_v2_keys: false,
         ..Default::default()
     };
     vec![
@@ -481,8 +508,8 @@ fn matches_basisu_compressor() -> R<()> {
 
 /// Mipmap generation and y flip vs. the C++ `basisu` v2.50 tool (`-basis -no_multithreading`
 /// with `-uastc -mipmap`, `-etc1s -q 128 -mipmap`, `-uastc -y_flip` on testdata/images/*.png):
-/// every level transcodes to the same pixels. (basisu 2.50 adds a 31-byte key/value header
-/// extension, so the files themselves differ.)
+/// identical files (including the 31-byte `BasisULibVers` key/value header extension of 2.50),
+/// and without that extension (`basisu_v2_keys: false`) every level transcodes the same.
 #[test]
 fn matches_basisu_tool() -> R<()> {
     let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/basisu_enc/");
@@ -522,6 +549,19 @@ fn matches_basisu_tool() -> R<()> {
             },
         )?;
         let theirs = std::fs::read(format!("{dir}{cpp}"))?;
+        assert!(ours[..] == theirs[..], "{cpp}");
+        let ours = encode_basis(
+            &[Surface::new(Format::Rgba8Unorm, w, h, &px)?],
+            &BasisEncodeOptions {
+                codec,
+                mipmaps,
+                y_flip,
+                threads: 1,
+                basisu_v2_keys: false,
+                ..Default::default()
+            },
+        )?;
+        assert_eq!(ours.len() + 31, theirs.len(), "{cpp}");
         let (a, b) = (BasisFile::parse(&ours)?, BasisFile::parse(&theirs)?);
         assert_eq!(a.level_count(0), b.level_count(0), "{cpp}");
         assert_eq!(a.y_flipped(), b.y_flipped(), "{cpp}");
