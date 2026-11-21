@@ -94,6 +94,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ("bc1 high", Format::Bc1Unorm, imgio::Quality::High),
         ("bc3", Format::Bc3Unorm, imgio::Quality::Default),
         ("bc5", Format::Bc5Unorm, imgio::Quality::Default),
+        ("bc7 fastest", Format::Bc7Unorm, imgio::Quality::Fastest),
+        ("bc7 default", Format::Bc7Unorm, imgio::Quality::Default),
+        ("bc7 best", Format::Bc7Unorm, imgio::Quality::Best),
+        ("bc6h default", Format::Bc6hUfloat, imgio::Quality::Default),
     ] {
         let opts = imgio::EncodeOptions { quality: q };
         bench(&format!("encode {name}"), px, || {

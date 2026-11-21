@@ -14,11 +14,8 @@ fn fnv(b: &[u8]) -> u64 {
 
 /// Raw image `name` (NAME_WxH.rgba) -> (width, height, RGBA8 pixels).
 fn raw(name: &str) -> Result<(u32, u32, Vec<u8>), Box<dyn Error>> {
-    let dims = name
-        .trim_end_matches(".rgba")
-        .rsplit('_')
-        .next()
-        .ok_or("name")?;
+    let stem = name.split('.').next().ok_or("name")?;
+    let dims = stem.rsplit('_').next().ok_or("name")?;
     let (w, h) = dims.split_once('x').ok_or("dims")?;
     Ok((
         w.parse()?,
@@ -41,19 +38,33 @@ fn matches_basisu() -> Result<(), Box<dyn Error>> {
             "bc1" => Format::Bc1Unorm,
             "bc3" => Format::Bc3Unorm,
             "bc4" => Format::Bc4Unorm,
-            _ => Format::Bc5Unorm,
+            "bc5" => Format::Bc5Unorm,
+            "bc7" => Format::Bc7Unorm,
+            _ => Format::Bc6hUfloat,
         };
-        let quality = match f[2] {
-            "0" => Quality::Fast,
-            "1" => Quality::Default,
-            _ => Quality::High,
+        let all = [
+            Quality::Fastest,
+            Quality::Fast,
+            Quality::Default,
+            Quality::High,
+            Quality::Best,
+        ];
+        let quality = match (f[1], f[2].parse::<usize>()?) {
+            // encode_bc1 flags 0 / 1 / 2.
+            ("bc1" | "bc3", q) => [Quality::Fast, Quality::Default, Quality::High][q],
+            (_, q) => all[q],
         };
-        let src = Surface::new(Format::Rgba8Unorm, w, h, &px)?;
+        let src_format = if f[0].ends_with(".rgba16f") {
+            Format::Rgba16Float
+        } else {
+            Format::Rgba8Unorm
+        };
+        let src = Surface::new(src_format, w, h, &px)?;
         let out = imgio::encode_to_buffer(&src, format, &EncodeOptions { quality })?;
         assert_eq!(format!("{:016x}", fnv(&out)), f[3], "{line}");
         n += 1;
     }
-    assert_eq!(n, 24);
+    assert_eq!(n, 44);
     Ok(())
 }
 
@@ -93,6 +104,33 @@ fn round_trips() -> Result<(), Box<dyn Error>> {
         let db = psnr(&px, &dec, channels);
         assert!(db > min_db, "{format:?}: {db:.1} dB");
     }
+    // BC7 at every quality.
+    for (q, min_db) in [
+        (Quality::Fastest, 30.0),
+        (Quality::Default, 35.0),
+        (Quality::Best, 35.0),
+    ] {
+        let enc = imgio::encode_to_buffer(&src, Format::Bc7Unorm, &EncodeOptions { quality: q })?;
+        let dec = imgio::decode_to_buffer(Format::Bc7Unorm, &enc, w, h)?;
+        let db = psnr(&px, &dec, &[0, 1, 2, 3]);
+        assert!(db > min_db, "bc7 {q:?}: {db:.1} dB");
+    }
+    // BC6H: relative error of the decoded halves.
+    let (hw, hh, hpx) = raw("hdr_40x24.rgba16f")?;
+    let hsrc = Surface::new(Format::Rgba16Float, hw, hh, &hpx)?;
+    let enc = imgio::encode_to_buffer(&hsrc, Format::Bc6hUfloat, &EncodeOptions::default())?;
+    let dec = imgio::decode_to_buffer(Format::Bc6hUfloat, &enc, hw, hh)?;
+    let half =
+        |b: &[u8], i: usize| imgio::half::to_f32(u16::from_le_bytes([b[i * 2], b[i * 2 + 1]]));
+    let mut err = 0f64;
+    for p in 0..(hw * hh) as usize {
+        for c in 0..3 {
+            let (a, b) = (half(&hpx, p * 4 + c), half(&dec, p * 4 + c));
+            err += f64::from((a - b).abs() / a.max(0.05));
+        }
+    }
+    let mean = err / f64::from(hw * hh * 3);
+    assert!(mean < 0.1, "bc6h mean relative error {mean}");
     // Any uncompressed source: RGBA32F gives the same blocks as RGBA8.
     let f32px = imgio::convert::convert_to_buffer(&src, Format::Rgba32Float)?;
     let fsrc = Surface::new(Format::Rgba32Float, w, h, &f32px)?;

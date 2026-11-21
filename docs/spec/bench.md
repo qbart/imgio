@@ -28,6 +28,8 @@ split into rows of blocks. Parallel work starts at 64K pixels.
 | BC1 fast / high | 1.3 ms / 1.8 ms |
 | BC3 | 1.8 ms |
 | BC5 | 0.8 ms |
+| BC7 fastest / default / best (bc7f) | 2.2 / 4.4 / 8.7 ms |
+| BC6H default | 5.0 ms |
 
 ## Audit
 

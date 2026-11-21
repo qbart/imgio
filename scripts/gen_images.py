@@ -92,6 +92,14 @@ def write_hdr(path, rgb):
         f.write(out.tobytes())
 
 
+def hdr_image():
+    """40x24 RGB float: LDR pattern scaled to 0..2 plus a 15.0 hot spot."""
+    base = ldr(40, 24, 3, False).astype(np.float32) / 255.0
+    y, x = np.mgrid[0:24, 0:40].astype(np.float32)
+    hot = 15.0 * np.exp(-((x - 28) ** 2 + (y - 10) ** 2) / 30.0)
+    return base * 2.0 + hot[..., None]
+
+
 def raw(name, px):
     """Raw RGBA8 copy (alpha 255 for RGB) for tests without a PNG decoder: raw/NAME_WxH.rgba."""
     h, w = px.shape[:2]
@@ -107,6 +115,11 @@ def main():
     raw("rgba", ldr(64, 48, 1, True))
     raw("rgb", ldr(37, 29, 2, False))
     raw("mosaic_rgba", mosaic(50, 38, 7, True))
+    # HDR source as raw RGBA16F (alpha 1) for the BC6H encoder tests.
+    hdr = hdr_image()
+    with open(os.path.join(OUT, "raw", "hdr_40x24.rgba16f"), "wb") as f:
+        rgba = np.concatenate([hdr, np.ones((24, 40, 1), np.float32)], -1)
+        f.write(rgba.astype(np.float16).tobytes())
     if Image is None:
         print("pillow not installed: PNG / HDR files skipped")
         return
@@ -120,10 +133,7 @@ def main():
     # Benchmark source.
     Image.fromarray(ldr(512, 512, 4, True), "RGBA").save(os.path.join(OUT, "bench_512.png"))
     # HDR: LDR pattern scaled to a 0..16 range with a hot spot.
-    base = ldr(40, 24, 3, False).astype(np.float32) / 255.0
-    y, x = np.mgrid[0:24, 0:40].astype(np.float32)
-    hot = 15.0 * np.exp(-((x - 28) ** 2 + (y - 10) ** 2) / 30.0)
-    write_hdr(os.path.join(OUT, "hdr_40x24.hdr"), base * 2.0 + hot[..., None])
+    write_hdr(os.path.join(OUT, "hdr_40x24.hdr"), hdr_image())
 
 
 if __name__ == "__main__":
