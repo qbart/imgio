@@ -49,6 +49,8 @@ pub fn dxgi_format(format: Format) -> Option<u32> {
     use Format::*;
     Some(match format {
         Rgba32Float => 2,
+        R32Float => 41,
+        R16Float => 54,
         Rgba16Float => 10,
         Rgba16Unorm => 11,
         Rgba8Unorm => 28,
@@ -101,9 +103,11 @@ pub fn format_from_dxgi(dxgi: u32) -> Option<Format> {
     })
 }
 
-const ALL: [Format; 31] = {
+const ALL: [Format; 33] = {
     use Format::*;
     [
+        R32Float,
+        R16Float,
         Bgra8Unorm,
         Bgra8Srgb,
         Rgba32Float,
@@ -157,6 +161,8 @@ fn legacy(format: Format) -> Option<Legacy> {
         Rgba16Unorm => code(36),
         Rgba16Float => code(113),
         Rgba32Float => code(116),
+        R16Float => code(111),
+        R32Float => code(114),
         Rgba8Unorm => (
             DDPF_RGB | DDPF_ALPHAPIXELS,
             0,
@@ -200,6 +206,8 @@ fn format_from_legacy(flags: u32, cc: u32, bits: u32, masks: [u32; 4]) -> Option
             36 => Rgba16Unorm,
             113 => Rgba16Float,
             116 => Rgba32Float,
+            111 => R16Float,
+            114 => R32Float,
             _ => return None,
         });
     }

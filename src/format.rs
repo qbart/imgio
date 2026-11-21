@@ -126,6 +126,10 @@ pub enum Format {
     Rgba16Unorm,
     /// 32-bit float RGBA (little endian).
     Rgba32Float,
+    /// 16-bit float red (IEEE half, little endian).
+    R16Float,
+    /// 32-bit float red (little endian).
+    R32Float,
     /// BC1 (DXT1) RGB with 1-bit alpha.
     Bc1Unorm,
     /// BC1, sRGB.
@@ -210,10 +214,10 @@ impl Format {
         use Format::*;
         match self {
             R8Unorm | R8Snorm => 1,
-            Rg8Unorm | Rg8Snorm | R16Unorm | R16Snorm | Rgb565 | Bgr565 | Rgba4444 => 2,
+            Rg8Unorm | Rg8Snorm | R16Unorm | R16Snorm | R16Float | Rgb565 | Bgr565 | Rgba4444 => 2,
             Rgb16Float => 6,
             Rgba8Unorm | Rgba8Srgb | Bgra8Unorm | Bgra8Srgb | Rg16Unorm | Rg16Snorm
-            | Rgb9e5Float => 4,
+            | Rgb9e5Float | R32Float => 4,
             Rgb8Unorm | Rgb8Srgb => 3,
             Pvrtc1Rgb | Pvrtc1Rgba | Pvrtc2Rgb | Pvrtc2Rgba | AtcRgb => 8,
             AtcRgba | Fxt1Rgb => 16,
@@ -252,6 +256,8 @@ impl Format {
                 | Rgba16Float
                 | Rgba16Unorm
                 | Rgba32Float
+                | R16Float
+                | R32Float
         )
     }
 
@@ -282,6 +288,8 @@ impl Format {
                 | Rgb9e5Float
                 | Rgba16Float
                 | Rgba32Float
+                | R16Float
+                | R32Float
                 | Bc6hUfloat
                 | Bc6hSfloat
                 | Astc(_, AstcKind::Float)

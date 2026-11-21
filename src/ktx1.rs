@@ -132,9 +132,11 @@ fn format_from_gl(internal: u32, gl_format: u32, gl_type: u32) -> Option<Format>
     })
 }
 
-const UNCOMPRESSED: [Format; 20] = {
+const UNCOMPRESSED: [Format; 22] = {
     use Format::*;
     [
+        R16Float,
+        R32Float,
         Rgb8Unorm,
         Rgb8Srgb,
         R8Unorm,
@@ -163,8 +165,8 @@ fn type_size(format: Format) -> u32 {
     use Format::*;
     match format {
         R16Unorm | R16Snorm | Rg16Unorm | Rg16Snorm | Rgb565 | Bgr565 | Rgba4444 | Rgb16Float
-        | Rgba16Float | Rgba16Unorm => 2,
-        Rgb9e5Float | Rgba32Float => 4,
+        | Rgba16Float | Rgba16Unorm | R16Float => 2,
+        Rgb9e5Float | Rgba32Float | R32Float => 4,
         _ => 1,
     }
 }

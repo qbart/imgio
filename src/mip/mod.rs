@@ -159,6 +159,8 @@ fn layout(format: Format) -> Option<(Comp, usize)> {
         Rgb16Float => (Comp::F16, 3),
         Rgba16Float => (Comp::F16, 4),
         Rgba32Float => (Comp::F32, 4),
+        R16Float => (Comp::F16, 1),
+        R32Float => (Comp::F32, 1),
         _ => return None,
     })
 }

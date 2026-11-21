@@ -62,6 +62,8 @@ fn read(format: Format, p: &[u8]) -> [f32; 4] {
         Format::Rgba16Float => [h(0), h(2), h(4), h(6)],
         Format::Rgba16Unorm => [un16(0), un16(2), un16(4), un16(6)],
         Format::Rgba32Float => [f(0), f(4), f(8), f(12)],
+        Format::R16Float => [h(0), 0.0, 0.0, 1.0],
+        Format::R32Float => [f(0), 0.0, 0.0, 1.0],
         _ => [0.0; 4],
     }
 }
@@ -179,6 +181,8 @@ fn write(format: Format, v: [f32; 4], out: &mut [u8]) {
                 out[c * 4..c * 4 + 4].copy_from_slice(&v[c].to_le_bytes());
             }
         }
+        Format::R16Float => put16(0, half::from_f32(v[0]).to_le_bytes()),
+        Format::R32Float => out[..4].copy_from_slice(&v[0].to_le_bytes()),
         _ => {}
     }
 }

@@ -19,3 +19,5 @@
 
 - 2026-11-21: `Rgb8Unorm/Srgb`, `Bgra8Unorm/Srgb` (read / write; KTX2 vk 23/29/44/50 with
   red-blue-swapped DFD, DDS DXGI 87/91 + legacy 24/32-bit masks, KTX1 / GL `GL_RGB8`, `GL_BGRA`).
+- 2026-11-22: `R16Float` / `R32Float` (KTX2 vk 76 / 100, DDS DXGI 41 / 54 + legacy D3DFMT 111 / 114,
+  GL `R16F` / `R32F`, mip resampling).

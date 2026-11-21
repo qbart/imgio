@@ -27,6 +27,7 @@ translation that is byte identical with the named C++ reference; "own" means img
 | RGB16F / RGBA16F | `convert` | `convert` | HDR render targets, environment maps |
 | RGB9E5 | `convert` | `convert` | Compact HDR (shared exponent), lighting data |
 | RGBA32F | `convert` | `convert` | Full precision HDR, interchange / processing |
+| R16F / R32F | `convert` | `convert` | Depth, height and single-channel float data (EXR, zfile) |
 
 ### Block compressed (desktop: BC)
 

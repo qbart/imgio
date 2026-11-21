@@ -110,6 +110,8 @@ pub fn gl_format(format: Format) -> Option<GlFormat> {
         Rgba16Float => plain(0x881A, GL_RGBA, GL_HALF_FLOAT),
         Rgba16Unorm => plain(0x805B, GL_RGBA, GL_UNSIGNED_SHORT),
         Rgba32Float => plain(0x8814, GL_RGBA, GL_FLOAT),
+        R16Float => plain(0x822D, GL_RED, GL_HALF_FLOAT),
+        R32Float => plain(0x822E, GL_RED, GL_FLOAT),
         Bc1Unorm => compressed(0x83F1),
         Bc1Srgb => compressed(0x8C4D),
         Bc2Unorm => compressed(0x83F2),

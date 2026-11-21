@@ -204,6 +204,8 @@ pub fn dfd(format: Format) -> Option<Dfd> {
         Rgba16Float => unpacked(4, 2, Sfloat),
         Rgba16Unorm => unpacked(4, 2, Unorm),
         Rgba32Float => unpacked(4, 4, Sfloat),
+        R16Float => unpacked(1, 2, Sfloat),
+        R32Float => unpacked(1, 4, Sfloat),
         Rgb9e5Float => rgb9e5(),
         Rgba4444 => packed(&[4, 4, 4, 4], &[3, 2, 1, 0]),
         Rgb565 => packed(&[5, 6, 5], &[2, 1, 0]),
