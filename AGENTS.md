@@ -21,7 +21,7 @@ https://github.com/binomialLLC/basis_universal
 
 1. Keep the copy of ktx-rs in `./ref/ktx-rs` and keep `./ref` in gitignore. Also keep basis_universal at `./ref/basisu` to have the reference of encoders - pick basisu or ktx-rs as reference based on needs.
 2. Use vas for containers so memory can be better managed.
-3. Do not use `.unwrap` / `.expect`. The library should create its own error handling approach (`err, ok := Operation` like in Golang is preferred to simplify the API; runtime exceptions are not allowed).
+3. Do not use `.unwrap` / `.expect` (or anything else that panics). Every fallible operation returns `imgio::Result<T>` (`Result<T, imgio::Error>`) and errors are propagated with `?`; runtime panics are not allowed.
 4. Make sure to copy the test data like images to the library, version them in the repository and explicitly mark the license for the images like in ktx-rs.
 5. Create images for test purposes so we can maintain them.
 6. Maintain implementation audit logs at `./docs/spec/*.md`. First write the spec there, but be concise.
