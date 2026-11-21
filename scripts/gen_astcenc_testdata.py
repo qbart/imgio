@@ -10,6 +10,12 @@ imgio converts to RGBA32F). Every case uses the CLI defaults (`-j 1`, RGBA swizz
 weighting, no -decode_unorm8), matching `imgio::encode`'s astcenc setup; the LZ-RDO cases add
 `-rdo-lambda` (`EncodeOptions::rdo_lambda`).
 
+The alpha scaling cases (`-a <radius>`, which also turns on ASTCENC_FLG_USE_ALPHA_WEIGHT) encode
+`cutout_rgba_96x64` and the 3D cases a 26x22x14 volume derived from it (see `volume`), loaded by
+the CLI as a `-zdim 14` stack of TGA slices `name_0.tga` .. `name_13.tga`; both are checked
+through the astcenc API (`src/astcenc/cli_tests.rs`). Each of them is also encoded with `-j 16`,
+which must give the same bytes as `-j 1`.
+
 Usage: python3 scripts/gen_astcenc_testdata.py [path/to/astcenc-avx2]
 (build the CLI from ref/astcenc: cmake -DASTCENC_ISA_AVX2=ON ..; make)
 """
@@ -58,6 +64,75 @@ RDO_CASES = [
     ("tiled_rgba_320x240_4x4_l_medium_rdo20", "tiled_rgba_320x240", 320, 240, "4x4", "-cl",
      "-medium", "20"),
 ]
+
+# Alpha scaling cases (`-a`): (output name, raw source, width, height, block, CLI mode, CLI
+# preset, radius, lambda or None); keep in sync with src/astcenc/cli_tests.rs.
+CUTOUT = ("cutout_rgba_96x64.rgba", 96, 64)
+ASCALE_CASES = [
+    ("cutout_96x64_4x4_l_fast_a1", "4x4", "-cl", "-fast", "1", None),
+    ("cutout_96x64_6x6_s_medium_a1", "6x6", "-cs", "-medium", "1", None),
+    ("cutout_96x64_8x8_l_thorough_a1", "8x8", "-cl", "-thorough", "1", None),
+    ("cutout_96x64_4x4_s_medium_a2", "4x4", "-cs", "-medium", "2", None),
+    ("cutout_96x64_6x6_l_thorough_a2", "6x6", "-cl", "-thorough", "2", None),
+    ("cutout_96x64_8x8_s_fast_a2", "8x8", "-cs", "-fast", "2", None),
+    ("cutout_96x64_4x4_l_thorough_a4", "4x4", "-cl", "-thorough", "4", None),
+    ("cutout_96x64_6x6_s_fast_a4", "6x6", "-cs", "-fast", "4", None),
+    ("cutout_96x64_8x8_l_medium_a4", "8x8", "-cl", "-medium", "4", None),
+    ("cutout_96x64_4x4_s_fast_a8", "4x4", "-cs", "-fast", "8", None),
+    ("cutout_96x64_6x6_l_medium_a8", "6x6", "-cl", "-medium", "8", None),
+    ("cutout_96x64_8x8_s_thorough_a8", "8x8", "-cs", "-thorough", "8", None),
+    ("cutout_96x64_4x4_l_medium_a1_rdo20", "4x4", "-cl", "-medium", "1", "20"),
+    ("cutout_96x64_6x6_s_fast_a2_rdo20", "6x6", "-cs", "-fast", "2", "20"),
+    ("cutout_96x64_8x8_l_thorough_a4_rdo20", "8x8", "-cl", "-thorough", "4", "20"),
+    ("cutout_96x64_4x4_s_medium_a8_rdo20", "4x4", "-cs", "-medium", "8", "20"),
+    ("cutout_96x64_8x8_l_fast_a8_rdo20", "8x8", "-cl", "-fast", "8", "20"),
+    # HDR profile from FP16 data (the F16 path of the averages)
+    ("cutout_96x64_6x6_H_medium_a2", "6x6", "-cH", "-medium", "2", None),
+]
+
+# 3D cases (`-zdim`): (output name, block, CLI mode, CLI preset, radius or None, lambda or
+# None); keep in sync with src/astcenc/cli_tests.rs.
+VOLUME = (26, 22, 14)
+VOLUME_CASES = [
+    ("vol_26x22x14_4x4x4_l_medium", "4x4x4", "-cl", "-medium", None, None),
+    ("vol_26x22x14_4x4x4_l_medium_rdo20", "4x4x4", "-cl", "-medium", None, "20"),
+    ("vol_26x22x14_6x6x6_s_medium", "6x6x6", "-cs", "-medium", None, None),
+    ("vol_26x22x14_6x6x6_s_medium_rdo20", "6x6x6", "-cs", "-medium", None, "20"),
+    ("vol_26x22x14_3x3x3_l_thorough", "3x3x3", "-cl", "-thorough", None, None),
+    ("vol_26x22x14_4x4x4_l_medium_a2", "4x4x4", "-cl", "-medium", "2", None),
+    ("vol_26x22x14_6x6x6_s_medium_a4_rdo20", "6x6x6", "-cs", "-medium", "4", "20"),
+]
+
+
+def volume(rgba, w, h, dims):
+    """The slices of a dx x dy x dz RGBA8 volume cut from the w x h `rgba`: voxel (x, y, z)
+    is pixel ((x + 7 * z) % w, (y + 5 * z) % h)."""
+    dx, dy, dz = dims
+    slices = []
+    for z in range(dz):
+        out = bytearray(dx * dy * 4)
+        for y in range(dy):
+            for x in range(dx):
+                sx, sy = (x + 7 * z) % w, (y + 5 * z) % h
+                out[(y * dx + x) * 4 : (y * dx + x) * 4 + 4] = rgba[(sy * w + sx) * 4 : (sy * w + sx) * 4 + 4]
+        slices.append(bytes(out))
+    return slices
+
+
+def half(v):
+    """float32(v) -> IEEE half bits (round to nearest even)."""
+    f32 = struct.unpack("<f", struct.pack("<f", v))[0]
+    return struct.unpack("<H", struct.pack("<e", f32))[0]
+
+
+def run_both(cli, args, out, tmp):
+    """Runs the CLI with `-j 1` (writing `out`) and `-j 16`, which must give the same bytes."""
+    subprocess.run([cli] + args[:2] + [out] + args[2:] + ["-j", "1", "-silent"], check=True)
+    out16 = os.path.join(tmp, "j16.astc")
+    subprocess.run([cli] + args[:2] + [out16] + args[2:] + ["-j", "16", "-silent"], check=True)
+    with open(out, "rb") as a, open(out16, "rb") as b:
+        if a.read() != b.read():
+            sys.exit(f"{out}: -j 16 differs from -j 1")
 
 
 def tga(path, w, h, rgba):
@@ -122,6 +197,35 @@ def main():
             out = os.path.join(OUT, name + ".astc")
             subprocess.run([cli, mode, inp, out, block, preset, "-rdo-lambda", rdo_lambda, "-j",
                             "1", "-silent"], check=True)
+            print("wrote", os.path.relpath(out, ROOT))
+        src, w, h = CUTOUT
+        with open(os.path.join(RAW, src), "rb") as f:
+            cutout = f.read()
+        for name, block, mode, preset, radius, rdo_lambda in ASCALE_CASES:
+            if mode == "-cH":
+                inp = os.path.join(tmp, name + ".dds")
+                dds_rgba16f(inp, w, h, b"".join(struct.pack("<H", half(c / 255.0)) for c in cutout))
+            else:
+                inp = os.path.join(tmp, name + ".tga")
+                tga(inp, w, h, cutout)
+            args = [mode, inp, block, preset, "-a", radius]
+            if rdo_lambda:
+                args += ["-rdo-lambda", rdo_lambda]
+            out = os.path.join(OUT, name + ".astc")
+            run_both(cli, args, out, tmp)
+            print("wrote", os.path.relpath(out, ROOT))
+        dx, dy, dz = VOLUME
+        slices = volume(cutout, w, h, VOLUME)
+        for z, sl in enumerate(slices):
+            tga(os.path.join(tmp, f"vol_{z}.tga"), dx, dy, sl)
+        for name, block, mode, preset, radius, rdo_lambda in VOLUME_CASES:
+            args = [mode, os.path.join(tmp, "vol.tga"), block, preset, "-zdim", str(dz)]
+            if radius:
+                args += ["-a", radius]
+            if rdo_lambda:
+                args += ["-rdo-lambda", rdo_lambda]
+            out = os.path.join(OUT, name + ".astc")
+            run_both(cli, args, out, tmp)
             print("wrote", os.path.relpath(out, ROOT))
 
 

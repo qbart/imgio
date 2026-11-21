@@ -43,21 +43,20 @@ pub fn compressor_alloc(cfg: &AstcencConfig, thread_count: u32) -> Compressor {
 isa_fn! {
 /// `compress_image`: compresses the batches of 16 blocks the task manager hands to this
 /// thread. Each batch is compressed locally and copied into the shared output (and, for
-/// LZ-RDO, its restricted encodings into `restricted`). A failed batch cancels the task
+/// LZ-RDO, its restricted encodings into `pass.restricted`). A failed batch cancels the task
 /// manager and still counts as complete, so no thread waits for it.
-#[allow(clippy::too_many_arguments)]
 pub fn compress_image(
     compressor: &Compressor,
     config: &AstcencConfig,
-    active_channel_mask: u32,
-    manage_compress: &ParallelManager,
+    pass: &CompressPass,
     thread_index: usize,
     image: &AstcencImage,
     swizzle: &AstcencSwizzle,
     buffer: &AstcencOutput,
-    restricted: Option<&std::sync::RwLock<Vec<u8>>>,
 ) -> Result<(), AstcencError> {
-    let config = *config;
+    let config = config.clone();
+    let manage_compress = pass.manage_compress;
+    let restricted = pass.restricted;
     let bsd = &*compressor.bsd;
     let Some(temp_buffers) = compressor.working_buffers.get(thread_index) else {
         return Err(AstcencError::BadContext);
@@ -90,7 +89,7 @@ pub fn compress_image(
 
     // The L+A refit skips the RGB+offset endpoint calculation needed for HDR mode 7
     let is_ldr = matches!(decode_mode, AstcencProfile::Ldr | AstcencProfile::LdrSrgb);
-    blk.active_channel_mask = if is_ldr { active_channel_mask } else { 0xF };
+    blk.active_channel_mask = if is_ldr { pass.active_channel_mask } else { 0xF };
 
     // Preserve the configured weights before applying per-block adjustments
     let channel_weight = vecmath::Vfloat4::new(
@@ -110,7 +109,25 @@ pub fn compress_image(
         !needs_swz && !needs_hdr && block_z == 1 && matches!(image.data, AstcencImageData::U8(_));
 
     // Only the first thread actually runs the initializer
-    manage_compress.init(block_count);
+    manage_compress.init_progress(
+        block_count,
+        config.progress_callback.as_ref(),
+        0.0,
+        pass.compression_pct,
+    );
+
+    // The negligible alpha test of `a_scale_radius` (2D blocks only)
+    let alpha_averages = if block_z == 1 { pass.alpha_averages } else { None };
+    let loop_args = BatchArgs {
+        row_blocks,
+        plane_blocks,
+        dim_x,
+        dim_y,
+        use_fast_load,
+        needs_hdr,
+        channel_weight,
+        alpha_averages,
+    };
 
     // All threads run this processing loop until there is no work remaining
     const GRANULE: usize = 16;
@@ -127,8 +144,7 @@ pub fn compress_image(
             &mut blk,
             temp_buffers,
             (base, count),
-            (row_blocks, plane_blocks),
-            (use_fast_load, needs_hdr, channel_weight),
+            &loop_args,
             image,
             swizzle,
             &mut local,
@@ -164,6 +180,53 @@ pub fn compress_image(
 }
 }
 
+/// The per-image constants of the `compress_image` block loop.
+struct BatchArgs<'a> {
+    row_blocks: usize,
+    plane_blocks: usize,
+    dim_x: usize,
+    dim_y: usize,
+    use_fast_load: bool,
+    needs_hdr: bool,
+    channel_weight: vecmath::Vfloat4,
+    /// `input_alpha_averages` when the negligible alpha test applies.
+    alpha_averages: Option<&'a [f32]>,
+}
+
+isa_fn! {
+/// `a_scale_radius`: true if any texel of the 2D block at block coordinates `(x, y)` has an
+/// alpha average above the threshold (else the block has negligible alpha).
+fn block_has_alpha(
+    averages: &[f32],
+    radius: u32,
+    (block_x, block_y): (usize, usize),
+    (dim_x, dim_y): (usize, usize),
+    (x, y): (usize, usize),
+) -> bool {
+    let start_x = x * block_x;
+    let end_x = dim_x.min(start_x + block_x);
+
+    let start_y = y * block_y;
+    let end_y = dim_y.min(start_y + block_y);
+
+    // SATs accumulate error, so don't test exactly zero. Test for less than 1 alpha in the
+    // expanded block footprint that includes the alpha radius.
+    let radius = radius as usize;
+    let x_footprint = block_x + 2 * radius.saturating_sub(1);
+    let y_footprint = block_y + 2 * radius.saturating_sub(1);
+
+    let footprint = (x_footprint * y_footprint) as f32;
+    let threshold = 0.9 / (255.0 * footprint);
+
+    // Check for alpha values above the threshold
+    (start_y..end_y).any(|ay| {
+        averages
+            .get(ay * dim_x + start_x..ay * dim_x + end_x)
+            .is_some_and(|row| row.iter().any(|&a| a > threshold))
+    })
+}
+}
+
 isa_fn! {
 /// The block loop of `compress_image` for one batch `(base, count)` of block indices.
 #[allow(clippy::too_many_arguments)]
@@ -173,8 +236,7 @@ fn compress_batch(
     blk: &mut ImageBlock,
     temp_buffers: &mut CompressionWorkingBuffers,
     (base, count): (usize, usize),
-    (row_blocks, plane_blocks): (usize, usize),
-    (use_fast_load, needs_hdr, channel_weight): (bool, bool, vecmath::Vfloat4),
+    args: &BatchArgs,
     image: &AstcencImage,
     swizzle: &AstcencSwizzle,
     local: &mut [u8; 256],
@@ -184,6 +246,7 @@ fn compress_batch(
     let block_x = bsd.dim_x as usize;
     let block_y = bsd.dim_y as usize;
     let block_z = bsd.dim_z as usize;
+    let (row_blocks, plane_blocks) = (args.row_blocks, args.plane_blocks);
     for i in base..base + count {
         // Decode i into x, y, z block indices
         let z = i / plane_blocks;
@@ -191,50 +254,71 @@ fn compress_batch(
         let y = rem / row_blocks;
         let x = rem - (y * row_blocks);
 
+        // Check for blocks with negligible alpha contribution
+        let use_full_block = match args.alpha_averages {
+            Some(averages) => block_has_alpha(
+                averages,
+                config.a_scale_radius,
+                (block_x, block_y),
+                (args.dim_x, args.dim_y),
+                (x, y),
+            ),
+            None => true,
+        };
+
         // Fetch the full block for compression
-        blk.channel_weight = channel_weight;
-        if use_fast_load {
-            image::load_image_block_fast_ldr(image, blk, bsd, x * block_x, y * block_y);
-        } else {
-            image::load_image_block(
-                decode_mode,
-                image,
-                blk,
-                bsd,
-                x * block_x,
-                y * block_y,
-                z * block_z,
-                swizzle,
-            );
-        }
-
-        if needs_hdr && config.flags & ASTCENC_FLG_USE_PERCEPTUAL != 0 {
-            // Approximate display-space error by weighting logarithmic channels by their
-            // geometric brightness
-            let mut mean = blk.data_mean;
-            mean.set_lane(3, 0.0);
-            let geometric_mean =
-                vecmath::float16_to_float_v(vecmath::lns_to_sf16(mean.float_to_int()));
-            let maximum = mathlib::max(geometric_mean.hmax_s(), 1e-20);
-
-            // Retain at least 1% weight for dim channels
-            let mut weights = (geometric_mean / maximum).max(vecmath::Vfloat4::splat(0.01));
-            weights.set_lane(3, 1.0);
-            blk.channel_weight = weights * blk.channel_weight;
-        }
-
-        // Scale RGB error contribution by the maximum alpha in the block. This encourages
-        // alpha accuracy in regions with high transparency, and can gain up to 0.5 dB.
-        if config.flags & ASTCENC_FLG_USE_ALPHA_WEIGHT != 0 {
-            let mut alpha_scale = blk.data_max.lane(3) * (1.0 / 65535.0);
-            if decode_mode == AstcencProfile::Hdr {
-                // Transparency uses linear alpha, even when the endpoints use LNS
-                let alpha_lns = blk.data_max.float_to_int();
-                let alpha = vecmath::float16_to_float_v(vecmath::lns_to_sf16(alpha_lns));
-                alpha_scale = mathlib::clamp1f(alpha.lane(3));
+        blk.channel_weight = args.channel_weight;
+        if use_full_block {
+            if args.use_fast_load {
+                image::load_image_block_fast_ldr(image, blk, bsd, x * block_x, y * block_y);
+            } else {
+                image::load_image_block(
+                    decode_mode,
+                    image,
+                    blk,
+                    bsd,
+                    x * block_x,
+                    y * block_y,
+                    z * block_z,
+                    swizzle,
+                );
             }
-            blk.channel_weight = blk.channel_weight
-                * vecmath::Vfloat4::new(alpha_scale, alpha_scale, alpha_scale, 1.0);
+
+            if args.needs_hdr && config.flags & ASTCENC_FLG_USE_PERCEPTUAL != 0 {
+                // Approximate display-space error by weighting logarithmic channels by their
+                // geometric brightness
+                let mut mean = blk.data_mean;
+                mean.set_lane(3, 0.0);
+                let geometric_mean =
+                    vecmath::float16_to_float_v(vecmath::lns_to_sf16(mean.float_to_int()));
+                let maximum = mathlib::max(geometric_mean.hmax_s(), 1e-20);
+
+                // Retain at least 1% weight for dim channels
+                let mut weights = (geometric_mean / maximum).max(vecmath::Vfloat4::splat(0.01));
+                weights.set_lane(3, 1.0);
+                blk.channel_weight = weights * blk.channel_weight;
+            }
+
+            // Scale RGB error contribution by the maximum alpha in the block. This encourages
+            // alpha accuracy in regions with high transparency, and can gain up to 0.5 dB.
+            if config.flags & ASTCENC_FLG_USE_ALPHA_WEIGHT != 0 {
+                let mut alpha_scale = blk.data_max.lane(3) * (1.0 / 65535.0);
+                if decode_mode == AstcencProfile::Hdr {
+                    // Transparency uses linear alpha, even when the endpoints use LNS
+                    let alpha_lns = blk.data_max.float_to_int();
+                    let alpha = vecmath::float16_to_float_v(vecmath::lns_to_sf16(alpha_lns));
+                    alpha_scale = mathlib::clamp1f(alpha.lane(3));
+                }
+                blk.channel_weight = blk.channel_weight
+                    * vecmath::Vfloat4::new(alpha_scale, alpha_scale, alpha_scale, 1.0);
+            }
+        } else {
+            // Apply alpha scale RDO - substitute constant color block
+            blk.origin_texel = vecmath::Vfloat4::zero();
+            blk.data_min = vecmath::Vfloat4::zero();
+            blk.data_mean = vecmath::Vfloat4::zero();
+            blk.data_max = vecmath::Vfloat4::zero();
+            blk.grayscale = true;
         }
 
         // ((z * blocks_y + y) * blocks_x + x) * 16 == i * 16: a batch is contiguous

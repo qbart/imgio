@@ -44,8 +44,9 @@
   `-thorough` (98), Best `-exhaustive` (100); flags 0, RGBA swizzle, no alpha weighting /
   decode_unorm8 (= the CLI defaults for an RGBA8 TGA / PNG or FP16 DDS input). One context,
   `available_parallelism` threads (1 below 64K pixels) each calling `astcenc_compress_image`;
-  input RGBA8 (LDR) or RGBA32F (HDR). LZ-RDO (`EncodeOptions::rdo_lambda`) see below. Not
-  ported: alpha-scale RDO (`a_scale_radius`, `NotImplemented`).
+  input RGBA8 (LDR) or RGBA32F (HDR). LZ-RDO (`EncodeOptions::rdo_lambda`) see below. The
+  astcenc-level features `imgio::encode` does not expose (alpha scaling `a_scale_radius` /
+  CLI `-a`, the progress callback, 3D blocks) are in [astcenc.md](astcenc.md).
   Byte identity with the C++ 6.0 CLI (`astcenc-avx2`): `tests/astcenc_cli.rs` (11 `.astc` files
   from `scripts/gen_astcenc_testdata.py`: LDR / sRGB / HDR, 4x4..12x12, every `Quality`);
   `astcenc::tests::compress_matches_astcenc` (C++ 6.0 library hashes from
@@ -129,6 +130,8 @@
 - 2026-11-21: ASTC LZ-RDO (`astcenc_lz_optimize.cpp`, `EncodeOptions::rdo_lambda`): byte
   identical with the 6.0 CLI `-rdo-lambda` (7 CLI files, 192 library hashes, 108 dev runs on
   1024x1024 at 1 / 16 threads); thread-count independent like upstream.
+- 2026-11-21: astcenc alpha scaling (`a_scale_radius`), progress callback and 3D CLI
+  byte identity, astcenc API only (not in `EncodeOptions`); see [astcenc.md](astcenc.md).
 - 2026-11-21: ATC, PVRTC2, FXT1 encoders (`legacy_enc`): every compressed `Format` encodes.
 - 2026-11-21: signed BC6H encoder (`bc6h_signed`).
 - 2026-11-21: ETC2 T / H / planar mode encoding (`etc2modes`).

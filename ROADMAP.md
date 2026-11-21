@@ -76,15 +76,18 @@ C++ / ktx-rs reference (golden hashes from offline builds, as for the transcoder
 
 Texture follow-ups found on the way: [x] high-quality ETC1 (basisu `etc1_optimizer` flip / diff
 search), [x] ETC2 RGB A1 and signed BC4 / BC5 / EAC encoders, [x] ETC2 T / H / planar mode
-encoding (ETC2 RGB / RGB A1 quality), [x] signed BC6H encoder, [ ] ASTC encode speed vs C++
-astcenc: ported to astc-encoder 6.0.0, byte identical with the 6.0 CLI. 1024x1024, 1 / 16 threads
+encoding (ETC2 RGB / RGB A1 quality), [x] signed BC6H encoder, [x] ASTC encode speed vs C++
+astcenc: ported to astc-encoder 6.0.0, byte identical with the 6.0 CLI; the remaining speed gap
+is accepted since the output is byte identical. 1024x1024, 1 / 16 threads
 (imgio vs `astcenc-avx2` 6.0): 4x4 medium 1.16 / 0.158 s vs 0.86 / 0.102 s (1.33x), 4x4 fast
 0.70 / 0.098 vs 0.57 / 0.075 (1.22x), 6x6 medium 1.79 / 0.216 vs 1.30 / 0.143 (1.36x), 8x8
 thorough 2.96 / 0.348 vs 2.29 / 0.257 (1.28x); was 1.99 s for 4x4 medium on 5.x. Vs a non-LTO
-in-process C++ 6.0 build the gap is 1.06-1.2x (the CLI's gcc LTO is worth 15-20%; Rust LTO 3%).
-Remaining: codegen gap spread over many kernels. [x] ASTC LZ-RDO (`-rdo-lambda`,
+in-process C++ 6.0 build the gap is 1.06-1.2x (the CLI's gcc LTO is worth 15-20%; Rust LTO 3%),
+a codegen gap spread over many kernels. [x] ASTC LZ-RDO (`-rdo-lambda`,
 `EncodeOptions::rdo_lambda`): byte identical with the 6.0 CLI, thread-count independent;
-1024x1024 4x4 medium lambda 20: 1.74 / 0.26 s vs 1.36 / 0.20 s.
+1024x1024 4x4 medium lambda 20: 1.74 / 0.26 s vs 1.36 / 0.20 s. [x] astcenc alpha scaling
+(`a_scale_radius`, CLI `-a`), progress callback and 3D blocks (`-zdim`, incl. LZ-RDO): byte
+identical with the 6.0 CLI through the astcenc API (`docs/spec/astcenc.md`).
 
 More texture work (in order): [x] `.astc` file reader / writer, [x] KTX1 reader / writer
 (own, byte identical with basisu `-export_ktx`), [x] 3D textures (KTX2 depth, DDS volumes, KTX1 depth), [x] one-call

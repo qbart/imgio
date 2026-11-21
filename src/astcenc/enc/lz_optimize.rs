@@ -1321,7 +1321,8 @@ isa_fn! {
 /// `lz_rdo_optimize` (with `lz_rdo_optimization_passes`): every thread takes chunks of up to
 /// 4096 blocks and revisits them, reusing previous endpoints and weights where the
 /// rate-distortion score favours it. Requires the compression and the setup pass to be
-/// complete; returns once all chunks are done.
+/// complete; returns once all chunks are done. The progress callback reports `init_pct` to
+/// 100% over the chunks.
 #[allow(clippy::too_many_arguments)]
 pub fn lz_rdo_optimize(
     compressor: &Compressor,
@@ -1330,6 +1331,7 @@ pub fn lz_rdo_optimize(
     thread_index: usize,
     img: &AstcencImage,
     swz: &AstcencSwizzle,
+    init_pct: f32,
     data_out: &AstcencOutput,
 ) -> Result<(), AstcencError> {
     let bsd = &*compressor.bsd;
@@ -1342,7 +1344,15 @@ pub fn lz_rdo_optimize(
     // of block size
     lambda *= f32::from(bsd.texel_count) / 16.0;
 
-    let result = optimization_passes(compressor, config, lz, thread_index, lambda, img, swz, data_out);
+    let result = optimization_passes(
+        compressor,
+        config,
+        lz,
+        (thread_index, lambda, init_pct),
+        img,
+        swz,
+        data_out,
+    );
 
     // Every chunk is complete here (or the passes failed and cancelled): release the buffers
     lz.manage_optimize.term(|| {
@@ -1359,13 +1369,11 @@ pub fn lz_rdo_optimize(
 
 isa_fn! {
 /// The per-thread chunk loop of `lz_rdo_optimization_passes`.
-#[allow(clippy::too_many_arguments)]
 fn optimization_passes(
     compressor: &Compressor,
     config: &AstcencConfig,
     lz: &LzRdo,
-    thread_index: usize,
-    lambda: f32,
+    (thread_index, lambda, init_pct): (usize, f32, f32),
     img: &AstcencImage,
     swz: &AstcencSwizzle,
     data_out: &AstcencOutput,
@@ -1418,7 +1426,12 @@ fn optimization_passes(
         ),
     };
 
-    lz.manage_optimize.init(blocks_x * blocks_y * blocks_z);
+    lz.manage_optimize.init_progress(
+        blocks_x * blocks_y * blocks_z,
+        config.progress_callback.as_ref(),
+        init_pct,
+        100.0,
+    );
 
     // Main thread loop to process work items from the queue
     let mut result = Ok(());

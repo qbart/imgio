@@ -1,8 +1,11 @@
 #!/bin/sh
 # SPDX-FileCopyrightText: 2026 imgio contributors
 # SPDX-License-Identifier: Apache-2.0
-# Regenerates testdata/astcenc/compress_golden.txt and compress_lz_rdo_golden.txt
-# (src/astcenc/tests.rs `compress_matches_astcenc`, `compress_lz_rdo_matches_astcenc`) with the C++ astc-encoder 6.0 in ref/astcenc, compiled like its
+# Regenerates testdata/astcenc/compress_golden.txt, compress_lz_rdo_golden.txt and
+# compress_alpha_scale_golden.txt and compress_progress_golden.txt (src/astcenc/tests.rs
+# `compress_matches_astcenc`, `compress_lz_rdo_matches_astcenc`,
+# `compress_alpha_scale_matches_astcenc`, `progress_callback_matches_parallel_manager`) with the C++
+# astc-encoder 6.0 in ref/astcenc, compiled like its
 # CMake AVX2 build (C++20, AVX2 + BMI / BMI2 + POPCNT + F16C, invariance on: no FP contraction).
 # Offline dev tool: the C++ code is only built here, never linked into imgio. Requires g++.
 set -e
@@ -20,3 +23,7 @@ g++ -O3 -w -std=c++20 -mavx2 -mbmi -mbmi2 -mpopcnt -mf16c -ffp-contract=off -fno
 echo "wrote testdata/astcenc/compress_golden.txt ($(wc -l < "$ROOT/testdata/astcenc/compress_golden.txt") cases)"
 "$WORK/astcenc_compress_golden" rdo > "$ROOT/testdata/astcenc/compress_lz_rdo_golden.txt"
 echo "wrote testdata/astcenc/compress_lz_rdo_golden.txt ($(wc -l < "$ROOT/testdata/astcenc/compress_lz_rdo_golden.txt") cases)"
+"$WORK/astcenc_compress_golden" ascale > "$ROOT/testdata/astcenc/compress_alpha_scale_golden.txt"
+echo "wrote testdata/astcenc/compress_alpha_scale_golden.txt ($(wc -l < "$ROOT/testdata/astcenc/compress_alpha_scale_golden.txt") cases)"
+"$WORK/astcenc_compress_golden" progress > "$ROOT/testdata/astcenc/compress_progress_golden.txt"
+echo "wrote testdata/astcenc/compress_progress_golden.txt"

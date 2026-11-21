@@ -55,7 +55,7 @@ translation that is byte identical with the named C++ reference; "own" means img
 
 | Type | Encoder | Decoder | Why / typical use |
 |---|---|---|---|
-| ASTC 4x4..12x12 LDR / sRGB / HDR | port, ARM astcenc 6.0 (presets fastest..exhaustive, LZ RDO) | port, basisu ASTC helpers | Flexible bitrate (8 to 0.89 bpp), modern mobile and Apple GPUs |
+| ASTC 4x4..12x12 LDR / sRGB / HDR | port, ARM astcenc 6.0 (presets fastest..exhaustive, LZ RDO, alpha scale; 3D blocks via `astcenc` API) | port, basisu ASTC helpers | Flexible bitrate (8 to 0.89 bpp), modern mobile and Apple GPUs |
 | PVRTC1 4bpp RGB / RGBA | port, basisu `encode_pvrtc1` | port, basisu | Older iOS (PowerVR) devices |
 | PVRTC2 4bpp RGB / RGBA | own (hard-transition blocks) | port, basisu (hard-transition blocks) | PowerVR GPUs with PVRTC2 support |
 | ATC RGB / RGBA | own | port, basisu | Older Adreno (Qualcomm) devices |

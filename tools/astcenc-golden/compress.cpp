@@ -8,9 +8,12 @@
 // block sizes x profiles x qualities x flag sets x data types and prints
 // "<case>\t<fnv1a64 of the compressed blocks>".
 // With the argument `rdo` it prints the LZ-RDO cases instead (LDR profiles, larger images,
-// ASTCENC_FLG_USE_LZ_RDO with lambda 10 / 20 / 40).
+// ASTCENC_FLG_USE_LZ_RDO with lambda 10 / 20 / 40). With `ascale` it prints the alpha scaling
+// cases (`a_scale_radius`) on images with transparent regions, with `progress` the progress
+// callback reports.
 // Must stay in sync with src/astcenc/tests.rs (`compress_matches_astcenc`,
-// `compress_lz_rdo_matches_astcenc`). Build / run via scripts/gen_astcenc_golden.sh.
+// `compress_lz_rdo_matches_astcenc`, `compress_alpha_scale_matches_astcenc`,
+// `progress_callback_matches_parallel_manager`). Build / run via scripts/gen_astcenc_golden.sh.
 #include <cstdio>
 #include <cstdint>
 #include <cstring>
@@ -46,7 +49,125 @@ static float texel(Lcg& l, int kind, unsigned x, unsigned y, unsigned z, int c) 
     }
 }
 
+// Alpha scaling content: noise RGB; alpha 0 except for a disc (1.0, with a 0.5 rim), and
+// near-zero specks, so blocks are opaque, partly transparent or transparent.
+static float ascale_texel(Lcg& l, unsigned x, unsigned y, unsigned z, int c, unsigned dx, unsigned dy) {
+    float n = l.unit();
+    if (c != 3) return n;
+    int ddx = (int)x - (int)(dx * 3 / 10), ddy = (int)y - (int)(dy / 2);
+    int d2 = ddx * ddx + ddy * ddy + (int)(z * z * 4);
+    int r = (int)(dy / 4) + 1;
+    if (d2 < r * r) return 1.0f;
+    if (d2 < (r + 2) * (r + 2)) return 0.5f;
+    // Specks of 0.0005 .. 0.004: near the negligible alpha threshold for float data
+    if ((x * 7 + y * 13 + z * 3) % 97 == 0) return (float)(((x * 7 + y * 13 + z * 3) / 97) % 8 + 1) * 0.0005f;
+    return 0.0f;
+}
+
+static uint16_t to_half(float f) {
+    uint32_t u; memcpy(&u, &f, 4);
+    uint32_t e = (u >> 23) & 0xff, m = u & 0x7fffff;
+    if (f == 0.0f || e < 113) return 0; // tiny values flush to zero
+    uint32_t he = e - 112, hm = m >> 13, rest = m & 0x1fff;
+    if (rest > 0x1000 || (rest == 0x1000 && (hm & 1))) hm++;
+    if (hm == 0x400) { hm = 0; he++; }
+    return (uint16_t)((he << 10) | hm);
+}
+
+// `a_scale_radius` cases: block sizes x radii x profiles, rotating data types, qualities,
+// swizzles (alpha from A, from G, or ZERO), the alpha weight flag and LZ-RDO (LDR profiles).
+static int ascale_cases() {
+    const unsigned SIZES[][3] = {{4, 4, 1}, {5, 4, 1}, {6, 6, 1}, {8, 8, 1}, {12, 12, 1}, {3, 3, 3}, {10, 5, 1}, {6, 6, 6}, {4, 4, 4}};
+    const unsigned RADII[] = {1, 2, 4, 8, 100};
+    const astcenc_profile PROFILES[] = {ASTCENC_PRF_LDR, ASTCENC_PRF_LDR_SRGB, ASTCENC_PRF_HDR_RGB_LDR_A, ASTCENC_PRF_HDR};
+    const float QUALITIES[] = {ASTCENC_PRE_FASTEST, ASTCENC_PRE_MEDIUM, ASTCENC_PRE_THOROUGH};
+    const float LAMBDAS[] = {10.0f, 20.0f, 40.0f};
+    for (int si = 0; si < 9; si++) {
+        const auto* s = SIZES[si];
+        for (int ri = 0; ri < 5; ri++) {
+            for (int pi = 0; pi < 4; pi++) {
+                bool hdr = pi >= 2;
+                int dt = (si + ri + pi) % 3;
+                int qi = (si * 2 + ri + pi) % 3;
+                int sw = (si + ri * 2 + pi) % 3;
+                bool rdo = !hdr && (si + ri + pi) % 2 == 0;
+                unsigned flags = (si + ri) % 4 == 3 ? 0 : ASTCENC_FLG_USE_ALPHA_WEIGHT;
+                if (rdo) flags |= ASTCENC_FLG_USE_LZ_RDO;
+                astcenc_config c;
+                if (astcenc_config_init(PROFILES[pi], s[0], s[1], s[2], QUALITIES[qi], flags, &c) != ASTCENC_SUCCESS) return 1;
+                c.a_scale_radius = RADII[ri];
+                if (rdo) c.lz_rdo_lambda = LAMBDAS[(si + ri) % 3];
+                astcenc_context* ctx = nullptr;
+                if (astcenc_context_alloc(&c, 1, &ctx, nullptr) != ASTCENC_SUCCESS) return 2;
+                unsigned dx = s[0] * 8 + 3, dy = s[1] * 6 + 1;
+                unsigned dz = s[2] == 1 ? 1 : s[2] * 3 + 1;
+                Lcg l{(uint32_t)(50000 + si * 1000 + ri * 100 + pi * 10)};
+                std::vector<std::vector<uint8_t>> p8(dz);
+                std::vector<std::vector<uint16_t>> p16(dz);
+                std::vector<std::vector<float>> p32(dz);
+                for (unsigned z = 0; z < dz; z++) {
+                    for (unsigned y = 0; y < dy; y++) {
+                        for (unsigned x = 0; x < dx; x++) {
+                            for (int ch = 0; ch < 4; ch++) {
+                                float v = ascale_texel(l, x, y, z, ch, dx, dy);
+                                float hv = (hdr && ch != 3) ? v * 6.0f : v;
+                                p8[z].push_back((uint8_t)(v * 255.0f + 0.5f));
+                                p16[z].push_back(to_half(hv));
+                                p32[z].push_back(hv);
+                            }
+                        }
+                    }
+                }
+                std::vector<void*> ptrs(dz);
+                for (unsigned z = 0; z < dz; z++)
+                    ptrs[z] = dt == 0 ? (void*)p8[z].data() : dt == 1 ? (void*)p16[z].data() : (void*)p32[z].data();
+                astcenc_image img{dx, dy, dz, dt == 0 ? ASTCENC_TYPE_U8 : dt == 1 ? ASTCENC_TYPE_F16 : ASTCENC_TYPE_F32,
+                                  ptrs.data(), 0};
+                astcenc_swizzle swz{ASTCENC_SWZ_R, ASTCENC_SWZ_G, ASTCENC_SWZ_B, ASTCENC_SWZ_A};
+                if (sw == 1) swz = astcenc_swizzle{ASTCENC_SWZ_R, ASTCENC_SWZ_B, ASTCENC_SWZ_B, ASTCENC_SWZ_G};
+                if (sw == 2) swz = astcenc_swizzle{ASTCENC_SWZ_R, ASTCENC_SWZ_G, ASTCENC_SWZ_B, ASTCENC_SWZ_0};
+                size_t blocks = ((dx + s[0] - 1) / s[0]) * ((dy + s[1] - 1) / s[1]) * ((dz + s[2] - 1) / s[2]);
+                std::vector<uint8_t> out(blocks * 16);
+                if (astcenc_compress_image(ctx, &img, &swz, out.data(), out.size(), 0) != ASTCENC_SUCCESS) return 3;
+                printf("ascale s%d r%d p%d\t%016llx\n", si, ri, pi, (unsigned long long)fnv(out.data(), out.size()));
+                astcenc_context_free(ctx);
+            }
+        }
+    }
+    return 0;
+}
+
+static void print_progress(float v) { printf(" %.9g", (double)v); }
+
+// Progress callback reports (single thread) for a 1024x512 noise image, 4x4 blocks, fastest
+// preset, without and with LZ-RDO (lambda 20).
+static int progress_cases() {
+    const unsigned dx = 1024, dy = 512;
+    Lcg l{7};
+    std::vector<uint8_t> data(dx * dy * 4);
+    for (auto& d : data) d = (uint8_t)(l.next() & 0xff);
+    void* ptrs[1] = {data.data()};
+    astcenc_image img{dx, dy, 1, ASTCENC_TYPE_U8, ptrs, 0};
+    astcenc_swizzle swz{ASTCENC_SWZ_R, ASTCENC_SWZ_G, ASTCENC_SWZ_B, ASTCENC_SWZ_A};
+    for (int rdo = 0; rdo < 2; rdo++) {
+        astcenc_config c;
+        if (astcenc_config_init(ASTCENC_PRF_LDR, 4, 4, 1, ASTCENC_PRE_FASTEST, rdo ? ASTCENC_FLG_USE_LZ_RDO : 0, &c) != ASTCENC_SUCCESS) return 1;
+        if (rdo) c.lz_rdo_lambda = 20.0f;
+        c.progress_callback = print_progress;
+        astcenc_context* ctx = nullptr;
+        if (astcenc_context_alloc(&c, 1, &ctx, nullptr) != ASTCENC_SUCCESS) return 2;
+        std::vector<uint8_t> out(dx / 4 * dy / 4 * 16);
+        printf("progress %s\t", rdo ? "rdo" : "plain");
+        if (astcenc_compress_image(ctx, &img, &swz, out.data(), out.size(), 0) != ASTCENC_SUCCESS) return 3;
+        printf("\n");
+        astcenc_context_free(ctx);
+    }
+    return 0;
+}
+
 int main(int argc, char** argv) {
+    if (argc > 1 && !strcmp(argv[1], "ascale")) return ascale_cases();
+    if (argc > 1 && !strcmp(argv[1], "progress")) return progress_cases();
     const bool rdo = argc > 1 && !strcmp(argv[1], "rdo");
     const float LAMBDAS[] = {10.0f, 20.0f, 40.0f};
     const unsigned SIZES[][3] = {{4, 4, 1}, {5, 4, 1}, {6, 6, 1}, {8, 8, 1}, {10, 5, 1}, {12, 12, 1}, {3, 3, 3}, {4, 4, 4}};

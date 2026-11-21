@@ -77,6 +77,28 @@ def mosaic(w, h, seed, alpha):
     return out if alpha else out[..., :3]
 
 
+def cutout(w, h, seed):
+    """RGBA with mostly fully transparent alpha over noisy RGB (exercises astcenc alpha scaling,
+    `-a`): a soft-edged disc, a hard-edged opaque rectangle, a horizontal alpha ramp and a few
+    isolated near-zero alpha specks (1..3 / 255)."""
+    rng = np.random.default_rng(seed)
+    y, x = np.mgrid[0:h, 0:w].astype(np.float32)
+    u, v = x / max(w - 1, 1), y / max(h - 1, 1)
+    noise = rng.random((h, w, 3)).astype(np.float32)
+    rgb = np.stack([u, v, 1 - u], -1) * 0.5 + noise * 0.5
+    d = np.sqrt((x - w * 0.3) ** 2 + (y - h * 0.45) ** 2)
+    alpha = np.clip((h * 0.3 - d) / 6.0, 0, 1)
+    rect = (x >= w * 0.67) & (x < w * 0.875) & (y >= h * 0.125) & (y < h * 0.375)
+    alpha = np.where(rect, 1.0, alpha)
+    ramp = (y >= h * 0.69) & (y < h * 0.81) & (x >= w * 0.5)
+    alpha = np.where(ramp, (x - w * 0.5) / (w * 0.5 - 1), alpha)
+    out = (np.clip(np.concatenate([rgb, alpha[..., None]], -1), 0, 1) * 255 + 0.5).astype(np.uint8)
+    for (sx, sy, a) in ((w * 10 // 96, h * 58 // 64, 1), (w * 88 // 96, h * 40 // 64, 2),
+                        (w * 50 // 96, h * 4 // 64, 3)):
+        out[sy, sx, 3] = a
+    return out
+
+
 def write_hdr(path, rgb):
     """Radiance RGBE (.hdr), flat (uncompressed) scanlines."""
     h, w, _ = rgb.shape
@@ -116,6 +138,7 @@ def main():
     raw("rgb", ldr(37, 29, 2, False))
     raw("mosaic_rgba", mosaic(50, 38, 7, True))
     raw("mosaic_rgb", mosaic(50, 38, 8, False))
+    raw("cutout_rgba", cutout(96, 64, 9))
     # HDR source as raw RGBA16F (alpha 1) for the BC6H encoder tests.
     hdr = hdr_image()
     with open(os.path.join(OUT, "raw", "hdr_40x24.rgba16f"), "wb") as f:
@@ -131,6 +154,8 @@ def main():
     # Block-structured mosaics (XUASTC -> BC7 fast paths).
     Image.fromarray(mosaic(50, 38, 7, True), "RGBA").save(os.path.join(OUT, "mosaic_rgba_50x38.png"))
     Image.fromarray(mosaic(50, 38, 8, False), "RGB").save(os.path.join(OUT, "mosaic_rgb_50x38.png"))
+    # Transparent regions (astcenc alpha scaling).
+    Image.fromarray(cutout(96, 64, 9), "RGBA").save(os.path.join(OUT, "cutout_rgba_96x64.png"))
     # Benchmark source.
     Image.fromarray(ldr(512, 512, 4, True), "RGBA").save(os.path.join(OUT, "bench_512.png"))
     # HDR: LDR pattern scaled to a 0..16 range with a hot spot.

@@ -11,6 +11,7 @@ One file per subsystem. Write the spec before implementing; append audit entries
 - [decode.md](decode.md): decode API and block driver
 - [etc.md](etc.md): ETC1/ETC2/EAC decode
 - [astc.md](astc.md): ASTC decode
+- [astcenc.md](astcenc.md): astcenc (astc-encoder 6.0 port) API: alpha scaling, progress, 3D
 - [basis.md](basis.md): Basis Universal container and transcoder
 - [basis_encode.md](basis_encode.md): Basis Universal encoder (`.basis` output)
 - [xuastc_encode.md](xuastc_encode.md): ASTC LDR / XUASTC LDR encoder core (basisu v2.50)
