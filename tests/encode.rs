@@ -139,6 +139,43 @@ fn round_trips() -> Result<(), Box<dyn Error>> {
     }
     let mean = err / f64::from(hw * hh * 3);
     assert!(mean < 0.1, "bc6h mean relative error {mean}");
+    // ASTC LDR / sRGB through astcenc (multithreaded on large images: tile the source).
+    let big: Vec<u8> = (0..512 * 384)
+        .flat_map(|i| {
+            let at = ((i / 512 % 48) * 64 + i % 512 % 64) * 4;
+            [px[at], px[at + 1], px[at + 2], px[at + 3]]
+        })
+        .collect();
+    let bsrc = Surface::new(Format::Rgba8Unorm, 512, 384, &big)?;
+    for (block, kind, min_db) in [
+        (imgio::AstcBlock::B4x4, imgio::AstcKind::Unorm, 34.0),
+        (imgio::AstcBlock::B6x5, imgio::AstcKind::Srgb, 28.0),
+        (imgio::AstcBlock::B8x8, imgio::AstcKind::Unorm, 24.0),
+    ] {
+        let f = Format::Astc(block, kind);
+        for q in [Quality::Fastest, Quality::Default] {
+            let opts = EncodeOptions { quality: q };
+            for (s, (sw, sh), want) in [(&src, (w, h), &px[..]), (&bsrc, (512, 384), &big[..])] {
+                let enc = imgio::encode_to_buffer(s, f, &opts)?;
+                let dec = imgio::decode_to_buffer(f, &enc, sw, sh)?;
+                let db = psnr(want, &dec, &[0, 1, 2, 3]);
+                assert!(db > min_db, "{f:?} {q:?} {sw}x{sh}: {db:.1} dB");
+            }
+        }
+    }
+    // ASTC HDR 6x6 from the half-float image.
+    let f = Format::Astc(imgio::AstcBlock::B6x6, imgio::AstcKind::Float);
+    let enc = imgio::encode_to_buffer(&hsrc, f, &EncodeOptions::default())?;
+    let dec = imgio::decode_to_buffer(f, &enc, hw, hh)?;
+    let mut err = 0f64;
+    for p in 0..(hw * hh) as usize {
+        for c in 0..3 {
+            let (a, b) = (half(&hpx, p * 4 + c), half(&dec, p * 4 + c));
+            err += f64::from((a - b).abs() / a.max(0.05));
+        }
+    }
+    let mean = err / f64::from(hw * hh * 3);
+    assert!(mean < 0.1, "astc hdr mean relative error {mean}");
     // Any uncompressed source: RGBA32F gives the same blocks as RGBA8.
     let f32px = imgio::convert::convert_to_buffer(&src, Format::Rgba32Float)?;
     let fsrc = Surface::new(Format::Rgba32Float, w, h, &f32px)?;

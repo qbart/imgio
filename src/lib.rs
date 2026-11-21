@@ -3,6 +3,8 @@
 //! Every fallible operation returns [`Result`]; the library never panics.
 
 mod astc;
+#[allow(dead_code, unused_imports)]
+pub(crate) mod astcenc;
 mod atc;
 pub mod basis;
 mod bc;

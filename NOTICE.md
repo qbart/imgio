@@ -16,6 +16,8 @@ state that they were modified (Apache-2.0 §4(b)).
 | `src/basis/xubc7/*`, `src/basis/deblock.rs`, `src/basis/pvrtc1_enc.rs` | Basis Universal `basisu_transcoder.cpp`, `basisu_xbc7_decoder.{h,inl}` | Binomial LLC | Apache-2.0 |
 | `src/basis/xuastc/*` | Basis Universal `basisu_transcoder.cpp` (`astc_ldr_t`), `basisu_transcoder_internal.h` (`arith`), `basisu_idct.h`, `basisu_astc_cfgs.inl` | Binomial LLC | Apache-2.0 |
 | `src/atc.rs`, `src/fxt1.rs`, `src/pvrtc.rs` | Basis Universal `basisu_gpu_texture.cpp`, `basisu_pvrtc1_4.{h,cpp}` (encoder library) | Binomial LLC | Apache-2.0 |
+| `src/astcenc/*` | [astc-encoder](https://github.com/ARM-software/astc-encoder) (astcenc), via ktx-rs `src/astcenc` (`#[isa]` attributes rewritten as `isa_fn!` wrappers) | Arm Limited | Apache-2.0 |
+| `src/astcenc/tests.rs`, `testdata/astcenc/compress_golden.txt` | ktx-rs `tests/astcenc_compress.rs` and its golden data (hashes of C++ astcenc output) | Mark Callow, The Khronos Group Inc. and KTX-Software contributors | Apache-2.0 |
 | `src/mip/resampler.rs`, `src/mip/filters.rs` | Basis Universal `basisu_resampler.cpp`, `basisu_resample_filters.cpp`, via ktx-rs `src/basisu` | Binomial LLC | Apache-2.0 |
 | `src/ktx2/dfd.rs` | [KTX-Software](https://github.com/KhronosGroup/KTX-Software) dfdutils (`createdfd.c`, `vk2dfd.inl`), via ktx-rs `src/dfd` | The Khronos Group Inc. | Apache-2.0 |
 | `src/etc.rs` | [ktx-rs](https://github.com/qbart/ktx-rs) `src/etcunpack.rs` (port of [KTX-Software](https://github.com/KhronosGroup/KTX-Software) `etcunpack.cxx`) | Mark Callow, The Khronos Group Inc. and KTX-Software contributors | Apache-2.0 |
@@ -31,6 +33,7 @@ Copyright © 2016–2026 Binomial LLC.
 | Crate | Use | License |
 |---|---|---|
 | [vas](https://crates.io/crates/vas) | containers (`Buffer`) | MIT |
+| [bytemuck](https://crates.io/crates/bytemuck) | SIMD vector casts in the astcenc kernels | Zlib OR Apache-2.0 OR MIT |
 | [zstd-pure-rs](https://crates.io/crates/zstd-pure-rs) | KTX2 Zstandard supercompression (writer) | BSD-3-Clause OR GPL-2.0-only (used under BSD-3-Clause) |
 | [ruzstd](https://crates.io/crates/ruzstd) | Zstandard decoding of KTX2 levels and XUASTC LDR streams | MIT |
 | [bcdec_rs](https://crates.io/crates/bcdec_rs) | tests only: reference BC6H/BC7 decoder | MIT |

@@ -10,6 +10,9 @@
 //! - BC7: `bc7f::fast_pack_bc7_auto_rgba` presets (fastest .. non-analytical).
 //! - ETC1 / ETC2 RGB: `etc1f::pack_etc1` (one quality). ETC2 RGBA: EAC alpha + ETC1.
 //!   EAC R11 / RG11: `pack_eac` on R (G), `pack_eac_high_quality` from `Quality::High`.
+//! - ASTC (every 2D block size; LDR, sRGB, HDR): astcenc (ARM astc-encoder port, via ktx-rs),
+//!   presets fastest (0) / fast (10) / medium (60) / thorough (98) / exhaustive (100); its own
+//!   threads share one context.
 //! - BC6H (unsigned): `fast_encode_bc6h` from RGB halves (source converted to RGBA32F;
 //!   negative / NaN -> 0, clamped to 65504); quality picks `FastBc6hParams`.
 
@@ -183,7 +186,127 @@ fn bc6h_half(v: f32) -> u16 {
 
 /// True when [`encode`] supports `format`.
 pub fn can_encode(format: Format) -> bool {
-    encoder(format).is_some()
+    encoder(format).is_some() || matches!(format, Format::Astc(..))
+}
+
+fn astc_error(e: crate::astcenc::AstcencError) -> Error {
+    use crate::astcenc::AstcencError as E;
+    match e {
+        E::OutOfMem => Error::OutOfMemory,
+        E::BadCpuFloat | E::NotImplemented => Error::Unsupported,
+        _ => Error::InvalidArgument,
+    }
+}
+
+/// ASTC through astcenc: one context shared by the worker threads.
+fn encode_astc(
+    src: &Surface,
+    block: crate::AstcBlock,
+    kind: crate::AstcKind,
+    q: Quality,
+    dst: &mut [u8],
+) -> Result<()> {
+    use crate::astcenc::*;
+    let (profile, image_format) = match kind {
+        crate::AstcKind::Unorm => (AstcencProfile::Ldr, Format::Rgba8Unorm),
+        crate::AstcKind::Srgb => (AstcencProfile::LdrSrgb, Format::Rgba8Unorm),
+        crate::AstcKind::Float => (AstcencProfile::Hdr, Format::Rgba32Float),
+    };
+    let quality = match q {
+        Quality::Fastest => ASTCENC_PRE_FASTEST,
+        Quality::Fast => ASTCENC_PRE_FAST,
+        Quality::Default => ASTCENC_PRE_MEDIUM,
+        Quality::High => ASTCENC_PRE_THOROUGH,
+        Quality::Best => ASTCENC_PRE_EXHAUSTIVE,
+    };
+    let (bw, bh) = block.dim();
+    let config = astcenc_config_init(profile, bw, bh, 1, quality, 0).map_err(astc_error)?;
+    let (w, h) = (src.width(), src.height());
+    let pixels = (w as usize).saturating_mul(h as usize);
+    let threads = if pixels < crate::parallel::MIN_PARALLEL_PIXELS {
+        1
+    } else {
+        std::thread::available_parallelism().map_or(1, |n| n.get()) as u32
+    };
+    let ctx = astcenc_context_alloc(&config, threads).map_err(astc_error)?;
+    // astcenc takes owned per-slice vectors.
+    let converted;
+    let bytes: &[u8] = if src.format() == image_format {
+        src.data()
+    } else {
+        converted = crate::convert::convert_to_buffer(src, image_format)?;
+        &converted
+    };
+    let data = match image_format {
+        Format::Rgba8Unorm => {
+            let mut v = Vec::new();
+            v.try_reserve_exact(bytes.len())
+                .map_err(|_| Error::OutOfMemory)?;
+            v.extend_from_slice(bytes);
+            AstcencImageData::U8(vec![v])
+        }
+        _ => {
+            let mut v = Vec::new();
+            v.try_reserve_exact(bytes.len() / 4)
+                .map_err(|_| Error::OutOfMemory)?;
+            v.extend(
+                bytes
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .map(|b| f32::from_le_bytes(*b)),
+            );
+            AstcencImageData::F32(vec![v])
+        }
+    };
+    let image = AstcencImage {
+        dim_x: w,
+        dim_y: h,
+        dim_z: 1,
+        data,
+    };
+    let out = std::sync::Mutex::new(dst);
+    let run = |t: u32| astcenc_compress_image(&ctx, &image, &AstcencSwizzle::RGBA, &out, t);
+    if threads <= 1 {
+        return run(0).map_err(astc_error);
+    }
+    // Every thread index must run (astcenc's task manager waits for all of them), so a failed
+    // spawn runs that index on this thread afterwards.
+    std::thread::scope(|s| {
+        let mut handles = vas::Vector::<_, vas::storage::Dynamic>::default();
+        let mut inline = vas::Vector::<u32, vas::storage::Dynamic>::default();
+        let mut result = Ok(());
+        for t in 1..threads {
+            match std::thread::Builder::new().spawn_scoped(s, move || run(t)) {
+                Ok(h) => {
+                    if handles.push(h).is_err() {
+                        result = Err(Error::OutOfMemory);
+                    }
+                }
+                Err(_) => {
+                    if inline.push(t).is_err() {
+                        result = Err(Error::OutOfMemory);
+                    }
+                }
+            }
+        }
+        let record = |result: &mut Result<()>, r: core::result::Result<(), AstcencError>| {
+            if let Err(e) = r {
+                *result = Err(astc_error(e));
+            }
+        };
+        record(&mut result, run(0));
+        for &t in inline.iter() {
+            record(&mut result, run(t));
+        }
+        while let Some(h) = handles.pop() {
+            match h.join() {
+                Ok(r) => record(&mut result, r),
+                Err(_) => result = Err(Error::InvalidData),
+            }
+        }
+        result
+    })
 }
 
 /// Encodes `src` (any uncompressed format) to `format` into `dst`
@@ -191,10 +314,21 @@ pub fn can_encode(format: Format) -> bool {
 ///
 /// Errors: `Unsupported` (target or source format), `BufferTooSmall`, `OutOfMemory`.
 pub fn encode(src: &Surface, format: Format, opts: &EncodeOptions, dst: &mut [u8]) -> Result<()> {
-    let enc = encoder(format).ok_or(Error::Unsupported)?;
     if !crate::convert::can_read(src.format()) {
         return Err(Error::Unsupported);
     }
+    if let Format::Astc(block, kind) = format {
+        let len = format.surface_bytes(src.width(), src.height())?;
+        let got = dst.len();
+        let dst = dst
+            .get_mut(..len)
+            .ok_or(Error::BufferTooSmall { needed: len, got })?;
+        if len == 0 {
+            return Ok(());
+        }
+        return encode_astc(src, block, kind, opts.quality, dst);
+    }
+    let enc = encoder(format).ok_or(Error::Unsupported)?;
     let (w, h) = (src.width(), src.height());
     let len = format.surface_bytes(w, h)?;
     let got = dst.len();

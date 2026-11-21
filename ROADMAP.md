@@ -61,7 +61,7 @@ C++ / ktx-rs reference (golden hashes from offline builds, as for the transcoder
 4. [ ] BC7 encoders: `bc7f` presets [x], basisu v2.50 `bc7e_scalar` (High / Best) [ ]
 5. [x] BC6H encoder (unsigned; `fast_encode_bc6h` presets)
 6. [x] ETC1 / ETC2 / EAC encoders: `etc1f`, EAC (normal / high quality)
-7. [ ] ASTC LDR / HDR encoder: astcenc (ktx-rs port)
+7. [x] ASTC LDR / HDR encoder: astcenc (ktx-rs port)
 8. [ ] PVRTC1 encoder exposure (and PVRTC2 / ATC where basisu has one)
 9. [ ] Basis Universal encoders: ETC1S, UASTC LDR 4x4 (+ RDO), UASTC HDR 4x4, ASTC HDR 6x6,
    UASTC HDR 6x6i (ktx-rs `basisu::comp` port) -> `.basis`
@@ -71,7 +71,8 @@ C++ / ktx-rs reference (golden hashes from offline builds, as for the transcoder
 13. [ ] Optional Vulkan / OpenGL upload features (ktx-rs `vkloader` / `glloader`)
 
 Texture follow-ups found on the way: high-quality ETC1 (basisu `etc1_optimizer` flip / diff
-search), ETC2 RGB A1 and signed EAC encoders, signed BC6H encoder.
+search), ETC2 RGB A1 and signed EAC encoders, signed BC6H encoder, ASTC encode speed vs C++
+astcenc (5-10 Mpix/s on 16 threads at medium looks low).
 
 ## Previous plan (done): basisu v2 payloads (XUASTC LDR, ASTC LDR, XUBC7)
 

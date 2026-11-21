@@ -14,6 +14,14 @@
 - ETC1 / ETC2 RGB (sRGB): `etc1f::pack_etc1` (basisu real-time ETC1, single quality).
   ETC2 RGBA = EAC(A) + ETC1; EAC R11 / RG11 unorm = `pack_eac` on R (G); `Quality::High`+
   uses `pack_eac_high_quality`. Not yet: ETC2 RGB A1, signed EAC, a slower high-quality ETC1.
+- ASTC (all 2D blocks; unorm -> LDR, sRGB -> LDR_SRGB, float -> HDR profile): `src/astcenc`,
+  the ktx-rs port of ARM astc-encoder (compressor + SSE4.1 / AVX2 copies picked at runtime;
+  ktx-rs' `#[isa]` proc macro replaced by `isa_fn! { .. }` wrappers so no macro crate is
+  needed). Presets fastest 0 / fast 10 / medium 60 / thorough 98 / exhaustive 100. One context,
+  `available_parallelism` threads (1 below 64K pixels) each calling `astcenc_compress_image`;
+  input RGBA8 (LDR) or RGBA32F (HDR). Golden: `astcenc::tests::compress_matches_astcenc` (ktx-rs
+  golden from C++ astcenc: 8 block sizes x 4 profiles x 3 qualities x 4 flag sets, every ISA
+  copy) + PSNR round trips (also multithreaded).
 - BC6H unsigned: `fast_encode_bc6h` (transcoder's encoder) on RGB halves; source -> RGBA32F,
   `v > 0 ? half(min(v, 65504)) : 0`. Presets `{diff endpoint modes, 2-subset patterns,
   hq_ls, brute force weights}`: Fastest {0,0,-,-}, Fast {2,0,-,-}, Default {2,1,hq,-} (basisu
@@ -27,5 +35,6 @@
 ## Audit
 
 - 2026-11-21: API + BC1-BC5 encoders (basisu real-time), bit-exact with C++ (24 cases).
+- 2026-11-21: ASTC encoder (astcenc port from ktx-rs), C++ golden passes on every ISA copy.
 - 2026-11-21: ETC1 / ETC2 RGBA / EAC encoders (`etc1f`, `pack_eac[_high_quality]`), 65 cases.
 - 2026-11-21: BC7 (`bc7f` presets) and BC6H (`fast_encode_bc6h` presets), 44 cases bit-exact.

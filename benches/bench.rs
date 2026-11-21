@@ -100,6 +100,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ("bc6h default", Format::Bc6hUfloat, imgio::Quality::Default),
         ("etc1", Format::Etc1Rgb, imgio::Quality::Default),
         ("etc2 rgba high", Format::Etc2Rgba, imgio::Quality::High),
+        (
+            "astc 4x4 fast",
+            Format::Astc(AstcBlock::B4x4, AstcKind::Unorm),
+            imgio::Quality::Fast,
+        ),
+        (
+            "astc 4x4 medium",
+            Format::Astc(AstcBlock::B4x4, AstcKind::Unorm),
+            imgio::Quality::Default,
+        ),
+        (
+            "astc 8x8 medium",
+            Format::Astc(AstcBlock::B8x8, AstcKind::Unorm),
+            imgio::Quality::Default,
+        ),
     ] {
         let opts = imgio::EncodeOptions { quality: q };
         bench(&format!("encode {name}"), px, || {
