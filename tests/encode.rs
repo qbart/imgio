@@ -166,6 +166,20 @@ fn round_trips() -> Result<(), Box<dyn Error>> {
         let db = psnr(&px, &dec, channels);
         assert!(db > min_db, "{format:?}: {db:.1} dB");
     }
+    // ETC2 RGB with T / H / planar candidates (High) beats the best ETC1 block.
+    let etc = |f: Format, q: Quality| -> Result<f64, Box<dyn Error>> {
+        let enc = imgio::encode_to_buffer(&src, f, &EncodeOptions { quality: q })?;
+        let dec = imgio::decode_to_buffer(f, &enc, w, h)?;
+        Ok(psnr(&px, &dec, &[0, 1, 2]))
+    };
+    let (etc1_best, etc2_high) = (
+        etc(Format::Etc1Rgb, Quality::Best)?,
+        etc(Format::Etc2Rgb, Quality::High)?,
+    );
+    assert!(
+        etc2_high > etc1_best + 2.0,
+        "etc2 {etc2_high:.2} vs etc1 {etc1_best:.2}"
+    );
     // ETC2 RGB A1: alpha < 128 decodes transparent, the rest opaque.
     for q in [Quality::Default, Quality::Best] {
         let enc = imgio::encode_to_buffer(&src, Format::Etc2Rgba1, &EncodeOptions { quality: q })?;

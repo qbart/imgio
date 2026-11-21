@@ -18,6 +18,7 @@ mod encode;
 mod error;
 mod etc;
 mod etc1hq;
+mod etc2modes;
 mod format;
 mod fxt1;
 pub mod gpu;

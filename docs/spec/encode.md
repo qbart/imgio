@@ -20,12 +20,18 @@
   for sRGB formats). 64x48 test image: 27.8 dB (etc1f) -> 29.2 dB (High / Best).
   ETC2 RGBA = EAC(A) + ETC1; EAC R11 / RG11 unorm = `pack_eac` on R (G); `Quality::High`+
   uses `pack_eac_high_quality`.
+- ETC2 RGB / RGBA color from `Quality::High`, and ETC2 RGB A1 at every quality: the ETC1-style
+  block plus `etc2modes` T / H / planar candidates, lowest decoded error wins (own; layouts
+  from the `crate::etc` decoder, error model asserted equal to it). Planar: per-channel least
+  squares O / H / V + +-1 search (RGB676). T / H: 2-means split, RGB444 means +-1 (Best), all
+  8 distances, best paint per texel (index 2 = transparent with punch-through). Overflow bits
+  chosen so R (T), G (H) or B (planar) always overflows. 64x48 image: ETC1 best 29.2 dB ->
+  ETC2 high 32.0 dB; mosaic 28.8 -> 44.7 dB (RGB A1 21 -> 44 dB). `Etc1Rgb` never uses them.
 - ETC2 RGB A1 (punch-through; alpha < 128 = transparent): `etc1hq::encode_punchthrough_block`
   (own). Opaque blocks: differential-only `etc1_optimizer` search, opaque bit set. Blocks
   with transparent texels: opaque bit clear (raw index 2 transparent, 0 / 1 / 3 = base / +b /
   -b), 5-bit base colors searched around each subblock's opaque average and over the delta
-  box of a fixed best candidate, every flip x table. No T / H / planar modes yet, so
-  two-color subblock edges are weak (mosaic test image ~21 dB vs 29 dB for ETC1).
+  box of a fixed best candidate, every flip x table; then T / H / planar (above).
 - Signed BC4 / BC5 / EAC R11 / RG11: source -> RGBA32F, `round(clamp(v, -1, 1) * 127) + 128`
   offset bytes through the unsigned encoders, endpoint / base bytes XOR 0x80 (offset binary
   -> two's complement keeps their order; signed EAC lacks the unsigned +4 bias).
@@ -57,6 +63,7 @@
 - 2026-11-21: API + BC1-BC5 encoders (basisu real-time), bit-exact with C++ (24 cases).
 - 2026-11-21: PVRTC1 encoder exposed (`encode_pvrtc1`), 6 golden cases.
 - 2026-11-21: ASTC encoder (astcenc port from ktx-rs), C++ golden passes on every ISA copy.
+- 2026-11-21: ETC2 T / H / planar mode encoding (`etc2modes`).
 - 2026-11-21: ETC2 RGB A1 and signed BC4 / BC5 / EAC encoders (own; round-trip tested).
 - 2026-11-21: high-quality ETC1 (`etc1hq`, etc1_optimizer search) for High / Best.
 - 2026-11-21: BC7 High / Best = bc7e_scalar (12 API cases vs the bc7e golden); bc7f golden cut

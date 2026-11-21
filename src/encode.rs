@@ -154,6 +154,28 @@ fn etc1(px: &[Px; 16], q: Quality, perceptual: bool, out: &mut [u8]) {
     out[..8].copy_from_slice(&b);
 }
 
+/// ETC2 RGB color block: ETC1 (`etc1`), then from `Quality::High` also T / H / planar
+/// candidates (`etc2modes`), lowest error wins.
+fn etc2(px: &[Px; 16], q: Quality, perceptual: bool, out: &mut [u8]) {
+    etc1(px, q, perceptual, out);
+    if q >= Quality::High {
+        let mut b = [0u8; 8];
+        b.copy_from_slice(&out[..8]);
+        let effort = u32::from(q == Quality::Best);
+        let b = crate::etc2modes::improve(b, px, Format::Etc2Rgb, effort);
+        out[..8].copy_from_slice(&b);
+    }
+}
+
+/// ETC2 RGB A1: the punch-through ETC1-style encoder, then T / H / planar candidates (wider
+/// search from `Quality::High`).
+fn etc2_rgba1(px: &[Px; 16], q: Quality, perceptual: bool, out: &mut [u8]) {
+    let b = crate::etc1hq::encode_punchthrough_block(px, q == Quality::Best, perceptual);
+    let effort = u32::from(q >= Quality::High);
+    let b = crate::etc2modes::improve(b, px, Format::Etc2Rgba1, effort);
+    out[..8].copy_from_slice(&b);
+}
+
 fn eac(px: &[Px; 16], c: usize, q: Quality, out: &mut [u8]) {
     let mut b = EacBlock::default();
     let v = px.map(|p| p[c]);
@@ -186,24 +208,19 @@ fn encoder(format: Format) -> Option<Encoder> {
             bc4(px, 0, out);
             bc4(px, 1, &mut out[8..]);
         },
-        Etc1Rgb | Etc2Rgb => |px, q, out| etc1(px, q, false, out),
-        Etc2Srgb => |px, q, out| etc1(px, q, true, out),
+        Etc1Rgb => |px, q, out| etc1(px, q, false, out),
+        Etc2Rgb => |px, q, out| etc2(px, q, false, out),
+        Etc2Srgb => |px, q, out| etc2(px, q, true, out),
         Etc2Rgba => |px, q, out| {
             eac(px, 3, q, out);
-            etc1(px, q, false, &mut out[8..]);
+            etc2(px, q, false, &mut out[8..]);
         },
         Etc2RgbaSrgb => |px, q, out| {
             eac(px, 3, q, out);
-            etc1(px, q, true, &mut out[8..]);
+            etc2(px, q, true, &mut out[8..]);
         },
-        Etc2Rgba1 => |px, q, out| {
-            let b = crate::etc1hq::encode_punchthrough_block(px, q == Quality::Best, false);
-            out[..8].copy_from_slice(&b);
-        },
-        Etc2Rgba1Srgb => |px, q, out| {
-            let b = crate::etc1hq::encode_punchthrough_block(px, q == Quality::Best, true);
-            out[..8].copy_from_slice(&b);
-        },
+        Etc2Rgba1 => |px, q, out| etc2_rgba1(px, q, false, out),
+        Etc2Rgba1Srgb => |px, q, out| etc2_rgba1(px, q, true, out),
         EacR11Unorm => |px, q, out| eac(px, 0, q, out),
         EacRg11Unorm => |px, q, out| {
             eac(px, 0, q, out);
