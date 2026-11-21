@@ -27,7 +27,11 @@ Test data `testdata/basis/*.basis`: encoded by Basis Universal v2.50 (C++ CLI bu
   `can_transcode_to`. Output is tightly packed blocks/pixels of `format` for the level size.
 - Targets map to basisu `transcoder_texture_format` (sRGB variants share the unorm target):
   ETC1, ETC2 RGBA, BC1/3/4/5/7, PVRTC1/2, ASTC 4x4 LDR/HDR, ATC, RGBA32, 565, 4444, EAC
-  R11/RG11, BC6H, RGB/RGBA half, RGB9E5, ASTC 6x6 HDR. Not yet: FXT1.
+  R11/RG11, BC6H, RGB/RGBA half, RGB9E5, ASTC 6x6 HDR, FXT1 (`Format::Fxt1Rgb`, 8x4 blocks).
+- FXT1 (ETC1S only, as in C++): `ll/fxt1.rs`, port of `convert_etc1s_to_fxt1`. Each ETC1S
+  block goes to BC1, then to one CC_MIXED half of an 8x4 block (565 -> 555 + green LSB,
+  remapped selectors); the left half writes the whole block, the right half overwrites its
+  colors/selectors. UASTC / ASTC LDR / XUASTC / XUBC7 -> FXT1 is unsupported in C++ too.
 - ASTC HDR 6x6 sources: `ll/astc_hdr_6x6.rs`, ported from C++
   `basisu_lowlevel_astc_hdr_6x6_transcoder`; shares the output stage
   (`transcode_astc_6x6_blocks`) with the 6x6 intermediate transcoder.

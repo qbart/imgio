@@ -26,6 +26,7 @@ fn target(format: Format) -> Option<T> {
         Astc(AstcBlock::B4x4, AstcKind::Unorm | AstcKind::Srgb) => T::ASTC_LDR_4x4_RGBA,
         AtcRgb => T::ATC_RGB,
         AtcRgba => T::ATC_RGBA,
+        Fxt1Rgb => T::FXT1_RGB,
         Rgba8Unorm | Rgba8Srgb => T::RGBA32,
         Rgb565 => T::RGB565,
         Bgr565 => T::BGR565,

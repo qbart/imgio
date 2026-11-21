@@ -8,7 +8,7 @@
 - [x] BC6H / BC7 decode (multithreaded, tested vs Pillow and bcdec_rs)
 - [x] ETC1 / ETC2 / EAC decode
 - [x] ASTC decode (LDR, HDR), 2D blocks
-- [x] Basis Universal transcoder (.basis): ETC1S, UASTC LDR, UASTC HDR 4x4/6x6i, ASTC HDR 6x6 -> all targets except FXT1
+- [x] Basis Universal transcoder (.basis): ETC1S, UASTC LDR, UASTC HDR 4x4/6x6i, ASTC HDR 6x6 -> all targets (incl. FXT1 from ETC1S)
 - [x] Basis Universal v2 payloads: XUASTC LDR, ASTC LDR, XUBC7 -> all targets (bit-exact vs C++)
 - [ ] BCn / ASTC encoders (multithreaded)
 - [ ] Basis Universal encoders: ETC1S, UASTC LDR/HDR
@@ -19,7 +19,7 @@
 
 ## Follow-ups
 
-- [ ] FXT1 transcode target
+- [x] FXT1 transcode target (ETC1S; other payloads unsupported in C++ too)
 - [ ] PVRTC1/2 and ATC decoders
 - [ ] Parallel transcode of many levels/images
 

@@ -180,6 +180,8 @@ pub enum Format {
     AtcRgb,
     /// ATC RGBA with interpolated alpha.
     AtcRgba,
+    /// 3dfx FXT1 RGB (16-byte blocks of 8x4 pixels).
+    Fxt1Rgb,
 }
 
 impl Format {
@@ -187,6 +189,7 @@ impl Format {
     pub const fn block_dim(self) -> (u32, u32) {
         match self {
             Format::Astc(b, _) => b.dim(),
+            Format::Fxt1Rgb => (8, 4),
             _ if self.is_compressed() => (4, 4),
             _ => (1, 1),
         }
@@ -201,7 +204,7 @@ impl Format {
             Rgb16Float => 6,
             Rgba8Unorm | Rgba8Srgb | Rg16Unorm | Rg16Snorm | Rgb9e5Float => 4,
             Pvrtc1Rgb | Pvrtc1Rgba | Pvrtc2Rgb | Pvrtc2Rgba | AtcRgb => 8,
-            AtcRgba => 16,
+            AtcRgba | Fxt1Rgb => 16,
             Rgba16Float | Bc1Unorm | Bc1Srgb | Bc4Unorm | Bc4Snorm | Etc1Rgb | Etc2Rgb
             | Etc2Srgb | Etc2Rgba1 | Etc2Rgba1Srgb | EacR11Unorm | EacR11Snorm => 8,
             Rgba32Float | Bc2Unorm | Bc2Srgb | Bc3Unorm | Bc3Srgb | Bc5Unorm | Bc5Snorm
@@ -279,7 +282,9 @@ impl Format {
             Astc(_, AstcKind::Unorm) => Rgba8Unorm,
             Astc(_, AstcKind::Srgb) => Rgba8Srgb,
             Astc(_, AstcKind::Float) => Rgba16Float,
-            Pvrtc1Rgb | Pvrtc1Rgba | Pvrtc2Rgb | Pvrtc2Rgba | AtcRgb | AtcRgba => Rgba8Unorm,
+            Pvrtc1Rgb | Pvrtc1Rgba | Pvrtc2Rgb | Pvrtc2Rgba | AtcRgb | AtcRgba | Fxt1Rgb => {
+                Rgba8Unorm
+            }
             EacR11Unorm => R16Unorm,
             EacR11Snorm => R16Snorm,
             EacRg11Unorm => Rg16Unorm,
@@ -327,6 +332,7 @@ mod tests {
         assert_eq!(Format::Bc7Srgb.surface_bytes(4, 4)?, 16);
         assert_eq!(Format::Bc7Srgb.surface_bytes(0, 4)?, 0);
         assert_eq!(Format::Rgba32Float.row_bytes(2)?, 32);
+        assert_eq!(Format::Fxt1Rgb.surface_bytes(37, 29)?, 5 * 8 * 16);
         Ok(())
     }
 

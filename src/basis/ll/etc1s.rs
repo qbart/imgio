@@ -16,6 +16,7 @@ use super::bitreader::{ApproxMoveToFront, BitwiseDecoder, HuffmanDecodingTable};
 use super::dxt::{Dxt1Block, Dxt5aBlock, convert_etc1s_to_dxt1, convert_etc1s_to_dxt5a};
 use super::eac::{EacBlock, convert_etc1s_to_etc2_eac_a8, convert_etc1s_to_etc2_eac_r11};
 use super::etc::{Color32, DecoderEtcBlock, Endpoint, Selector, mul_8};
+use super::fxt1::convert_etc1s_to_fxt1;
 use super::pvrtc;
 use super::pvrtc2::{Pvrtc2Block, convert_etc1s_to_pvrtc2_rgb, convert_etc1s_to_pvrtc2_rgba};
 use super::{
@@ -600,6 +601,17 @@ impl LowlevelEtc1sTranscoder {
                         convert_etc1s_to_atc(&mut b, ep, sel);
                         dst.write(block_ofs, &b.to_bytes())
                     }
+                    BlockFormat::Fxt1Rgb => {
+                        let ofs = ((bx >> 1) + block_y as usize * pitch) * stride;
+                        let start = dst.offset + ofs;
+                        let mut b = [0u8; 16];
+                        match dst.buf.get(start..start + 16) {
+                            Some(existing) => b.copy_from_slice(existing),
+                            None => return TranscodeStatus::Failed,
+                        }
+                        convert_etc1s_to_fxt1(&mut b, ep, sel, (bx & 1) as u32);
+                        dst.write(ofs, &b)
+                    }
                     BlockFormat::Pvrtc2_4Rgba => {
                         let start = dst.offset + block_ofs;
                         let mut raw = [0u8; 8];
@@ -784,6 +796,7 @@ impl LowlevelEtc1sTranscoder {
                 | Pvrtc2_4Rgb
                 | Pvrtc2_4Rgba
                 | AtcRgb
+                | Fxt1Rgb
                 | AstcLdr4x4
                 | Bc7
                 | Bc7M5Color
@@ -1158,6 +1171,15 @@ impl LowlevelEtc1sTranscoder {
                     decode_flags_in,
                 )
             }
+            F::FXT1_RGB => run(
+                output,
+                0,
+                data,
+                BlockFormat::Fxt1Rgb,
+                bytes_per_block_or_pixel,
+                is_alpha_slice,
+                state,
+            ),
             F::ATC_RGB => run(
                 output,
                 0,

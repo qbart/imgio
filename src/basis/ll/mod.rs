@@ -25,6 +25,7 @@ pub(crate) mod etc;
 pub(crate) mod etc1f;
 pub(crate) mod etc1f_tables;
 pub(crate) mod etc1s;
+pub(crate) mod fxt1;
 pub(crate) mod hdr_tables;
 pub(crate) mod pvrtc;
 pub(crate) mod pvrtc2;
@@ -268,7 +269,6 @@ pub fn basis_is_format_supported(tex_type: TranscoderTextureFormat, fmt: BasisTe
             ) || (28..=40).contains(&tex_type.0))
                 && tex_type.0 < F::TOTAL_TEXTURE_FORMATS.0
         }
-        // libktx builds the transcoder with BASISD_SUPPORT_FXT1=0, so FXT1 is never supported.
         BasisTexFormat::Etc1s => matches!(
             tex_type,
             F::ETC1_RGB
@@ -288,6 +288,7 @@ pub fn basis_is_format_supported(tex_type: TranscoderTextureFormat, fmt: BasisTe
                 | F::ASTC_LDR_4x4_RGBA
                 | F::ATC_RGB
                 | F::ATC_RGBA
+                | F::FXT1_RGB
                 | F::PVRTC2_4_RGB
                 | F::PVRTC2_4_RGBA
                 | F::ETC2_EAC_R11

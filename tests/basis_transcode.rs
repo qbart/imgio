@@ -25,6 +25,7 @@ fn format(id: u32) -> Option<Format> {
         14 => Rgb565,
         15 => Bgr565,
         16 => Rgba4444,
+        17 => Fxt1Rgb,
         18 => Pvrtc2Rgb,
         19 => Pvrtc2Rgba,
         20 => EacR11Unorm,
@@ -88,11 +89,7 @@ fn check_where(
         let (name, id, level) = (f[0], f[1].parse::<u32>()?, f[2].parse::<u32>()?);
         let data = std::fs::read(format!("{dir}{name}"))?;
         let file = BasisFile::parse(&data)?;
-        // 17 = FXT1: not ported yet (see ROADMAP.md).
-        let Some(fmt) = format(id) else {
-            assert_eq!(id, 17, "unknown format id");
-            continue;
-        };
+        let fmt = format(id).ok_or("unknown format id")?;
         if only_supported && !file.can_transcode_to(fmt) {
             continue;
         }
@@ -123,7 +120,7 @@ fn check_where(
 
 #[test]
 fn etc1s() -> Result<(), Box<dyn Error>> {
-    assert_eq!(check("etc1s_")?, 168); // 176 minus 8 FXT1 lines
+    assert_eq!(check("etc1s_")?, 176);
     Ok(())
 }
 

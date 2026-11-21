@@ -26,6 +26,7 @@ fn format(id: u32) -> Option<Format> {
         14 => Rgb565,
         15 => Bgr565,
         16 => Rgba4444,
+        17 => Fxt1Rgb,
         18 => Pvrtc2Rgb,
         19 => Pvrtc2Rgba,
         20 => EacR11Unorm,
@@ -55,7 +56,7 @@ fn format(id: u32) -> Option<Format> {
             ][id as usize - 28],
             AstcKind::Unorm,
         ),
-        _ => return None, // 17 = FXT1, not ported yet
+        _ => return None,
     })
 }
 
@@ -110,14 +111,14 @@ fn check_with(
     Ok(checked)
 }
 
-/// Payloads not transcodable yet (see ROADMAP.md).
+/// Payloads covered by their own tests.
 fn pending(line: &str) -> bool {
     ["astc_ldr", "xuastc"].iter().any(|p| line.starts_with(p)) // own tests
 }
 
 #[test]
 fn matches_basisu() -> Result<(), Box<dyn Error>> {
-    assert_eq!(check(|l| !pending(l))?, 349 - 9 + 96); // minus FXT1 lines, plus XUBC7
+    assert_eq!(check(|l| !pending(l))?, 349 + 96); // + XUBC7
     Ok(())
 }
 
