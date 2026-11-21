@@ -90,6 +90,8 @@ pub struct Ktx2File<'a> {
     height: u32,
     layers: u32,
     faces: u32,
+    /// Base depth (1 for 2D textures).
+    depth: u32,
     scheme: u32,
     srgb: bool,
     /// ASTC LDR: sRGB decode profile (even vkFormat).
@@ -172,13 +174,13 @@ impl<'a> Ktx2File<'a> {
         let (layer_count, faces, level_count, scheme) = (h(32)?, h(36)?, h(40)?, h(44)?);
         let (dfd_ofs, dfd_len, kvd_ofs, kvd_len) = (h(48)?, h(52)?, h(56)?, h(60)?);
         let (sgd_ofs, sgd_len) = (u64le(data, 64)?, u64le(data, 72)?);
-        if width == 0 || height == 0 || depth != 0 {
+        if width == 0 || height == 0 {
             return Err(Error::Unsupported);
         }
-        if (faces != 1 && faces != 6) || (faces == 6 && width != height) {
+        if (faces != 1 && faces != 6) || (faces == 6 && (width != height || depth != 0)) {
             return Err(Error::InvalidData);
         }
-        if level_count == 0 || level_count > crate::image::mip_levels(width, height) {
+        if level_count == 0 || level_count > crate::image::mip_levels(width.max(depth), height) {
             return Err(Error::InvalidData);
         }
         let layers = layer_count.max(1);
@@ -250,6 +252,8 @@ impl<'a> Ktx2File<'a> {
             }
             _ => None,
         };
+        // 3D textures: plain formats only (Basis payloads are 2D).
+        let detected = if depth != 0 { None } else { detected };
         let (tex_format, has_alpha) = match (detected, plain_format) {
             (Some((t, a)), _) => (Some(t), a),
             (None, Some(_)) => (None, dfd_has_alpha(dfd, model)),
@@ -362,6 +366,7 @@ impl<'a> Ktx2File<'a> {
             height,
             layers,
             faces,
+            depth: depth.max(1),
             scheme,
             srgb: transfer == TRANSFER_SRGB,
             astc_srgb: vk_format & 1 == 0,
@@ -402,7 +407,8 @@ impl<'a> Ktx2File<'a> {
         self.vk_format
     }
     /// The bytes of one image (`level`, array `layer`, cube `face`) of a plain payload,
-    /// inflated if Zstandard supercompressed: `format().surface_bytes(level size)` bytes.
+    /// inflated if Zstandard supercompressed: `format().surface_bytes(level size)` bytes per
+    /// depth slice, `level_depth(level)` slices.
     ///
     /// Errors: `Unsupported` (no plain format), `InvalidArgument` (no such image),
     /// `InvalidData`.
@@ -412,9 +418,17 @@ impl<'a> Ktx2File<'a> {
             return Err(Error::InvalidArgument);
         }
         let (w, h) = self.level_dim(level);
-        let size = f.surface_bytes(w, h)? as u64;
+        let size = f.surface_bytes(w, h)? as u64 * u64::from(self.level_depth(level));
         let data = self.level_data(level)?;
         range(data, u64::from(layer * self.faces + face) * size, size)
+    }
+    /// Depth of level 0 (1 for 2D textures).
+    pub fn depth(&self) -> u32 {
+        self.depth
+    }
+    /// Depth slices of `level` (`image_data` returns them back to back).
+    pub fn level_depth(&self, level: u32) -> u32 {
+        self.depth.checked_shr(level).unwrap_or(0).max(1)
     }
     /// Width of level 0 in pixels.
     pub fn width(&self) -> u32 {

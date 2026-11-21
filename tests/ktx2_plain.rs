@@ -29,6 +29,7 @@ fn cases() -> Result<Vec<Case>, Box<dyn Error>> {
                 layers: n(4)?,
                 faces: n(5)?,
                 levels: n(6)?,
+                depth: n(8)?,
             },
             zstd: f[7].parse()?,
         });
@@ -44,7 +45,8 @@ fn levels(d: &Ktx2Desc) -> Result<Vec<Vec<u8>>, Box<dyn Error>> {
         let (w, h) = imgio::image::mip_dim(d.width, d.height, level);
         let size = d.format.surface_bytes(w, h)?;
         let mut data = Vec::new();
-        for _ in 0..d.layers.max(1) * d.faces {
+        let slices = d.depth.checked_shr(level).unwrap_or(0).max(1);
+        for _ in 0..d.layers.max(1) * d.faces * slices {
             data.extend((0..size).map(|i| ((i * 7 + k * 13 + 3) & 255) as u8));
             k += 1;
         }
@@ -56,7 +58,7 @@ fn levels(d: &Ktx2Desc) -> Result<Vec<Vec<u8>>, Box<dyn Error>> {
 #[test]
 fn reader_returns_every_image() -> Result<(), Box<dyn Error>> {
     let cases = cases()?;
-    assert_eq!(cases.len(), 95);
+    assert_eq!(cases.len(), 97);
     for c in &cases {
         let data = std::fs::read(format!("{DIR}{}.ktx2", c.name))?;
         let file = Ktx2File::parse(&data)?;
@@ -77,9 +79,10 @@ fn reader_returns_every_image() -> Result<(), Box<dyn Error>> {
         assert_eq!(file.level_count(), d.levels);
         assert_eq!(file.layer_count(), d.layers.max(1));
         assert_eq!(file.face_count(), d.faces);
+        assert_eq!(file.depth(), d.depth.max(1));
         let lv = levels(d)?;
         for (level, l) in lv.iter().enumerate() {
-            let per = l.len() / (d.layers.max(1) * d.faces) as usize;
+            let per = l.len() / (d.layers.max(1) * d.faces) as usize; // all depth slices
             for layer in 0..d.layers.max(1) {
                 for face in 0..d.faces {
                     let i = (layer * d.faces + face) as usize;
@@ -134,6 +137,7 @@ fn writer_rejects_bad_input() {
         layers: 0,
         faces: 1,
         levels: 1,
+        depth: 0,
     };
     let opts = WriteOptions::default();
     assert!(ktx2::write(&d, &[&[0u8; 63]], &opts).is_err());

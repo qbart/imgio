@@ -28,6 +28,8 @@ pub struct Ktx2Desc {
     pub faces: u32,
     /// Mip levels (at least 1).
     pub levels: u32,
+    /// Depth of a 3D texture; 0 (or 1) for 2D.
+    pub depth: u32,
 }
 
 /// Options of [`write()`].
@@ -53,7 +55,8 @@ fn lcm4(n: usize) -> usize {
     n / g(n, 4) * 4
 }
 
-/// Writes a KTX2 file. `levels[i]` holds mip level `i`: `max(layers, 1) * faces` images of
+/// Writes a KTX2 file. `levels[i]` holds mip level `i`: `max(layers, 1) * faces` images
+/// (times `max(1, depth >> i)` depth slices each, slices innermost) of
 /// `format.surface_bytes(level size)` bytes each, in layer then face order.
 ///
 /// Errors: `Unsupported` (format without a `VkFormat`), `InvalidArgument` (shape, level count,
@@ -68,15 +71,16 @@ pub fn write(desc: &Ktx2Desc, levels: &[&[u8]], opts: &WriteOptions) -> Result<B
         || h == 0
         || n == 0
         || n != desc.levels as usize
-        || desc.levels > crate::image::mip_levels(w, h)
-        || !(desc.faces == 1 || (desc.faces == 6 && w == h))
+        || desc.levels > crate::image::mip_levels(w.max(desc.depth), h)
+        || !(desc.faces == 1 || (desc.faces == 6 && w == h && desc.depth <= 1))
     {
         return Err(Error::InvalidArgument);
     }
     let images = desc.layers.max(1) as usize * desc.faces as usize;
     for (i, l) in levels.iter().enumerate() {
         let (lw, lh) = crate::image::mip_dim(w, h, i as u32);
-        let size = f.surface_bytes(lw, lh)?.checked_mul(images);
+        let slices = desc.depth.checked_shr(i as u32).unwrap_or(0).max(1) as usize;
+        let size = f.surface_bytes(lw, lh)?.checked_mul(images * slices);
         if size != Some(l.len()) {
             return Err(Error::InvalidArgument);
         }
@@ -144,7 +148,7 @@ pub fn write(desc: &Ktx2Desc, levels: &[&[u8]], opts: &WriteOptions) -> Result<B
         type_size_of(f),
         w,
         h,
-        0,
+        if desc.depth > 1 { desc.depth } else { 0 },
         desc.layers,
         desc.faces,
         desc.levels,

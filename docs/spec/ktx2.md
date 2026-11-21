@@ -63,7 +63,9 @@
   global data (offsets relative to the level); plain payloads are `(layer * faces + face)`
   images of `blocks * 16` bytes in the (inflated) level.
 - Zstandard levels are inflated with `ruzstd` (pure Rust) into a vas `Buffer`, once per level.
-- Not supported: depth > 0 (3D textures), plain vkFormats outside `Format`.
+- 3D textures (plain formats only; Basis payloads are 2D): `depth()`, `level_depth(level)`;
+  `image_data` returns the level's slices back to back; `Ktx2Desc::depth` (0 = 2D) for the
+  writer, slices innermost. Not supported: plain vkFormats outside `Format`.
 - `transcode(level, layer, face, format, dst)` reuses the container-independent
   `basis::transcode::transcode_slice`; `transcode_with` takes `basis::TranscodeOptions`
   (`Deblock::Auto` follows `DeblockFilterID`, `Off`/`Force` override it like C++).
@@ -80,3 +82,4 @@ array, UASTC zstd and raw, HDR 4x4, ASTC HDR 6x6, 6x6i) bit-exact with the C++ `
   with basisu `-ktx2` on 13 files; `Ktx2File::key_values`.
 - 2026-11-21: plain vkFormat reader + writer (raw / zstd), DFD generation; 94 KTX-Software
   reference files read and rewritten byte-identically.
+- 2026-11-21: 3D textures (plain): reader + writer, 2 `ktx create --depth` files byte identical.

@@ -5,8 +5,8 @@
 
 Creates testdata/ktx2/plain/*.ktx2 with the reference `ktx create --raw` (KTX-Software CLI, here
 the ktx-rs port: KTX=path/to/ktx) from deterministic raw images, and cases.txt:
-"name vkformat width height layers faces levels zstd". Image k of a file (level-major, then
-layer, then face) has bytes (i * 7 + k * 13 + 3) & 255.
+"name vkformat width height layers faces levels zstd depth". Image k of a file (level-major,
+then layer, then face, then depth slice) has bytes (i * 7 + k * 13 + 3) & 255.
 Also creates testdata/ktx2/mips/*.ktx2 with `ktx create --generate-mipmap` from
 testdata/images PNGs and mips.txt: "name filter filter_scale wrap" (mip generation golden).
 Usage: KTX=.../ktx python3 tools/ktx2-golden/gen.py
@@ -59,13 +59,14 @@ def image_size(fmt, w, h):
     return -(-w // bw) * -(-h // bh) * bb
 
 
-def create(name, fmt_name, w, h, layers=0, faces=1, levels=1, zstd=0):
+def create(name, fmt_name, w, h, layers=0, faces=1, levels=1, zstd=0, depth=0):
     fmt = BY_NAME[fmt_name]
     with tempfile.TemporaryDirectory() as tmp:
         inputs, k = [], 0
         for level in range(levels):
             lw, lh = max(w >> level, 1), max(h >> level, 1)
-            for _ in range(max(layers, 1) * faces):
+            slices = max(depth >> level, 1)
+            for _ in range(max(layers, 1) * faces * slices):
                 p = os.path.join(tmp, f"{k}.raw")
                 with open(p, "wb") as f:
                     f.write(bytes((i * 7 + k * 13 + 3) & 255 for i in range(image_size(fmt, lw, lh))))
@@ -79,8 +80,10 @@ def create(name, fmt_name, w, h, layers=0, faces=1, levels=1, zstd=0):
             args += ["--cubemap"]
         if zstd:
             args += ["--zstd", str(zstd)]
+        if depth:
+            args += ["--depth", str(depth)]
         subprocess.run(args + inputs + [os.path.join(OUT, name + ".ktx2")], check=True)
-    return f"{name} {fmt[0]} {w} {h} {layers} {faces} {levels} {zstd}"
+    return f"{name} {fmt[0]} {w} {h} {layers} {faces} {levels} {zstd} {depth}"
 
 
 MIPS = os.path.join(ROOT, "testdata", "ktx2", "mips")
@@ -131,6 +134,8 @@ def main():
     cases.append(create("bc7_mips_zstd3", "BC7_UNORM_BLOCK", 24, 16, levels=5, zstd=3))
     cases.append(create("rgba8_array_zstd19", "R8G8B8A8_UNORM", 20, 12, layers=2, levels=3,
                         zstd=19))
+    cases.append(create("rgba8_3d_mips", "R8G8B8A8_UNORM", 8, 4, levels=4, depth=6))
+    cases.append(create("bc7_3d_zstd", "BC7_UNORM_BLOCK", 8, 8, levels=2, depth=3, zstd=3))
     cases.append(create("eac_cube_zstd1", "EAC_R11G11_UNORM_BLOCK", 8, 8, faces=6, levels=2,
                         zstd=1))
     with open(os.path.join(OUT, "cases.txt"), "w") as f:
