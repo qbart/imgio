@@ -102,6 +102,14 @@ pub enum Format {
     Rgba8Unorm,
     /// 8-bit RGBA, sRGB color with linear alpha.
     Rgba8Srgb,
+    /// 8-bit unsigned normalized RGB (3 bytes per pixel).
+    Rgb8Unorm,
+    /// 8-bit RGB, sRGB.
+    Rgb8Srgb,
+    /// 8-bit unsigned normalized BGRA (bytes B, G, R, A).
+    Bgra8Unorm,
+    /// 8-bit BGRA, sRGB.
+    Bgra8Srgb,
     /// 16-bit packed RGB 5:6:5 (red in the high bits, little endian).
     Rgb565,
     /// 16-bit packed BGR 5:6:5 (blue in the high bits, little endian).
@@ -204,7 +212,9 @@ impl Format {
             R8Unorm | R8Snorm => 1,
             Rg8Unorm | Rg8Snorm | R16Unorm | R16Snorm | Rgb565 | Bgr565 | Rgba4444 => 2,
             Rgb16Float => 6,
-            Rgba8Unorm | Rgba8Srgb | Rg16Unorm | Rg16Snorm | Rgb9e5Float => 4,
+            Rgba8Unorm | Rgba8Srgb | Bgra8Unorm | Bgra8Srgb | Rg16Unorm | Rg16Snorm
+            | Rgb9e5Float => 4,
+            Rgb8Unorm | Rgb8Srgb => 3,
             Pvrtc1Rgb | Pvrtc1Rgba | Pvrtc2Rgb | Pvrtc2Rgba | AtcRgb => 8,
             AtcRgba | Fxt1Rgb => 16,
             Rgba16Float | Rgba16Unorm | Bc1Unorm | Bc1Srgb | Bc4Unorm | Bc4Snorm | Etc1Rgb
@@ -230,6 +240,10 @@ impl Format {
                 | Rg16Snorm
                 | Rgba8Unorm
                 | Rgba8Srgb
+                | Rgb8Unorm
+                | Rgb8Srgb
+                | Bgra8Unorm
+                | Bgra8Srgb
                 | Rgb565
                 | Bgr565
                 | Rgba4444
@@ -247,6 +261,8 @@ impl Format {
         matches!(
             self,
             Rgba8Srgb
+                | Rgb8Srgb
+                | Bgra8Srgb
                 | Bc1Srgb
                 | Bc2Srgb
                 | Bc3Srgb

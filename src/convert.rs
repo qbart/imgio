@@ -26,6 +26,8 @@ fn read(format: Format, p: &[u8]) -> [f32; 4] {
         Format::Rg16Unorm => [un16(0), un16(2), 0.0, 1.0],
         Format::Rg16Snorm => [sn16(0), sn16(2), 0.0, 1.0],
         Format::Rgba8Unorm | Format::Rgba8Srgb => [un(p[0]), un(p[1]), un(p[2]), un(p[3])],
+        Format::Bgra8Unorm | Format::Bgra8Srgb => [un(p[2]), un(p[1]), un(p[0]), un(p[3])],
+        Format::Rgb8Unorm | Format::Rgb8Srgb => [un(p[0]), un(p[1]), un(p[2]), 1.0],
         Format::Rgb565 | Format::Bgr565 | Format::Rgba4444 => {
             let v = u16::from_le_bytes([p[0], p[1]]) as u32;
             let n = |x: u32, max: f32| x as f32 / max;
@@ -130,6 +132,12 @@ fn write(format: Format, v: [f32; 4], out: &mut [u8]) {
             for c in 0..4 {
                 out[c] = u8n(v[c]);
             }
+        }
+        Format::Bgra8Unorm | Format::Bgra8Srgb => {
+            out[..4].copy_from_slice(&[u8n(v[2]), u8n(v[1]), u8n(v[0]), u8n(v[3])]);
+        }
+        Format::Rgb8Unorm | Format::Rgb8Srgb => {
+            out[..3].copy_from_slice(&[u8n(v[0]), u8n(v[1]), u8n(v[2])]);
         }
         Format::R16Unorm => put16(0, u16n(v[0])),
         Format::R16Snorm => put16(0, s16n(v[0])),

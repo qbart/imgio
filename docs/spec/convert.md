@@ -16,3 +16,6 @@
 
 - 2026-11-21: initial half and convert.
 - 2026-11-21: every uncompressed format writable, `Rgba16Unorm`, opt-in sRGB transfer.
+
+- 2026-11-21: `Rgb8Unorm/Srgb`, `Bgra8Unorm/Srgb` (read / write; KTX2 vk 23/29/44/50 with
+  red-blue-swapped DFD, DDS DXGI 87/91 + legacy 24/32-bit masks, KTX1 / GL `GL_RGB8`, `GL_BGRA`).

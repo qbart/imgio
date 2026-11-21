@@ -170,3 +170,55 @@ fn writer_rejects_bad_input() {
     let parsed = Ktx2File::parse(file);
     assert!(parsed.is_ok_and(|p| p.image_data(0, 0, 0).is_ok_and(|b| b == [7u8; 64])));
 }
+
+#[test]
+fn rgb8_and_bgra8_round_trip() -> Result<(), Box<dyn std::error::Error>> {
+    use imgio::Format;
+    let px: Vec<u8> = (0..4 * 4 * 4).map(|i| (i * 7) as u8).collect();
+    for f in [
+        Format::Rgb8Unorm,
+        Format::Rgb8Srgb,
+        Format::Bgra8Unorm,
+        Format::Bgra8Srgb,
+    ] {
+        let rgba = imgio::Surface::new(Format::Rgba8Unorm, 4, 4, &px)?;
+        let data = imgio::convert::convert_to_buffer(&rgba, f)?;
+        let desc = Ktx2Desc {
+            format: f,
+            width: 4,
+            height: 4,
+            layers: 0,
+            faces: 1,
+            levels: 1,
+            depth: 0,
+        };
+        let file = imgio::ktx2::write(&desc, &[&data[..]], &WriteOptions::default())?;
+        let k = Ktx2File::parse(&file)?;
+        assert_eq!(k.format(), Some(f));
+        assert_eq!(k.image_data(0, 0, 0)?, &data[..]);
+        let back = imgio::convert::convert_to_buffer(
+            &imgio::Surface::new(f, 4, 4, &data)?,
+            Format::Rgba8Unorm,
+        )?;
+        for (a, b) in back.as_chunks::<4>().0.iter().zip(px.as_chunks::<4>().0) {
+            assert_eq!(a[..3], b[..3]);
+            assert_eq!(a[3], if f.block_bytes() == 3 { 255 } else { b[3] });
+        }
+        // DDS for BGRA (DXGI) and legacy RGB8 masks.
+        let dd = imgio::dds::DdsDesc {
+            format: f,
+            width: 4,
+            height: 4,
+            layers: 0,
+            faces: 1,
+            levels: 1,
+            depth: 0,
+        };
+        let legacy = imgio::dds::DdsWriteOptions { legacy: true };
+        if let Ok(out) = imgio::dds::write(&dd, &[&data[..]], &legacy) {
+            let d = imgio::dds::DdsFile::parse(&out)?;
+            assert_eq!(d.image_data(0, 0, 0)?, &data[..], "{f:?}");
+        }
+    }
+    Ok(())
+}

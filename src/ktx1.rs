@@ -132,9 +132,11 @@ fn format_from_gl(internal: u32, gl_format: u32, gl_type: u32) -> Option<Format>
     })
 }
 
-const UNCOMPRESSED: [Format; 18] = {
+const UNCOMPRESSED: [Format; 20] = {
     use Format::*;
     [
+        Rgb8Unorm,
+        Rgb8Srgb,
         R8Unorm,
         R8Snorm,
         Rg8Unorm,

@@ -33,6 +33,7 @@ const GL_RED: u32 = 0x1903;
 const GL_RG: u32 = 0x8227;
 const GL_RGB: u32 = 0x1907;
 const GL_RGBA: u32 = 0x1908;
+const GL_BGRA: u32 = 0x80E1;
 const GL_BYTE: u32 = 0x1400;
 const GL_UNSIGNED_BYTE: u32 = 0x1401;
 const GL_SHORT: u32 = 0x1402;
@@ -87,6 +88,20 @@ pub fn gl_format(format: Format) -> Option<GlFormat> {
         Rg16Snorm => plain(0x8F99, GL_RG, GL_SHORT),
         Rgba8Unorm => plain(GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE),
         Rgba8Srgb => plain(0x8C43, GL_RGBA, GL_UNSIGNED_BYTE),
+        Rgb8Unorm => plain(0x8051, GL_RGB, GL_UNSIGNED_BYTE),
+        Rgb8Srgb => plain(0x8C41, GL_RGB, GL_UNSIGNED_BYTE),
+        Bgra8Unorm => GlFormat {
+            internal_format: GL_RGBA8,
+            base_internal_format: GL_RGBA,
+            format: GL_BGRA,
+            ty: GL_UNSIGNED_BYTE,
+        },
+        Bgra8Srgb => GlFormat {
+            internal_format: 0x8C43,
+            base_internal_format: GL_RGBA,
+            format: GL_BGRA,
+            ty: GL_UNSIGNED_BYTE,
+        },
         Rgb565 => plain(0x8D62, GL_RGB, GL_UNSIGNED_SHORT_5_6_5),
         Bgr565 => plain(0x8D62, GL_RGB, GL_UNSIGNED_SHORT_5_6_5_REV),
         Rgba4444 => plain(0x8056, GL_RGBA, GL_UNSIGNED_SHORT_4_4_4_4),

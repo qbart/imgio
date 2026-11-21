@@ -53,6 +53,8 @@ pub fn dxgi_format(format: Format) -> Option<u32> {
         Rgba16Unorm => 11,
         Rgba8Unorm => 28,
         Rgba8Srgb => 29,
+        Bgra8Unorm => 87,
+        Bgra8Srgb => 91,
         Rg16Unorm => 35,
         Rg16Snorm => 37,
         Rg8Unorm => 49,
@@ -99,9 +101,11 @@ pub fn format_from_dxgi(dxgi: u32) -> Option<Format> {
     })
 }
 
-const ALL: [Format; 29] = {
+const ALL: [Format; 31] = {
     use Format::*;
     [
+        Bgra8Unorm,
+        Bgra8Srgb,
         Rgba32Float,
         Rgba16Float,
         Rgba16Unorm,
@@ -159,6 +163,13 @@ fn legacy(format: Format) -> Option<Legacy> {
             32,
             [0xFF, 0xFF00, 0xFF_0000, 0xFF00_0000],
         ),
+        Bgra8Unorm => (
+            DDPF_RGB | DDPF_ALPHAPIXELS,
+            0,
+            32,
+            [0xFF_0000, 0xFF00, 0xFF, 0xFF00_0000],
+        ),
+        Rgb8Unorm => (DDPF_RGB, 0, 24, [0xFF_0000, 0xFF00, 0xFF, 0]),
         R8Unorm => (DDPF_LUMINANCE, 0, 8, [0xFF, 0, 0, 0]),
         Rg8Unorm => (DDPF_RGB, 0, 16, [0xFF, 0xFF00, 0, 0]),
         Rg16Unorm => (DDPF_RGB, 0, 32, [0xFFFF, 0xFFFF_0000, 0, 0]),
@@ -206,7 +217,7 @@ fn format_from_legacy(flags: u32, cc: u32, bits: u32, masks: [u32; 4]) -> Option
         return None;
     }
     [
-        Rgba8Unorm, R8Unorm, Rg8Unorm, Rg16Unorm, Rgb565, Bgr565, Rgba4444,
+        Rgba8Unorm, Bgra8Unorm, Rgb8Unorm, R8Unorm, Rg8Unorm, Rg16Unorm, Rgb565, Bgr565, Rgba4444,
     ]
     .into_iter()
     .find(|&f| {

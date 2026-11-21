@@ -109,9 +109,15 @@ fn sample(d: &mut Dfd, i: usize, channel: u32, bits: u32, offset: u32, s: Suffix
 
 /// `createDFDUnpacked` (little-endian, RGBA channel order).
 fn unpacked(channels: u32, bytes: u32, s: Suffix) -> Dfd {
+    unpacked_swap(channels, bytes, false, s)
+}
+
+/// `createDFDUnpacked` with `redBlueSwap` (BGR(A) order).
+fn unpacked_swap(channels: u32, bytes: u32, swap: bool, s: Suffix) -> Dfd {
     let mut d = header(channels as usize, channels * bytes, s);
-    for c in 0..channels {
-        sample(&mut d, c as usize, c, 8 * bytes, 8 * c * bytes, s);
+    for i in 0..channels {
+        let c = if swap && (i == 0 || i == 2) { i ^ 2 } else { i };
+        sample(&mut d, i as usize, c, 8 * bytes, 8 * i * bytes, s);
     }
     d
 }
@@ -186,6 +192,10 @@ pub fn dfd(format: Format) -> Option<Dfd> {
         Rg8Snorm => unpacked(2, 1, Snorm),
         Rgba8Unorm => unpacked(4, 1, Unorm),
         Rgba8Srgb => unpacked(4, 1, Srgb),
+        Rgb8Unorm => unpacked(3, 1, Unorm),
+        Rgb8Srgb => unpacked(3, 1, Srgb),
+        Bgra8Unorm => unpacked_swap(4, 1, true, Unorm),
+        Bgra8Srgb => unpacked_swap(4, 1, true, Srgb),
         R16Unorm => unpacked(1, 2, Unorm),
         R16Snorm => unpacked(1, 2, Snorm),
         Rg16Unorm => unpacked(2, 2, Unorm),

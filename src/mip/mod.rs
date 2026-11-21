@@ -151,7 +151,8 @@ fn layout(format: Format) -> Option<(Comp, usize)> {
     Some(match format {
         R8Unorm => (Comp::U8, 1),
         Rg8Unorm => (Comp::U8, 2),
-        Rgba8Unorm | Rgba8Srgb => (Comp::U8, 4),
+        Rgba8Unorm | Rgba8Srgb | Bgra8Unorm | Bgra8Srgb => (Comp::U8, 4),
+        Rgb8Unorm | Rgb8Srgb => (Comp::U8, 3),
         R16Unorm => (Comp::U16, 1),
         Rg16Unorm => (Comp::U16, 2),
         Rgba16Unorm => (Comp::U16, 4),

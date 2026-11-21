@@ -68,9 +68,30 @@ fn basisu_files_round_trip() -> Result<(), Box<dyn Error>> {
         let out = dds::write(&desc, &refs, &DdsWriteOptions::default())?;
         assert!(out[..] == data[..], "{name}: rewrite differs");
     }
-    // BGRA8 has no imgio format.
+    // BGRA8 sRGB (DXGI 91): parses and rewrites byte-identically.
     let data = std::fs::read(format!("{DIR}bgra8.dds"))?;
-    assert_eq!(DdsFile::parse(&data).err(), Some(imgio::Error::Unsupported));
+    let f = DdsFile::parse(&data)?;
+    assert_eq!(f.format(), Format::Bgra8Srgb);
+    let lv: Vec<&[u8]> = (0..f.level_count())
+        .map(|l| f.image_data(l, 0, 0))
+        .collect::<Result<_, _>>()?;
+    let desc = DdsDesc {
+        format: f.format(),
+        width: f.width(),
+        height: f.height(),
+        layers: 0,
+        faces: 1,
+        levels: f.level_count(),
+        depth: 0,
+    };
+    let out = dds::write(
+        &desc,
+        &lv,
+        &DdsWriteOptions {
+            legacy: !f.is_dx10(),
+        },
+    )?;
+    assert!(out[..] == data[..], "bgra8 rewrite differs");
     Ok(())
 }
 
