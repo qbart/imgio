@@ -67,6 +67,14 @@ fn fnv(b: &[u8]) -> u64 {
 
 /// Checks every golden line whose file name passes `filter`; returns the count.
 fn check(filter: impl Fn(&str) -> bool) -> Result<usize, Box<dyn Error>> {
+    check_with(filter, false)
+}
+
+/// Like `check`, optionally skipping targets imgio cannot produce yet (work in progress).
+fn check_with(
+    filter: impl Fn(&str) -> bool,
+    only_supported: bool,
+) -> Result<usize, Box<dyn Error>> {
     let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/ktx2/");
     let golden = std::fs::read_to_string(format!("{dir}golden.txt"))?;
     let (mut failures, mut checked) = (Vec::new(), 0);
@@ -77,6 +85,9 @@ fn check(filter: impl Fn(&str) -> bool) -> Result<usize, Box<dyn Error>> {
         let Some(fmt) = format(id) else { continue };
         let data = std::fs::read(format!("{dir}{}", f[0]))?;
         let file = Ktx2File::parse(&data)?;
+        if only_supported && !file.can_transcode_to(fmt) {
+            continue;
+        }
         let got = file.transcode_to_buffer(level, layer, face, fmt);
         let ok = match (f[5], &got) {
             ("fail", Err(_)) => true,
@@ -109,6 +120,13 @@ fn pending(line: &str) -> bool {
 #[test]
 fn matches_basisu() -> Result<(), Box<dyn Error>> {
     assert_eq!(check(|l| !pending(l))?, 349 - 9); // minus FXT1 lines
+    Ok(())
+}
+
+#[test]
+fn astc_ldr() -> Result<(), Box<dyn Error>> {
+    // In progress: targets ported so far (see ROADMAP.md).
+    assert_eq!(check_with(|l| l.starts_with("astc_ldr8x5"), true)?, 35);
     Ok(())
 }
 

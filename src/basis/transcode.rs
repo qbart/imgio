@@ -7,9 +7,8 @@ use super::ll::uastc_hdr::LowlevelUastcHdr4x4Transcoder;
 use super::ll::uastc_hdr_6x6i::LowlevelUastcHdr6x6IntermediateTranscoder;
 use super::ll::uastc_ldr::LowlevelUastcLdr4x4Transcoder;
 use super::ll::{TranscoderState, TranscoderTextureFormat as T, basis_is_format_supported};
-use crate::parallel::for_each_unit;
+use crate::parallel::try_for_each_unit;
 use crate::{AstcBlock, AstcKind, Buffer, Error, Format, Result};
-use std::sync::Mutex;
 
 /// The basisu target for `format` (sRGB variants share the unorm target: same bits).
 fn target(format: Format) -> Option<T> {
@@ -62,6 +61,9 @@ fn ll_format(f: BasisTexFormat) -> Option<super::ll::BasisTexFormat> {
 
 /// True when `tex` payloads can be transcoded to `format`.
 pub(crate) fn can_transcode(tex: BasisTexFormat, format: Format) -> bool {
+    if let BasisTexFormat::AstcLdr(b) = tex {
+        return super::astc_ldr::can_transcode(b, format);
+    }
     match (target(format), ll_format(tex)) {
         (Some(t), Some(l)) => basis_is_format_supported(t, l),
         _ => false,
@@ -107,6 +109,10 @@ pub(crate) struct SliceRef<'a> {
     pub level: u32,
     pub has_alpha: bool,
     pub video: bool,
+    /// ASTC LDR / XUASTC: sRGB decode profile.
+    pub srgb: bool,
+    /// ASTC LDR / XUASTC: apply the deblocking filter for non-ASTC targets.
+    pub deblock: bool,
 }
 
 /// Transcodes one slice to `format` into `dst` (tightly packed). `etc1s` is required for ETC1S.
@@ -119,7 +125,6 @@ pub(crate) fn transcode_slice(
     if !can_transcode(s.tex, format) {
         return Err(Error::Unsupported);
     }
-    let t = target(format).ok_or(Error::Unsupported)?;
     let needed = format.surface_bytes(s.width, s.height)?;
     if dst.len() < needed {
         return Err(Error::BufferTooSmall {
@@ -128,6 +133,10 @@ pub(crate) fn transcode_slice(
         });
     }
     let dst = &mut dst[..needed];
+    if let BasisTexFormat::AstcLdr(block) = s.tex {
+        return transcode_astc_ldr(s, block, format, dst);
+    }
+    let t = target(format).ok_or(Error::Unsupported)?;
     let units = if format.is_compressed() {
         needed / format.block_bytes()
     } else {
@@ -185,10 +194,38 @@ pub(crate) fn transcode_slice(
         BasisTexFormat::AstcHdr6x6 => status(LowlevelAstcHdr6x6Transcoder::new().transcode_image(
             t, dst, units, s.data, s.blocks_x, s.blocks_y, s.width, s.height, s.ofs, s.len, 0,
         )),
-        BasisTexFormat::XuastcLdr(_) | BasisTexFormat::AstcLdr(_) | BasisTexFormat::Xubc7 => {
+        BasisTexFormat::AstcLdr(_) | BasisTexFormat::XuastcLdr(_) | BasisTexFormat::Xubc7 => {
             Err(Error::Unsupported)
         }
     }
+}
+
+/// Plain ASTC LDR blocks.
+fn transcode_astc_ldr(
+    s: &SliceRef,
+    block: AstcBlock,
+    format: Format,
+    dst: &mut [u8],
+) -> Result<()> {
+    let start = usize::try_from(s.ofs).map_err(|_| Error::InvalidData)?;
+    let blocks = s
+        .data
+        .get(start..start.saturating_add(s.len as usize))
+        .ok_or(Error::InvalidData)?;
+    super::astc_ldr::transcode(
+        &super::astc_ldr::AstcLdrImage {
+            blocks,
+            block,
+            blocks_x: s.blocks_x,
+            blocks_y: s.blocks_y,
+            width: s.width,
+            height: s.height,
+            srgb: s.srgb,
+            deblock: s.deblock,
+        },
+        format,
+        dst,
+    )
 }
 
 /// UASTC 4x4 (LDR or HDR): blocks are independent, so rows of blocks are transcoded in
@@ -227,21 +264,12 @@ fn transcode_uastc_4x4(s: &SliceRef, t: T, format: Format, dst: &mut [u8]) -> Re
     // One unit = one row of 4x4 source blocks.
     let row = format.row_bytes(s.width)?;
     let unit = if format.is_compressed() { row } else { row * 4 };
-    let first_error = Mutex::new(None);
     let pixels = (s.width as usize).saturating_mul(s.height as usize);
-    for_each_unit(dst, unit, pixels, |by, out| {
+    try_for_each_unit(dst, unit, pixels, |by, out| {
         let by = by as u32;
         let height = (s.height - by * 4).min(4);
-        if let Err(e) = status(run(out, by, 1, height))
-            && let Ok(mut slot) = first_error.lock()
-        {
-            slot.get_or_insert(e);
-        }
-    });
-    match first_error.into_inner() {
-        Ok(Some(e)) => Err(e),
-        _ => Ok(()),
-    }
+        status(run(out, by, 1, height))
+    })
 }
 
 impl BasisFile<'_> {
@@ -306,6 +334,12 @@ impl BasisFile<'_> {
             level,
             has_alpha: self.has_alpha(),
             video: self.tex_type == super::file::BasisTexType::VideoFrames,
+            srgb: self.is_srgb(),
+            // basisu default: deblock block sizes of 80 texels (10x8) or more.
+            deblock: {
+                let (bw, bh) = self.tex_format.block_dim();
+                bw * bh >= 80
+            },
         };
         let e = if etc1s { Some(self.etc1s()?) } else { None };
         transcode_slice(&s, e, format, dst)

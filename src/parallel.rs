@@ -53,6 +53,30 @@ where
     });
 }
 
+/// Like [`for_each_unit`] for fallible work: returns the first error (other units still run).
+pub(crate) fn try_for_each_unit<F>(
+    dst: &mut [u8],
+    unit_bytes: usize,
+    pixels: usize,
+    f: F,
+) -> crate::Result<()>
+where
+    F: Fn(usize, &mut [u8]) -> crate::Result<()> + Sync,
+{
+    let first_error = Mutex::new(None);
+    for_each_unit(dst, unit_bytes, pixels, |i, u| {
+        if let Err(e) = f(i, u)
+            && let Ok(mut slot) = first_error.lock()
+        {
+            slot.get_or_insert(e);
+        }
+    });
+    match first_error.into_inner() {
+        Ok(Some(e)) => Err(e),
+        _ => Ok(()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

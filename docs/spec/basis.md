@@ -32,6 +32,15 @@ Test data `testdata/basis/*.basis`: encoded by Basis Universal v2.50 (C++ CLI bu
   `basisu_lowlevel_astc_hdr_6x6_transcoder`; shares the output stage
   (`transcode_astc_6x6_blocks`) with the 6x6 intermediate transcoder.
 - ETC1S codebooks/Huffman tables decoded once per file (`OnceLock`).
+- ASTC LDR (and XUASTC once decompressed): `basis/astc_ldr.rs`, after C++
+  `basisu_lowlevel_xuastc_ldr_transcoder::transcode_slice`. Same-size ASTC target = copy.
+  Other targets: blocks decoded (`astc_helpers`, sRGB8 or LDR8 profile from header flag 16 /
+  vkFormat parity; invalid block = `InvalidData`) into a padded RGBA8 image, rows of blocks in
+  parallel, then emitted per 4x4 block (x clamped to padded width; y clamped to the image
+  height, or to the padded height on the C++ whole-image path: deblocking / PVRTC1).
+  Uncompressed: RGBA32 copy; 565/4444 via basisu `mul_8`.
+- Deblocking: `.basis` deblocks blocks of >= 80 texels (basisu default); KTX2 deblocks iff key
+  `DeblockFilterID` = "1".
 - UASTC 4x4 (LDR/HDR): one row of source blocks per work unit, multithreaded through
   `parallel::for_each_unit` (PVRTC1 transcodes the whole image at once; ETC1S is sequential).
 - Golden test: `tests/basis_transcode.rs` vs `testdata/basis/golden.txt`, FNV-1a hashes of every
@@ -46,3 +55,4 @@ Test data `testdata/basis/*.basis`: encoded by Basis Universal v2.50 (C++ CLI bu
 - 2026-11-21: UASTC LDR 4x4 bit-exact on 136 level/target cases; row-parallel UASTC 4x4.
 - 2026-11-21: UASTC HDR 4x4, UASTC HDR 6x6i and new ASTC HDR 6x6 transcoder bit-exact (15 cases).
 - 2026-11-21: tex formats 5..33 (XUASTC LDR, ASTC LDR, XUBC7) parsed; test files + golden added.
+- 2026-11-21: ASTC LDR -> same-size ASTC, RGBA32, 565, 4444 bit-exact (70 .basis + 35 KTX2 cases).

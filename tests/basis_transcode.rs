@@ -66,6 +66,11 @@ fn fnv(b: &[u8]) -> u64 {
 
 /// Checks every golden line whose file name starts with `prefix`; returns the count.
 fn check(prefix: &str) -> Result<usize, Box<dyn Error>> {
+    check_with(prefix, false)
+}
+
+/// Like `check`, optionally skipping targets imgio cannot produce yet (work in progress).
+fn check_with(prefix: &str, only_supported: bool) -> Result<usize, Box<dyn Error>> {
     let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/basis/");
     let golden = std::fs::read_to_string(format!("{dir}golden.txt"))?;
     let mut failures = Vec::new();
@@ -80,6 +85,9 @@ fn check(prefix: &str) -> Result<usize, Box<dyn Error>> {
             assert_eq!(id, 17, "unknown format id");
             continue;
         };
+        if only_supported && !file.can_transcode_to(fmt) {
+            continue;
+        }
         let got = file.transcode_to_buffer(0, level, fmt);
         let ok = match (f.get(3), &got) {
             (Some(&"fail"), Err(_)) => true,
@@ -126,5 +134,16 @@ fn uastc_hdr() -> Result<(), Box<dyn Error>> {
 #[test]
 fn astc_hdr_6x6() -> Result<(), Box<dyn Error>> {
     assert_eq!(check("astc_hdr6x6")?, 5);
+    Ok(())
+}
+
+#[test]
+fn astc_ldr() -> Result<(), Box<dyn Error>> {
+    // In progress: targets ported so far (see ROADMAP.md).
+    let n: usize = ["astc_ldr4x4", "astc_ldr6x5", "astc_ldr8x8"]
+        .iter()
+        .map(|p| check_with(p, true))
+        .sum::<Result<_, _>>()?;
+    assert_eq!(n, 70);
     Ok(())
 }

@@ -70,6 +70,9 @@ pub struct Ktx2File<'a> {
     faces: u32,
     scheme: u32,
     srgb: bool,
+    /// ASTC LDR: sRGB decode profile (even vkFormat).
+    astc_srgb: bool,
+    deblock: bool,
     has_alpha: bool,
     video: bool,
     levels: Vector<Level, Dynamic>,
@@ -101,20 +104,18 @@ fn oom<T>(_: T) -> Error {
     Error::OutOfMemory
 }
 
-/// True when the key/value data contains `key`.
-fn has_key(kvd: &[u8], key: &[u8]) -> bool {
+/// The value of `key` in the key/value data (bytes after the key's NUL terminator).
+fn key_value<'k>(kvd: &'k [u8], key: &[u8]) -> Option<&'k [u8]> {
     let mut at = 0usize;
     while let Ok(n) = u32le(kvd, at) {
         let n = n as usize;
-        let Some(kv) = kvd.get(at + 4..at + 4 + n) else {
-            return false;
-        };
-        if kv.split(|&b| b == 0).next() == Some(key) {
-            return true;
+        let kv = kvd.get(at + 4..(at + 4).checked_add(n)?)?;
+        if kv.len() > key.len() && kv.starts_with(key) && kv[key.len()] == 0 {
+            return kv.get(key.len() + 1..);
         }
         at += 4 + n.div_ceil(4) * 4;
     }
-    false
+    None
 }
 
 impl<'a> Ktx2File<'a> {
@@ -221,7 +222,9 @@ impl<'a> Ktx2File<'a> {
         } else {
             &[]
         };
-        let mut video = has_key(kvd, b"KTXanimData");
+        let mut video = key_value(kvd, b"KTXanimData").is_some();
+        // basisu `DeblockFilterID` = "1": deblock ASTC LDR / XUASTC when transcoding.
+        let deblock = matches!(key_value(kvd, b"DeblockFilterID"), Some([b'1', 0, ..]));
 
         // Supercompression global data.
         let total_images = (level_count as usize)
@@ -295,6 +298,8 @@ impl<'a> Ktx2File<'a> {
             faces,
             scheme,
             srgb: transfer == TRANSFER_SRGB,
+            astc_srgb: vk_format & 1 == 0,
+            deblock,
             has_alpha,
             video,
             levels,
@@ -419,6 +424,8 @@ impl<'a> Ktx2File<'a> {
             level,
             has_alpha: self.has_alpha,
             video: self.video,
+            srgb: self.astc_srgb,
+            deblock: self.deblock,
         };
         match self.tex_format {
             BasisTexFormat::Etc1s
