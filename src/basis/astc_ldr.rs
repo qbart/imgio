@@ -7,14 +7,16 @@
 //! padded width, y to the image height, or to the padded height when the whole image path of
 //! the C++ transcoder is used (deblocking, PVRTC1).
 
-use super::ll::bc7f::{PACK_BC7_FLAG_DEFAULT, fast_pack_bc7_auto_rgba};
+use super::ll::bc7f::{PACK_BC7_FLAG_DEFAULT, fast_pack_bc7_auto_rgb, fast_pack_bc7_auto_rgba};
 use super::ll::dxt::Dxt1Block;
 use super::ll::eac::EacBlock;
 use super::ll::etc::Color32;
 use super::ll::etc1f::pack_etc1;
 use super::ll::uastc_bc1::{encode_bc1, encode_bc4};
 use super::ll::uastc_etc::pack_eac;
-use crate::astc::helpers::{DecodePixels, LogAstcBlock, decode_block, unpack_block};
+use crate::astc::helpers::{
+    DecodePixels, LogAstcBlock, decode_block, pack_astc_block, unpack_block,
+};
 use crate::parallel::try_for_each_unit;
 use crate::{AstcBlock, AstcKind, Buffer, Error, Format, Result};
 
@@ -40,10 +42,17 @@ impl Image {
     }
 }
 
+/// ASTC blocks of one image, row major.
+pub(crate) enum Blocks<'a> {
+    /// Physical 16-byte blocks (plain ASTC LDR).
+    Physical(&'a [u8]),
+    /// Logical blocks (decompressed XUASTC LDR).
+    Logical(&'a [LogAstcBlock]),
+}
+
 /// One image of ASTC LDR blocks.
 pub(crate) struct AstcLdrImage<'a> {
-    /// Physical 16-byte blocks, row major.
-    pub blocks: &'a [u8],
+    pub blocks: Blocks<'a>,
     pub block: AstcBlock,
     pub blocks_x: u32,
     pub blocks_y: u32,
@@ -53,6 +62,9 @@ pub(crate) struct AstcLdrImage<'a> {
     pub srgb: bool,
     /// Apply the deblocking filter before emitting non-ASTC targets.
     pub deblock: bool,
+    /// `transcode_4x4_block`'s `has_alpha` for BC7: the XUASTC stream alpha flag; true for
+    /// plain ASTC LDR (C++ passes -1, "unknown", which packs RGBA like 1).
+    pub has_alpha: bool,
 }
 
 /// True when ASTC LDR payloads with `block` size can be transcoded to `format`.
@@ -76,12 +88,18 @@ fn decode_ldr(block: &[u8; 16], w: u32, h: u32, srgb: bool, out: &mut [[u8; 4]])
     if !unpack_block(block, &mut log, w, h) {
         return Err(Error::InvalidData);
     }
+    decode_log(&log, w, h, srgb, out)
+}
+
+/// Decodes one logical ASTC LDR block into `out` (basisu `decode_block_xuastc_ldr` equals
+/// `decode_block`).
+fn decode_log(log: &LogAstcBlock, w: u32, h: u32, srgb: bool, out: &mut [[u8; 4]]) -> Result<()> {
     let mut px = if srgb {
         DecodePixels::Srgb8(out)
     } else {
         DecodePixels::Ldr8(out)
     };
-    if !decode_block(&log, &mut px, w, h) {
+    if !decode_block(log, &mut px, w, h) {
         return Err(Error::InvalidData);
     }
     Ok(())
@@ -91,7 +109,11 @@ fn decode_ldr(block: &[u8; 16], w: u32, h: u32, srgb: bool, out: &mut [[u8; 4]])
 pub(crate) fn decode_image(src: &AstcLdrImage) -> Result<Image> {
     let (bw, bh) = src.block.dim();
     let (bxs, bys) = (src.blocks_x as usize, src.blocks_y as usize);
-    if src.blocks.len() < bxs * bys * 16 {
+    let count = match src.blocks {
+        Blocks::Physical(b) => b.len() / 16,
+        Blocks::Logical(b) => b.len(),
+    };
+    if count < bxs * bys {
         return Err(Error::InvalidData);
     }
     let (width, height) = (bxs * bw as usize, bys * bh as usize);
@@ -101,9 +123,15 @@ pub(crate) fn decode_image(src: &AstcLdrImage) -> Result<Image> {
     try_for_each_unit(&mut data, row_bytes * bh as usize, pixels, |by, rows| {
         let mut px = [[0u8; 4]; crate::astc::helpers::MAX_BLOCK_PIXELS];
         let px = &mut px[..(bw * bh) as usize];
-        let blocks = &src.blocks[by * bxs * 16..(by + 1) * bxs * 16];
-        for (bx, block) in blocks.as_chunks::<16>().0.iter().enumerate() {
-            decode_ldr(block, bw, bh, src.srgb, px)?;
+        for bx in 0..bxs {
+            let i = by * bxs + bx;
+            match src.blocks {
+                Blocks::Physical(b) => {
+                    let block = b[i * 16..].first_chunk::<16>().ok_or(Error::InvalidData)?;
+                    decode_ldr(block, bw, bh, src.srgb, px)?;
+                }
+                Blocks::Logical(b) => decode_log(&b[i], bw, bh, src.srgb, px)?,
+            }
             for (y, line) in px.chunks_exact(bw as usize).enumerate() {
                 let d = y * row_bytes + bx * bw as usize * 4;
                 rows[d..d + bw as usize * 4].copy_from_slice(line.as_flattened());
@@ -181,7 +209,7 @@ fn eac(px: &[[u8; 4]; 16], c: usize, out: &mut [u8]) {
 }
 
 /// basisu `transcode_4x4_block` for block targets (default channels: R, and R+A for two).
-fn encode_4x4(format: Format, px: &[[u8; 4]; 16], out: &mut [u8]) -> Result<()> {
+fn encode_4x4(format: Format, px: &[[u8; 4]; 16], has_alpha: bool, out: &mut [u8]) -> Result<()> {
     use Format::*;
     match format {
         Bc1Unorm | Bc1Srgb => bc1(px, out),
@@ -207,7 +235,11 @@ fn encode_4x4(format: Format, px: &[[u8; 4]; 16], out: &mut [u8]) -> Result<()> 
         }
         Bc7Unorm | Bc7Srgb => {
             let mut b = [0u8; 16];
-            fast_pack_bc7_auto_rgba(&mut b, px, PACK_BC7_FLAG_DEFAULT);
+            if has_alpha {
+                fast_pack_bc7_auto_rgba(&mut b, px, PACK_BC7_FLAG_DEFAULT);
+            } else {
+                fast_pack_bc7_auto_rgb(&mut b, px, PACK_BC7_FLAG_DEFAULT);
+            }
             out.copy_from_slice(&b);
         }
         EacR11Unorm => eac(px, 0, out),
@@ -228,6 +260,7 @@ pub(crate) fn write_blocks(
     height: usize,
     max_y: usize,
     format: Format,
+    has_alpha: bool,
     dst: &mut [u8],
 ) -> Result<()> {
     let bb = format.block_bytes();
@@ -235,7 +268,7 @@ pub(crate) fn write_blocks(
     let rows = height.div_ceil(4);
     try_for_each_unit(&mut dst[..row * rows], row, width * height, |by, out| {
         for (bx, o) in out.chunks_exact_mut(bb).enumerate() {
-            encode_4x4(format, &img.block(bx * 4, by * 4, max_y), o)?;
+            encode_4x4(format, &img.block(bx * 4, by * 4, max_y), has_alpha, o)?;
         }
         Ok(())
     })
@@ -246,11 +279,22 @@ pub(crate) fn transcode(src: &AstcLdrImage, format: Format, dst: &mut [u8]) -> R
     if !can_transcode(src.block, format) {
         return Err(Error::Unsupported);
     }
-    let blocks = src.blocks_x as usize * src.blocks_y as usize * 16;
+    let count = src.blocks_x as usize * src.blocks_y as usize;
     if let Format::Astc(..) = format {
-        let s = src.blocks.get(..blocks).ok_or(Error::InvalidData)?;
-        let d = dst.get_mut(..blocks).ok_or(Error::InvalidArgument)?;
-        d.copy_from_slice(s);
+        let d = dst.get_mut(..count * 16).ok_or(Error::InvalidArgument)?;
+        match src.blocks {
+            Blocks::Physical(b) => {
+                d.copy_from_slice(b.get(..count * 16).ok_or(Error::InvalidData)?)
+            }
+            Blocks::Logical(b) => {
+                let b = b.get(..count).ok_or(Error::InvalidData)?;
+                for (o, log) in d.as_chunks_mut::<16>().0.iter_mut().zip(b) {
+                    if !pack_astc_block(o, log) {
+                        return Err(Error::InvalidData);
+                    }
+                }
+            }
+        }
         return Ok(());
     }
     let pvrtc1 = matches!(format, Format::Pvrtc1Rgb | Format::Pvrtc1Rgba);
@@ -294,5 +338,5 @@ pub(crate) fn transcode(src: &AstcLdrImage, format: Format, dst: &mut [u8]) -> R
     } else {
         h.min(img.height)
     };
-    write_blocks(&img, w, h, max_y, format, dst)
+    write_blocks(&img, w, h, max_y, format, src.has_alpha, dst)
 }

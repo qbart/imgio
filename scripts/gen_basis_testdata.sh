@@ -48,6 +48,9 @@ enc xuastc6x6_rgba_arith.basis -basis -ldr_6x6i -xuastc_arith -file "$I/rgba_64x
 enc xuastc8x6_rgb_hybrid.basis -basis -ldr_8x6i -xuastc_hybrid -linear -file "$I/rgb_37x29.png"
 enc xuastc5x4_dct.basis -basis -ldr_5x4i -quality 60 -file "$I/rgba_64x48.png"
 enc xuastc12x12_pow2.basis -basis -ldr_12x12i -file "$I/rgba_32x32.png" -mipmap
+# Images of <= 64 blocks always use the full arithmetic syntax; these exceed it.
+enc xuastc4x4_hybrid_dct.basis -basis -ldr_4x4i -xuastc_hybrid -quality 60 -file "$I/rgba_64x48.png" -mipmap
+enc xuastc6x5_dct_arith.basis -basis -ldr_6x5i -xuastc_arith -quality 50 -file "$I/rgba_64x48.png"
 enc xuastc6x6_rgba.ktx2 -ktx2 -ldr_6x6i -file "$I/rgba_64x48.png" -mipmap
 enc xuastc10x8_dct_arith.ktx2 -ktx2 -ldr_10x8i -xuastc_arith -quality 40 -file "$I/rgb_37x29.png"
 enc xuastc4x4_array.ktx2 -ktx2 -ldr_4x4i -tex_array -file "$I/rgb_37x29.png" -file "$I/rgb_37x29.png"

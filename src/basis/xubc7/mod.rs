@@ -114,7 +114,7 @@ pub(crate) fn transcode(src: &Xubc7Image, format: Format, dst: &mut [u8]) -> Res
                     dst,
                 )
             } else {
-                write_blocks(&img, w, h, img.height, format, dst)
+                write_blocks(&img, w, h, img.height, format, true, dst)
             }
         }
     }

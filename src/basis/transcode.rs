@@ -61,7 +61,7 @@ fn ll_format(f: BasisTexFormat) -> Option<super::ll::BasisTexFormat> {
 
 /// True when `tex` payloads can be transcoded to `format`.
 pub(crate) fn can_transcode(tex: BasisTexFormat, format: Format) -> bool {
-    if let BasisTexFormat::AstcLdr(b) = tex {
+    if let BasisTexFormat::AstcLdr(b) | BasisTexFormat::XuastcLdr(b) = tex {
         return super::astc_ldr::can_transcode(b, format);
     }
     if tex == BasisTexFormat::Xubc7 {
@@ -136,8 +136,10 @@ pub(crate) fn transcode_slice(
         });
     }
     let dst = &mut dst[..needed];
-    if let BasisTexFormat::AstcLdr(block) = s.tex {
-        return transcode_astc_ldr(s, block, format, dst);
+    match s.tex {
+        BasisTexFormat::AstcLdr(block) => return transcode_astc_ldr(s, block, format, dst),
+        BasisTexFormat::XuastcLdr(block) => return transcode_xuastc_ldr(s, block, format, dst),
+        _ => {}
     }
     if s.tex == BasisTexFormat::Xubc7 {
         return transcode_xubc7(s, format, dst);
@@ -206,6 +208,14 @@ pub(crate) fn transcode_slice(
     }
 }
 
+/// The slice's compressed bytes.
+fn slice_data<'a>(s: &SliceRef<'a>) -> Result<&'a [u8]> {
+    let start = usize::try_from(s.ofs).map_err(|_| Error::InvalidData)?;
+    s.data
+        .get(start..start.saturating_add(s.len as usize))
+        .ok_or(Error::InvalidData)
+}
+
 /// Plain ASTC LDR blocks.
 fn transcode_astc_ldr(
     s: &SliceRef,
@@ -213,14 +223,9 @@ fn transcode_astc_ldr(
     format: Format,
     dst: &mut [u8],
 ) -> Result<()> {
-    let start = usize::try_from(s.ofs).map_err(|_| Error::InvalidData)?;
-    let blocks = s
-        .data
-        .get(start..start.saturating_add(s.len as usize))
-        .ok_or(Error::InvalidData)?;
     super::astc_ldr::transcode(
         &super::astc_ldr::AstcLdrImage {
-            blocks,
+            blocks: super::astc_ldr::Blocks::Physical(slice_data(s)?),
             block,
             blocks_x: s.blocks_x,
             blocks_y: s.blocks_y,
@@ -228,6 +233,33 @@ fn transcode_astc_ldr(
             height: s.height,
             srgb: s.srgb,
             deblock: s.deblock,
+            has_alpha: true,
+        },
+        format,
+        dst,
+    )
+}
+
+/// XUASTC LDR: decompressed to logical ASTC blocks. The stream header's sRGB decode profile
+/// and alpha flag are authoritative; its block size and block counts must match the container.
+fn transcode_xuastc_ldr(
+    s: &SliceRef,
+    block: AstcBlock,
+    format: Format,
+    dst: &mut [u8],
+) -> Result<()> {
+    let img = super::xuastc::decompress(slice_data(s)?, Some((block, s.blocks_x, s.blocks_y)))?;
+    super::astc_ldr::transcode(
+        &super::astc_ldr::AstcLdrImage {
+            blocks: super::astc_ldr::Blocks::Logical(&img.blocks),
+            block,
+            blocks_x: s.blocks_x,
+            blocks_y: s.blocks_y,
+            width: s.width,
+            height: s.height,
+            srgb: img.srgb,
+            deblock: s.deblock,
+            has_alpha: img.has_alpha,
         },
         format,
         dst,

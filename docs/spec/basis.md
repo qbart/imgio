@@ -63,6 +63,20 @@ Test data `testdata/basis/*.basis`: encoded by Basis Universal v2.50 (C++ CLI bu
   base+offset conversions); others decode to a padded RGBA8 image and reuse the ASTC LDR 4x4
   output stage (stream `has_alpha` only matters for the C++ BC7 path, never taken). PVRTC1
   RGBA falls back to RGB without the container alpha flag.
+  `DeblockFilterID` = "1".
+- XUASTC LDR: `basis/xuastc/` decompresses a slice to ASTC logical blocks (port of
+  `astc_ldr_t::xuastc_ldr_decompress_image[_full_zstd]`): syntax byte 0 = full arithmetic
+  (`arith.rs`, basisu range coder + adaptive models), 1 = hybrid (arithmetic + Zstd weight
+  streams), 2 = full Zstd (byte/bit streams, `ruzstd`). Shared: trial mode tables from
+  `basisu_astc_cfgs.inl` (lazily per block size), unique partition pattern -> seed tables,
+  endpoint DPCM via `convert_endpoints_across_cems` (`endpoints.rs`, integer only), weight
+  DPCM, DCT weight grids (`dct.rs`: deadzone dequant, JPEG-derived adaptive quant table,
+  `basisu_idct.h` IDCT; f32 in C++ operation order). Every block is kept (the C++ 8 row ring
+  only holds past blocks, which is all a stream may reference). The stream header's block size
+  and block counts must match the container (checked before allocating); its sRGB decode
+  profile and alpha flag are used instead of the container's. Then the ASTC LDR pipeline above
+  runs on the logical blocks (ASTC target: `pack_astc_block`; others: `decode_block`, equal to
+  C++ `decode_block_xuastc_ldr`). Corrupt streams return `InvalidData`.
 - UASTC 4x4 (LDR/HDR): one row of source blocks per work unit, multithreaded through
   `parallel::for_each_unit` (PVRTC1 transcodes the whole image at once; ETC1S is sequential).
 - Golden test: `tests/basis_transcode.rs` vs `testdata/basis/golden.txt`, FNV-1a hashes of every
@@ -88,3 +102,11 @@ Test data `testdata/basis/*.basis`: encoded by Basis Universal v2.50 (C++ CLI bu
 - 2026-11-21: XUBC7 transcoder (all 16 targets incl. ASTC 4x4, PVRTC1) bit-exact: 128 .basis +
   96 KTX2 golden cases; `bc7u`/`fast_pack_astc`/DPCM/DCT/predictors vs C++ on random blocks
   (`tools/basisu-golden/xubc7_check.cpp`); offline multi-stripe / DCT / RGB files also matched.
+- 2026-11-21: XUASTC LDR decompression (full Zstd, full arithmetic, hybrid; DCT) -> ASTC, RGBA32,
+  565, 4444, BC1/3/4/5, EAC, ETC1/ETC2 bit-exact (312 .basis + 117 KTX2 cases; deblocked files:
+  ASTC target only). New test files `xuastc4x4_hybrid_dct.basis`, `xuastc6x5_dct_arith.basis`
+  (images of <= 64 blocks always use full arithmetic, so the old "hybrid" file was arithmetic).
+- 2026-11-21: XUASTC merged with deblocking, PVRTC1 and BC7 (stream `has_alpha` selects
+  `fast_pack_bc7_auto_rgb`/`_rgba`; plain ASTC LDR always RGBA): every XUASTC golden line passes
+  (458 .basis + 151 KTX2) except BC7 from 4x4/6x6/8x6, which the C++ transcodes with direct
+  ASTC -> BC7 fast paths (step 9).

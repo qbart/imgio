@@ -159,6 +159,18 @@ pub(crate) fn quantize_preserve2(ise_range: u32, v: u8) -> u8 {
         .map_or(0, |t| t[v as usize])
 }
 
+/// `astc_ldr_t::quant_preserve2`: `g_quantize_tables_preserve2[ise_range][v]` (identity at
+/// 256 levels; valid for ranges >= `BISE_6_LEVELS`).
+pub(crate) fn quant_preserve2(ise_range: u32, v: u8) -> u8 {
+    if ise_range == BISE_256_LEVELS {
+        return v;
+    }
+    preserve_tables()
+        .preserve2
+        .get(ise_range as usize)
+        .map_or(0, |t| t[usize::from(v)])
+}
+
 #[inline]
 fn get_bit(src_val: i32, src_bit: i32) -> i32 {
     (src_val >> src_bit) & 1

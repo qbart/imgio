@@ -71,11 +71,19 @@ fn check(prefix: &str) -> Result<usize, Box<dyn Error>> {
 
 /// Like `check`, optionally skipping targets imgio cannot produce yet (work in progress).
 fn check_with(prefix: &str, only_supported: bool) -> Result<usize, Box<dyn Error>> {
+    check_where(|l| l.starts_with(prefix), only_supported)
+}
+
+/// Like `check_with`, for the golden lines matching `filter`.
+fn check_where(
+    filter: impl Fn(&str) -> bool,
+    only_supported: bool,
+) -> Result<usize, Box<dyn Error>> {
     let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/basis/");
     let golden = std::fs::read_to_string(format!("{dir}golden.txt"))?;
     let mut failures = Vec::new();
     let mut n = 0;
-    for line in golden.lines().filter(|l| l.starts_with(prefix)) {
+    for line in golden.lines().filter(|l| filter(l)) {
         let f: Vec<&str> = line.split(' ').collect();
         let (name, id, level) = (f[0], f[1].parse::<u32>()?, f[2].parse::<u32>()?);
         let data = std::fs::read(format!("{dir}{name}"))?;
@@ -146,5 +154,25 @@ fn astc_ldr() -> Result<(), Box<dyn Error>> {
 #[test]
 fn xubc7() -> Result<(), Box<dyn Error>> {
     assert_eq!(check("xubc7")?, 128); // every target incl. ASTC 4x4, mips, PVRTC1 failures
+    Ok(())
+}
+
+#[test]
+fn xuastc_ldr() -> Result<(), Box<dyn Error>> {
+    // xuastc4x4_rgba: full Zstd (small mips: full arithmetic); xuastc5x4_dct: Zstd + DCT;
+    // xuastc6x6_rgba_arith: arithmetic; xuastc8x6_rgb_hybrid: <= 64 blocks, so arithmetic;
+    // xuastc4x4_hybrid_dct: hybrid + DCT; xuastc6x5_dct_arith: arithmetic + DCT;
+    // xuastc12x12_pow2: deblocked, PVRTC1.
+    // BC7 (id 6) from 4x4, 6x6 and 8x6 uses the direct ASTC -> BC7 fast path (ROADMAP step 9).
+    let fast_bc7 = |l: &str| {
+        ["xuastc4x4", "xuastc6x6", "xuastc8x6"]
+            .iter()
+            .any(|p| l.starts_with(p))
+            && l.split(' ').nth(1) == Some("6")
+    };
+    assert_eq!(
+        check_where(|l| l.starts_with("xuastc") && !fast_bc7(l), false)?,
+        458
+    );
     Ok(())
 }
