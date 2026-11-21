@@ -66,7 +66,8 @@ C++ / ktx-rs reference (golden hashes from offline builds, as for the transcoder
 9. [x] Basis Universal encoders: ETC1S, UASTC LDR 4x4 (+ RDO), UASTC HDR 4x4, ASTC HDR 6x6,
    UASTC HDR 6x6i (ktx-rs `basisu::comp` port, + mipmaps / y flip) -> `.basis`
 10. [x] KTX2 writer for Basis payloads (BasisLZ global data, UASTC, HDR, 6x6i, XUASTC, XUBC7)
-11. [ ] Basis Universal v2 encoders: ASTC LDR, XUASTC LDR, XUBC7 (basisu v2.50)
+11. [ ] Basis Universal v2 encoders: ASTC LDR, XUASTC LDR, XUBC7 (basisu v2.50); XUBC7 slice
+    stream encoder done (`basis/xubc7/encoder.rs`, bit-exact), container wiring pending
 12. [x] DDS reader and writer
 13. [ ] Optional Vulkan / OpenGL upload features (ktx-rs `vkloader` / `glloader`)
 

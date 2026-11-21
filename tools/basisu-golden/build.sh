@@ -44,3 +44,12 @@ g++ -O2 -std=c++17 -I../../ref/basisu/transcoder -I../../ref/basisu/zstd -DBASIS
 g++ -O2 -std=c++17 -ffp-contract=off -I../../ref/basisu/encoder \
     bc7e.cpp ../../ref/basisu/encoder/basisu_bc7e_scalar.cpp -o "$OUT.bc7e"
 "$OUT.bc7e" ../../testdata/images/raw/*.rgba > ../../testdata/encode/bc7e_golden.txt
+# XUBC7 encoder golden (testdata/encode/xubc7_golden.txt): xbc7::pack_image configured like the
+# basisu CLI -xubc7 path; needs the basisu_encoder library built without FP contraction.
+BUX=${BUX:-./bu-nofma}
+cmake -S ../../ref/basisu -B "$BUX" -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_CXX_FLAGS=-ffp-contract=off -DCMAKE_C_FLAGS=-ffp-contract=off >/dev/null
+cmake --build "$BUX" --target basisu_encoder -j8 >/dev/null
+g++ -O2 -std=c++17 -ffp-contract=off -I../../ref/basisu/transcoder -I../../ref/basisu/encoder \
+    -DBASISU_SUPPORT_SSE=0 xubc7_encode.cpp "$BUX/libbasisu_encoder.a" -lpthread -o "$OUT.xubc7"
+"$OUT.xubc7" ../../testdata/images/raw/*.rgba > ../../testdata/encode/xubc7_golden.txt

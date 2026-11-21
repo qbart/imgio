@@ -15,4 +15,5 @@ One file per subsystem. Write the spec before implementing; append audit entries
 - [basis_encode.md](basis_encode.md): Basis Universal encoder (`.basis` output)
 - [ktx2.md](ktx2.md): KTX2 container with Basis payloads
 - [bc7e.md](bc7e.md): basisu bc7e_scalar BC7 encoder port
+- [xubc7_encode.md](xubc7_encode.md): basisu XBC7 (XUBC7) encoder port
 - [bench.md](bench.md): benchmarks

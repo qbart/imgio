@@ -1230,7 +1230,8 @@ fn quant_with_pbit(x: f32, scalep: f32, p: i32, iscalep: i32) -> u8 {
 #[inline]
 fn scale_to_8(v: u8, total_bits: u32) -> u8 {
     let s = ((v as u32) << (8 - total_bits)) as u8;
-    s | (s >> total_bits)
+    // C++ promotes to int: a shift by 8 (8-bit components) gives 0, not an overflow.
+    s | ((u32::from(s) >> total_bits) as u8)
 }
 
 /// `determine_unique_pbits`: `xl`/`xh` are in [0,1]. Returns (min color, max color, pbits).

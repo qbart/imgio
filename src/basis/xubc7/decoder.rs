@@ -20,7 +20,7 @@ use std::sync::Mutex;
 // fixed16_16 (Q15.16), release-build semantics: narrowing to i32 wraps.
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
-struct Fx(i32);
+pub(super) struct Fx(pub(super) i32);
 
 const FX_ONE: i32 = 1 << 16;
 
@@ -37,17 +37,17 @@ fn rounded_rshift(x: i64, bits: u32) -> i64 {
 
 impl Fx {
     #[inline]
-    fn from_int(x: i32) -> Fx {
+    pub(super) fn from_int(x: i32) -> Fx {
         Fx((i64::from(x) * i64::from(FX_ONE)) as i32)
     }
 
     #[inline]
-    fn add(self, b: Fx) -> Fx {
+    pub(super) fn add(self, b: Fx) -> Fx {
         Fx((i64::from(self.0) + i64::from(b.0)) as i32)
     }
 
     #[inline]
-    fn sub(self, b: Fx) -> Fx {
+    pub(super) fn sub(self, b: Fx) -> Fx {
         Fx((i64::from(self.0) - i64::from(b.0)) as i32)
     }
 
@@ -65,13 +65,13 @@ impl Fx {
     }
 
     #[inline]
-    fn mul_int(self, s: i32) -> Fx {
+    pub(super) fn mul_int(self, s: i32) -> Fx {
         Fx((i64::from(self.0) * i64::from(s)) as i32)
     }
 
     /// `operator/(int32_t)`: rounded half away from zero.
     #[inline]
-    fn div_int(self, s: i32) -> Fx {
+    pub(super) fn div_int(self, s: i32) -> Fx {
         let (num, den) = (i64::from(self.0), i64::from(s));
         if den == 0 {
             return Fx(0);
@@ -83,7 +83,7 @@ impl Fx {
     }
 
     #[inline]
-    fn round_to_int(self) -> i32 {
+    pub(super) fn round_to_int(self) -> i32 {
         let w = i64::from(self.0);
         if w >= 0 {
             ((w + 32768) >> 16) as i32
@@ -98,12 +98,12 @@ impl Fx {
     }
 
     #[inline]
-    fn mul_wide(self, b: Fx) -> i64 {
+    pub(super) fn mul_wide(self, b: Fx) -> i64 {
         i64::from(self.0) * i64::from(b.0)
     }
 
     #[inline]
-    fn from_sum(s: i64) -> Fx {
+    pub(super) fn from_sum(s: i64) -> Fx {
         Fx(rounded_rshift(s, 16) as i32)
     }
 }
@@ -129,7 +129,7 @@ fn isqrt_floor(mut x: u64) -> u64 {
 // Weight grid DCT (decoder side of `xbc7_weight_grid_dct_fixed`).
 
 /// `g_zigzag4x4_xy`: [index] = (x, y).
-const ZIGZAG: [(usize, usize); 16] = [
+pub(super) const ZIGZAG: [(usize, usize); 16] = [
     (0, 0),
     (1, 0),
     (0, 1),
@@ -158,12 +158,12 @@ const BASE_4X4_QUANT: [i32; 16] = [
 const SCALE_QUANT_STEPS: [i32; 3] = [88859, 81640, 75649];
 
 /// `DEADZONE_ALPHA_FIXED` (0.5).
-const DEADZONE_ALPHA: i64 = 32768;
+pub(super) const DEADZONE_ALPHA: i64 = 32768;
 
 /// Butterfly constants of the 4-point orthonormal DCT (Q15.16).
-const DCT_HALF: Fx = Fx(32768);
-const DCT_C1: Fx = Fx(42813);
-const DCT_C3: Fx = Fx(17734);
+pub(super) const DCT_HALF: Fx = Fx(32768);
+pub(super) const DCT_C1: Fx = Fx(42813);
+pub(super) const DCT_C3: Fx = Fx(17734);
 
 fn inverse_ortho(y: [Fx; 4]) -> [Fx; 4] {
     let b0 = y[0].mul_wide(DCT_HALF) + y[2].mul_wide(DCT_HALF);
@@ -195,7 +195,7 @@ fn inverse_4x4(src: &[Fx; 16]) -> [Fx; 16] {
     dst
 }
 
-fn compute_quant_table(q: Fx, level_scale: Fx) -> [i32; 16] {
+pub(super) fn compute_quant_table(q: Fx, level_scale: Fx) -> [i32; 16] {
     let mut tab = [1i32; 16];
     if q >= Fx::from_int(100) {
         return tab;
@@ -215,7 +215,7 @@ fn compute_quant_table(q: Fx, level_scale: Fx) -> [i32; 16] {
     tab
 }
 
-fn compute_level_scale(q: Fx, span_len: Fx, num_weight_bits: u32) -> Fx {
+pub(super) fn compute_level_scale(q: Fx, span_len: Fx, num_weight_bits: u32) -> Fx {
     let idx = match num_weight_bits {
         3 => 1,
         4 => 2,
@@ -241,7 +241,7 @@ fn compute_level_scale(q: Fx, span_len: Fx, num_weight_bits: u32) -> Fx {
 }
 
 /// `get_max_span_len`: largest endpoint span (Euclidean) of the plane, Q15.16.
-fn max_span_len(log: &LogBc7Block, plane: usize) -> Fx {
+pub(super) fn max_span_len(log: &LogBc7Block, plane: usize) -> Fx {
     let mut max_ssq = 0u32;
     if log.is_dual_plane() {
         let [l, h] = bc7u::unpack_endpoints(log, 0);
@@ -288,10 +288,10 @@ fn dequant_deadzone(q: i32, l: i32, x: usize, y: usize) -> Fx {
 }
 
 /// One AC symbol: (zero run, coefficient or `i16::MAX` for end of block).
-type Ac = (u32, i32);
+pub(super) type Ac = (u32, i32);
 
 /// `xbc7_weight_grid_dct_fixed::inverse`: reconstructs `plane`'s weights.
-fn dct_inverse(
+pub(super) fn dct_inverse(
     global_q: Fx,
     plane: usize,
     preds: Option<&[i32; 16]>,
@@ -339,16 +339,16 @@ fn dct_inverse(
 // Causal block access and weight predictors.
 
 /// Blocks of one stripe (rows `first_row..end_row`), the reference tile.
-struct Tile<'a> {
-    blks: &'a [LogBc7Block],
-    nbx: i32,
-    first_row: i32,
-    end_row: i32,
+pub(super) struct Tile<'a> {
+    pub(super) blks: &'a [LogBc7Block],
+    pub(super) nbx: i32,
+    pub(super) first_row: i32,
+    pub(super) end_row: i32,
 }
 
 impl Tile<'_> {
     #[inline]
-    fn get(&self, x: i32, y: i32) -> Option<&LogBc7Block> {
+    pub(super) fn get(&self, x: i32, y: i32) -> Option<&LogBc7Block> {
         if x < 0 || x >= self.nbx || y < self.first_row || y >= self.end_row {
             return None;
         }
@@ -357,29 +357,29 @@ impl Tile<'_> {
     }
 }
 
-const CAND_ABSOLUTE: u32 = 0;
-const CAND_LEFT_EDGE: u32 = 1;
-const CAND_UPPER_EDGE: u32 = 2;
-const CAND_LU_BLEND: u32 = 3;
-const CAND_REFLECT_LEFT: u32 = 4;
-const CAND_REFLECT_UPPER: u32 = 5;
-const CAND_LU_AVG: u32 = 6;
-const CAND_LU_BLEND_STRONG: u32 = 7;
-const CAND_GRADIENT: u32 = 8;
-const CAND_GRADIENT_DAMPED: u32 = 9;
-const CAND_DIAG_AVG: u32 = 10;
-const CAND_DIAG_EDGE_BLEND: u32 = 11;
-const CAND_UPPER_DIAG_EDGE_BLEND: u32 = 12;
-const CAND_MED: u32 = 13;
-const CAND_GAB: u32 = 14;
-const CAND_PLANE_FIT: u32 = 15;
-const CAND_DDL: u32 = 16;
-const CAND_DDR: u32 = 17;
-const CAND_FIRST_XY_DELTA: u32 = 18;
-const TOTAL_CANDIDATES: u32 = CAND_FIRST_XY_DELTA + 32;
+pub(super) const CAND_ABSOLUTE: u32 = 0;
+pub(super) const CAND_LEFT_EDGE: u32 = 1;
+pub(super) const CAND_UPPER_EDGE: u32 = 2;
+pub(super) const CAND_LU_BLEND: u32 = 3;
+pub(super) const CAND_REFLECT_LEFT: u32 = 4;
+pub(super) const CAND_REFLECT_UPPER: u32 = 5;
+pub(super) const CAND_LU_AVG: u32 = 6;
+pub(super) const CAND_LU_BLEND_STRONG: u32 = 7;
+pub(super) const CAND_GRADIENT: u32 = 8;
+pub(super) const CAND_GRADIENT_DAMPED: u32 = 9;
+pub(super) const CAND_DIAG_AVG: u32 = 10;
+pub(super) const CAND_DIAG_EDGE_BLEND: u32 = 11;
+pub(super) const CAND_UPPER_DIAG_EDGE_BLEND: u32 = 12;
+pub(super) const CAND_MED: u32 = 13;
+pub(super) const CAND_GAB: u32 = 14;
+pub(super) const CAND_PLANE_FIT: u32 = 15;
+pub(super) const CAND_DDL: u32 = 16;
+pub(super) const CAND_DDR: u32 = 17;
+pub(super) const CAND_FIRST_XY_DELTA: u32 = 18;
+pub(super) const TOTAL_CANDIDATES: u32 = CAND_FIRST_XY_DELTA + 32;
 
 /// `g_xbc7_xy_deltas`: causal block references.
-const XY_DELTAS: [(i8, i8); 32] = [
+pub(super) const XY_DELTAS: [(i8, i8); 32] = [
     (-1, 0),
     (-2, 0),
     (-3, 0),
@@ -428,7 +428,7 @@ fn fetch_w(b: &LogBc7Block, plane: usize, w: usize) -> i32 {
 
 /// `eval_weight_predictor`: the 16 weight predictions of candidate `cand` with amplitude code
 /// `amp` at block (`bx`, `by`). None if a needed block is unavailable.
-fn eval_weight_predictor(
+pub(super) fn eval_weight_predictor(
     cand: u32,
     amp: u32,
     bx: i32,
@@ -663,31 +663,31 @@ fn eval_weight_predictor(
 /// Every malformed stream error.
 const BAD: Error = Error::InvalidData;
 
-const MAGIC_BEGIN: u8 = 0xB7;
-const MAGIC_END: u8 = 0x6A;
+pub(super) const MAGIC_BEGIN: u8 = 0xB7;
+pub(super) const MAGIC_END: u8 = 0x6A;
 const MAX_IDS: usize = 128;
 const MAX_TOTAL_UNCOMP: u64 = 1 << 30;
 
-const BLOB_HEADER: usize = 0;
-const BLOB_COMMANDS: usize = 1;
-const BLOB_CONFIG: usize = 2;
-const BLOB_PARTITION2: usize = 3;
-const BLOB_PARTITION3: usize = 4;
-const BLOB_WEIGHT_PREDICTORS: usize = 5;
-const BLOB_DC_COEFFS_SMALL: usize = 6;
-const BLOB_AC_COEFFS: usize = 8;
-const BLOB_COEFF_SIGNS: usize = 9;
-const BLOB_PBITS: usize = 10;
-const BLOB_EP_DELTA_FINE_R: usize = 11;
-const BLOB_EP_DELTA_COARSE_R: usize = 15;
-const BLOB_EP_RAW: usize = 19;
-const BLOB_EP_BLOCK_INDEX: usize = 20;
-const BLOB_RAW_WEIGHT_BITS: usize = 21;
-const BLOB_SOLID_RGBA_DELTAS: usize = 22;
-const BLOB_DPCM_WEIGHT_RESID2: usize = 23;
-const BLOB_STRIPE_SEEK_TABLE: usize = 26;
+pub(super) const BLOB_HEADER: usize = 0;
+pub(super) const BLOB_COMMANDS: usize = 1;
+pub(super) const BLOB_CONFIG: usize = 2;
+pub(super) const BLOB_PARTITION2: usize = 3;
+pub(super) const BLOB_PARTITION3: usize = 4;
+pub(super) const BLOB_WEIGHT_PREDICTORS: usize = 5;
+pub(super) const BLOB_DC_COEFFS_SMALL: usize = 6;
+pub(super) const BLOB_AC_COEFFS: usize = 8;
+pub(super) const BLOB_COEFF_SIGNS: usize = 9;
+pub(super) const BLOB_PBITS: usize = 10;
+pub(super) const BLOB_EP_DELTA_FINE_R: usize = 11;
+pub(super) const BLOB_EP_DELTA_COARSE_R: usize = 15;
+pub(super) const BLOB_EP_RAW: usize = 19;
+pub(super) const BLOB_EP_BLOCK_INDEX: usize = 20;
+pub(super) const BLOB_RAW_WEIGHT_BITS: usize = 21;
+pub(super) const BLOB_SOLID_RGBA_DELTAS: usize = 22;
+pub(super) const BLOB_DPCM_WEIGHT_RESID2: usize = 23;
+pub(super) const BLOB_STRIPE_SEEK_TABLE: usize = 26;
 
-const MAX_STRIPES: usize = 16;
+pub(super) const MAX_STRIPES: usize = 16;
 const MAX_DIM: u32 = 16384;
 
 /// Where a blob's bytes live.

@@ -8,8 +8,11 @@
 //! target is produced from them in parallel: BC7 is a repack, ASTC 4x4 goes latent to latent
 //! through `bc7f::fast_pack_astc`, everything else from the decoded pixels exactly like the
 //! ASTC LDR 4x4 path (`transcode_4x4_block`, `encode_pvrtc1`).
+//!
+//! `encoder` is the matching XBC7 stream encoder (`basisu_xbc7_encode.cpp`).
 
 mod decoder;
+pub(crate) mod encoder;
 
 use super::astc_ldr::{BlockOpts, Image, write_blocks, write_uncompressed};
 use super::ll::bc7f_astc::fast_pack_astc;
