@@ -837,7 +837,7 @@ fn write_eac(blk: &mut EacBlock, base: i32, mul: i32, table: u32, sels: &[u8; 16
 }
 
 /// Port of `pack_eac` (checks 4 tables).
-fn pack_eac(blk: &mut EacBlock, p: &[u8; 16]) {
+pub(crate) fn pack_eac(blk: &mut EacBlock, p: &[u8; 16]) {
     let Some((min_alpha, max_alpha)) = pack_eac_trivial(blk, p) else {
         return;
     };
@@ -890,7 +890,7 @@ fn pack_eac(blk: &mut EacBlock, p: &[u8; 16]) {
 }
 
 /// Port of `pack_eac_high_quality` (checks all 16 tables).
-fn pack_eac_high_quality(blk: &mut EacBlock, p: &[u8; 16]) {
+pub(crate) fn pack_eac_high_quality(blk: &mut EacBlock, p: &[u8; 16]) {
     let Some((min_alpha, max_alpha)) = pack_eac_trivial(blk, p) else {
         return;
     };

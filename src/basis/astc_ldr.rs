@@ -7,6 +7,11 @@
 //! padded width, y to the image height, or to the padded height when the whole image path of
 //! the C++ transcoder is used (deblocking, PVRTC1).
 
+use super::ll::dxt::Dxt1Block;
+use super::ll::eac::EacBlock;
+use super::ll::etc::Color32;
+use super::ll::uastc_bc1::{encode_bc1, encode_bc4};
+use super::ll::uastc_etc::pack_eac;
 use crate::astc::helpers::{DecodePixels, LogAstcBlock, decode_block, unpack_block};
 use crate::parallel::try_for_each_unit;
 use crate::{AstcBlock, AstcKind, Buffer, Error, Format, Result};
@@ -15,6 +20,22 @@ use crate::{AstcBlock, AstcKind, Buffer, Error, Format, Result};
 pub(crate) struct Image {
     pub data: Buffer,
     pub width: usize,
+    pub height: usize,
+}
+
+impl Image {
+    /// basisu `vector2D::extract_block_clamped`: the 4x4 block at pixel (`x`, `y`), reading
+    /// clamped coordinates (x to the width, y to `max_y` rows).
+    fn block(&self, x: usize, y: usize, max_y: usize) -> [[u8; 4]; 16] {
+        let mut out = [[0u8; 4]; 16];
+        for (i, o) in out.iter_mut().enumerate() {
+            let px = (x + (i & 3)).min(self.width - 1);
+            let py = (y + (i >> 2)).min(max_y - 1);
+            let at = (py * self.width + px) * 4;
+            o.copy_from_slice(&self.data[at..at + 4]);
+        }
+        out
+    }
 }
 
 /// One image of ASTC LDR blocks.
@@ -38,6 +59,8 @@ pub(crate) fn can_transcode(block: AstcBlock, format: Format) -> bool {
     match format {
         Astc(b, AstcKind::Unorm | AstcKind::Srgb) => b == block,
         Rgba8Unorm | Rgba8Srgb | Rgb565 | Bgr565 | Rgba4444 => true,
+        Bc1Unorm | Bc1Srgb | Bc3Unorm | Bc3Srgb | Bc4Unorm | Bc5Unorm => true,
+        EacR11Unorm | EacRg11Unorm => true,
         _ => false,
     }
 }
@@ -83,7 +106,11 @@ pub(crate) fn decode_image(src: &AstcLdrImage) -> Result<Image> {
         }
         Ok(())
     })?;
-    Ok(Image { data, width })
+    Ok(Image {
+        data,
+        width,
+        height,
+    })
 }
 
 /// basisu `mul_8`: `v * q / 255` rounded.
@@ -124,6 +151,75 @@ fn write_uncompressed(
     })
 }
 
+/// One channel of a 4x4 block.
+fn channel(px: &[[u8; 4]; 16], c: usize) -> [u8; 16] {
+    px.map(|p| p[c])
+}
+
+fn bc1(px: &[[u8; 4]; 16], out: &mut [u8]) {
+    let colors = px.map(|c| Color32 { c });
+    let mut b = Dxt1Block::default();
+    encode_bc1(&mut b, &colors, 0);
+    out.copy_from_slice(&b.bytes);
+}
+
+fn bc4(px: &[[u8; 4]; 16], c: usize, out: &mut [u8]) {
+    let mut b = [0u8; 8];
+    encode_bc4(&mut b, &channel(px, c));
+    out.copy_from_slice(&b);
+}
+
+fn eac(px: &[[u8; 4]; 16], c: usize, out: &mut [u8]) {
+    let mut b = EacBlock::default();
+    pack_eac(&mut b, &channel(px, c));
+    out.copy_from_slice(&b.bytes);
+}
+
+/// basisu `transcode_4x4_block` for block targets (default channels: R, and R+A for two).
+fn encode_4x4(format: Format, px: &[[u8; 4]; 16], out: &mut [u8]) -> Result<()> {
+    use Format::*;
+    match format {
+        Bc1Unorm | Bc1Srgb => bc1(px, out),
+        Bc3Unorm | Bc3Srgb => {
+            bc4(px, 3, &mut out[..8]);
+            bc1(px, &mut out[8..]);
+        }
+        Bc4Unorm => bc4(px, 0, out),
+        Bc5Unorm => {
+            bc4(px, 0, &mut out[..8]);
+            bc4(px, 3, &mut out[8..]);
+        }
+        EacR11Unorm => eac(px, 0, out),
+        EacRg11Unorm => {
+            eac(px, 0, &mut out[..8]);
+            eac(px, 3, &mut out[8..]);
+        }
+        _ => return Err(Error::Unsupported),
+    }
+    Ok(())
+}
+
+/// Encodes 4x4 blocks of `img` (`width` x `height` area) to `format`, rows in parallel.
+/// `max_y`: rows readable by the edge clamp.
+fn write_blocks(
+    img: &Image,
+    width: usize,
+    height: usize,
+    max_y: usize,
+    format: Format,
+    dst: &mut [u8],
+) -> Result<()> {
+    let bb = format.block_bytes();
+    let row = width.div_ceil(4) * bb;
+    let rows = height.div_ceil(4);
+    try_for_each_unit(&mut dst[..row * rows], row, width * height, |by, out| {
+        for (bx, o) in out.chunks_exact_mut(bb).enumerate() {
+            encode_4x4(format, &img.block(bx * 4, by * 4, max_y), o)?;
+        }
+        Ok(())
+    })
+}
+
 /// Transcodes `src` to `format` into `dst` (tightly packed, size checked by the caller).
 pub(crate) fn transcode(src: &AstcLdrImage, format: Format, dst: &mut [u8]) -> Result<()> {
     if !can_transcode(src.block, format) {
@@ -140,5 +236,16 @@ pub(crate) fn transcode(src: &AstcLdrImage, format: Format, dst: &mut [u8]) -> R
         return Err(Error::Unsupported); // deblocking filter not ported yet
     }
     let img = decode_image(src)?;
-    write_uncompressed(&img, src.width as usize, src.height as usize, format, dst)
+    let (w, h) = (src.width as usize, src.height as usize);
+    if !format.is_compressed() {
+        return write_uncompressed(&img, w, h, format, dst);
+    }
+    // 4x4 sources map block to block (padding rows are real decoded pixels); the C++
+    // row-buffered path for other sizes clamps edge rows to the image height.
+    let max_y = if src.block == AstcBlock::B4x4 {
+        img.height
+    } else {
+        h.min(img.height)
+    };
+    write_blocks(&img, w, h, max_y, format, dst)
 }

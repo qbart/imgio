@@ -126,7 +126,7 @@ fn matches_basisu() -> Result<(), Box<dyn Error>> {
 #[test]
 fn astc_ldr() -> Result<(), Box<dyn Error>> {
     // In progress: targets ported so far (see ROADMAP.md).
-    assert_eq!(check_with(|l| l.starts_with("astc_ldr8x5"), true)?, 35);
+    assert_eq!(check_with(|l| l.starts_with("astc_ldr8x5"), true)?, 77);
     Ok(())
 }
 

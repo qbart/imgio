@@ -31,7 +31,7 @@ transcoder via `tools/basisu-golden`.
 1. [x] Containers: tex formats 5..33 in `.basis` and KTX2 (DFD 169/170, ASTC LDR vkFormats),
    test files (`scripts/gen_basis_testdata.sh`), golden hashes for targets 0..40
 2. [x] ASTC LDR -> ASTC passthrough and uncompressed targets (RGBA32, 565, 4444), 4x4 re-blocking
-3. [ ] ASTC LDR -> BC1/BC3/BC4/BC5/EAC via the real-time encoders already in `ll`
+3. [x] ASTC LDR -> BC1/BC3/BC4/BC5/EAC via the real-time encoders already in `ll`
 4. [ ] `etc1f` real-time ETC1 encoder -> ETC1 / ETC2 RGBA targets
 5. [ ] `bc7f` real-time BC7 encoder -> BC7 target
 6. [ ] Deblocking filter and PVRTC1 encoder -> every ASTC LDR target

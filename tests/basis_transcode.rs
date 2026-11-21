@@ -144,6 +144,6 @@ fn astc_ldr() -> Result<(), Box<dyn Error>> {
         .iter()
         .map(|p| check_with(p, true))
         .sum::<Result<_, _>>()?;
-    assert_eq!(n, 70);
+    assert_eq!(n, 154);
     Ok(())
 }
