@@ -77,9 +77,9 @@ C++ / ktx-rs reference (golden hashes from offline builds, as for the transcoder
 Texture follow-ups found on the way: [x] high-quality ETC1 (basisu `etc1_optimizer` flip / diff
 search), [x] ETC2 RGB A1 and signed BC4 / BC5 / EAC encoders, [x] ETC2 T / H / planar mode
 encoding (ETC2 RGB / RGB A1 quality), [x] signed BC6H encoder, [ ] ASTC encode speed vs C++
-astcenc: 1024x1024 4x4 medium, imgio (KTX-Software's astcenc version, AVX2 copy) 2.03 s on 1
-thread / 0.25 s on 16 vs C++ astcenc 6.0 AVX2 CLI 0.91 s / 0.13 s (incl. TGA load), about
-2x slower; profile when a profiler is available (no `perf` here).
+astcenc: 1024x1024 4x4 medium, 1 thread: imgio 1.99 s, byte identical with C++ astcenc 5.3 / 5.7.1
+(5.7.1 AVX2 in-process 1.55 s, so 1.3x codegen gap spread over many kernels; LTO / one codegen
+unit change nothing); C++ 6.0 0.90 s is algorithmic (6.0 optimizations) -> port astcenc 6.0.
 
 More texture work (in order): [x] `.astc` file reader / writer, [x] KTX1 reader / writer
 (own, byte identical with basisu `-export_ktx`), [x] 3D textures (KTX2 depth, DDS volumes, KTX1 depth), [x] one-call

@@ -576,6 +576,16 @@ impl LanesI for I8 {
     }
 }
 
+/// `vtable_lookup_32bit` on a 32-entry byte table: lane `i` = `tbl[idx[i] & 31]`.
+#[inline(always)]
+pub fn table32_lookup(tbl: &[u8; 32], idx: I8) -> I8 {
+    #[cfg(target_arch = "x86_64")]
+    if AVX2 {
+        return avx::table32_lookup(tbl, idx);
+    }
+    idx.map(|i| i32::from(tbl[(i & 31) as usize]))
+}
+
 #[cfg(target_arch = "x86_64")]
 mod avx {
     //! `astcenc_vecmathlib_avx2_8.h` kernels; only reached in copies compiled with AVX2.
@@ -701,6 +711,24 @@ mod avx {
     #[inline(always)]
     pub fn cvtepi32_ps(a: I8) -> F8 {
         of(unsafe { _mm256_cvtepi32_ps(i(a)) })
+    }
+    /// Two `pshufb`s over the halves of the table (the second XOR-prepared), as astcenc's
+    /// `vtable_lookup_32bit`; the index's upper bytes are forced to 0xFF so they read 0.
+    #[inline(always)]
+    pub fn table32_lookup(tbl: &[u8; 32], idx: I8) -> I8 {
+        let lo: [u8; 16] = core::array::from_fn(|k| tbl[k]);
+        let hi: [u8; 16] = core::array::from_fn(|k| tbl[k + 16] ^ tbl[k]);
+        oi(unsafe {
+            let t0 = _mm256_broadcastsi128_si256(bytemuck::cast(lo));
+            let t1 = _mm256_broadcastsi128_si256(bytemuck::cast(hi));
+            let ix = _mm256_or_si256(
+                _mm256_and_si256(i(idx), _mm256_set1_epi32(31)),
+                _mm256_set1_epi32(0xFFFF_FF00u32 as i32),
+            );
+            let r0 = _mm256_shuffle_epi8(t0, ix);
+            let r1 = _mm256_shuffle_epi8(t1, _mm256_sub_epi8(ix, _mm256_set1_epi8(16)));
+            _mm256_xor_si256(r0, r1)
+        })
     }
 }
 

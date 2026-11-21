@@ -678,9 +678,7 @@ pub fn compute_quantized_weights_for_decimation(
 
     // The vtable lookups return the table entries (pshufb with in-range indices).
     let lookup = |idx: Vint8| Vint8 {
-        m: idx
-            .m
-            .map(|i| qat.quant_to_unquant[(i & 31) as usize] as i32),
+        m: super::sse::table32_lookup(&qat.quant_to_unquant, idx.m),
     };
 
     let mut i = 0;
