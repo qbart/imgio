@@ -3,13 +3,18 @@
 # SPDX-License-Identifier: Apache-2.0
 """Generates the synthetic source images in testdata/images (deterministic).
 
-Usage: python3 scripts/gen_images.py   (needs pillow and numpy)
+Usage: python3 scripts/gen_images.py   (needs numpy; pillow for the PNGs, otherwise only the
+raw/*.rgba copies are written)
 """
 import os
 import struct
 
 import numpy as np
-from PIL import Image
+
+try:
+    from PIL import Image
+except ImportError:  # raw files only
+    Image = None
 
 OUT = os.path.join(os.path.dirname(__file__), "..", "testdata", "images")
 
@@ -87,8 +92,24 @@ def write_hdr(path, rgb):
         f.write(out.tobytes())
 
 
+def raw(name, px):
+    """Raw RGBA8 copy (alpha 255 for RGB) for tests without a PNG decoder: raw/NAME_WxH.rgba."""
+    h, w = px.shape[:2]
+    if px.shape[2] == 3:
+        px = np.concatenate([px, np.full((h, w, 1), 255, np.uint8)], -1)
+    os.makedirs(os.path.join(OUT, "raw"), exist_ok=True)
+    with open(os.path.join(OUT, "raw", f"{name}_{w}x{h}.rgba"), "wb") as f:
+        f.write(px.astype(np.uint8).tobytes())
+
+
 def main():
     os.makedirs(OUT, exist_ok=True)
+    raw("rgba", ldr(64, 48, 1, True))
+    raw("rgb", ldr(37, 29, 2, False))
+    raw("mosaic_rgba", mosaic(50, 38, 7, True))
+    if Image is None:
+        print("pillow not installed: PNG / HDR files skipped")
+        return
     Image.fromarray(ldr(64, 48, 1, True), "RGBA").save(os.path.join(OUT, "rgba_64x48.png"))
     Image.fromarray(ldr(37, 29, 2, False), "RGB").save(os.path.join(OUT, "rgb_37x29.png"))
     # Power-of-two source (PVRTC1 targets).

@@ -56,7 +56,7 @@ C++ / ktx-rs reference (golden hashes from offline builds, as for the transcoder
    as a conversion target
 2. [x] Mipmap generation: basisu resampler (box, tent, kaiser, lanczos, ...), sRGB aware,
    clamp / wrap, levels in parallel
-3. [ ] Encode API (`imgio::encode`, quality presets, multithreaded per block row) with
+3. [x] Encode API (`imgio::encode`, quality presets, multithreaded per block row) with
    BC1 / BC3 / BC4 / BC5 (basisu `encode_bc1` / `encode_bc4`) and BC2
 4. [ ] BC7 encoders: `bc7f` (real-time), `bc7enc` (ktx-rs port), basisu v2.50 `bc7e_scalar`
 5. [ ] BC6H encoder

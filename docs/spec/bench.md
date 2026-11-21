@@ -23,6 +23,12 @@ Snapshot 2026-11-21 (Linux x86-64, release; C++ = basisu v2.50 transcoder, singl
 ETC1S slices decode sequentially (predictive coding), so they run on one thread; UASTC 4x4 is
 split into rows of blocks. Parallel work starts at 64K pixels.
 
+| encode 1024x1024 (tiled smooth image) | imgio |
+|---|---|
+| BC1 fast / high | 1.3 ms / 1.8 ms |
+| BC3 | 1.8 ms |
+| BC5 | 0.8 ms |
+
 ## Audit
 
 - 2026-11-21: harness added; parallel threshold changed from 256 KiB of output to 64K pixels

@@ -77,6 +77,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    // Encode a smooth image (the mip test source, tiled) to block formats.
+    println!("-- encode {w}x{h}");
+    let raw = std::fs::read(format!("{root}/testdata/images/raw/rgba_64x48.rgba"))?;
+    let img: Vec<u8> = (0..(w * h) as usize)
+        .flat_map(|i| {
+            let (x, y) = (i % w as usize % 64, i / w as usize % 48);
+            let at = (y * 64 + x) * 4;
+            [raw[at], raw[at + 1], raw[at + 2], raw[at + 3]]
+        })
+        .collect();
+    let src = Surface::new(Format::Rgba8Unorm, w, h, &img)?;
+    let mut enc = vec![0u8; (w * h) as usize];
+    for (name, f, q) in [
+        ("bc1 fast", Format::Bc1Unorm, imgio::Quality::Fast),
+        ("bc1 high", Format::Bc1Unorm, imgio::Quality::High),
+        ("bc3", Format::Bc3Unorm, imgio::Quality::Default),
+        ("bc5", Format::Bc5Unorm, imgio::Quality::Default),
+    ] {
+        let opts = imgio::EncodeOptions { quality: q };
+        bench(&format!("encode {name}"), px, || {
+            imgio::encode(&src, f, &opts, &mut enc)
+        });
+    }
+
     println!("-- convert {w}x{h}");
     let rgba = random((w * h * 4) as usize, 3);
     let s = Surface::new(Format::Rgba8Unorm, w, h, &rgba)?;

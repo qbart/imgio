@@ -36,3 +36,7 @@ cmake --build "$BU" --target basisu_encoder -j8 >/dev/null
 g++ -O2 -std=c++17 -I../../ref/basisu/transcoder -I../../ref/basisu/encoder -DBASISU_SUPPORT_SSE=0 \
     unpack.cpp "$BU/libbasisu_encoder.a" -lpthread -o "$OUT.unpack"
 "$OUT.unpack" $B/*.basis > $B/golden_decode.txt
+# Block encoder golden (testdata/encode/golden.txt) from testdata/images/raw.
+g++ -O2 -std=c++17 -I../../ref/basisu/transcoder -I../../ref/basisu/zstd -DBASISD_SUPPORT_KTX2_ZSTD=0 \
+    encode.cpp ../../ref/basisu/transcoder/basisu_transcoder.cpp -o "$OUT.encode"
+"$OUT.encode" ../../testdata/images/raw/*.rgba > ../../testdata/encode/golden.txt
