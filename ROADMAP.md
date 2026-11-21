@@ -40,6 +40,12 @@
   No bindings, ever: a format or direction without a pure Rust option is skipped (Ptex: only
   C++ bindings exist, not planned).
 - [x] Optional Vulkan / OpenGL upload features (`vulkan`, `opengl`; `gpu::TextureSource`)
+- [ ] Image resize: any uncompressed `Image` / `Surface` (8/16-bit, float, sRGB-correct),
+  filters from the `mip` resampler (box, tent, Mitchell, Catmull-Rom, Kaiser, Lanczos, ...),
+  fit / fill / exact sizes, crop; multithreaded
+- [ ] Image filters: flip / rotate / transpose, blur (box, Gaussian), sharpen (unsharp mask),
+  brightness / contrast / gamma / exposure, grayscale, channel swizzle, premultiply alpha,
+  normal map from height, tone mapping (HDR -> LDR)
 
 ## Follow-ups
 
