@@ -14,6 +14,13 @@
 - [ ] PNG, TGA, JPG
 - [ ] Optional Vulkan / OpenGL upload features
 
+## Follow-ups
+
+- [ ] FXT1 transcode target
+- [ ] PVRTC1/2 and ATC decoders
+- [ ] XUASTC LDR and ASTC LDR (basisu v2 tex formats 5+)
+- [ ] Parallel transcode of many levels/images
+
 ## Current plan (in order)
 
 1. [x] Image types: `Surface`, mip chain helpers
@@ -21,7 +28,7 @@
 3. [x] ETC1/ETC2/EAC decode
 4. [x] ASTC decode (LDR, HDR)
 5. [x] Basis core: .basis file, bit reader, Huffman, tables
-6. [ ] ETC1S transcoder -> all LDR targets
+6. [x] ETC1S transcoder -> all LDR targets
 7. [ ] UASTC LDR 4x4 transcoder -> all LDR targets
 8. [ ] UASTC HDR (4x4, 6x6) transcoder -> BC6H, ASTC HDR, RGBA16F
 9. [ ] KTX2 reader for Basis payloads (BasisLZ, zstd)

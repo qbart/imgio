@@ -3,6 +3,7 @@
 //! Layout from Basis Universal `transcoder/basisu_file_headers.h` (packed little endian).
 
 use crate::{Error, Result};
+use std::sync::OnceLock;
 use vas::Vector;
 use vas::storage::Dynamic;
 
@@ -86,7 +87,6 @@ pub(crate) struct SliceDesc {
 }
 
 /// Offset and size of a section of the file.
-#[allow(dead_code)] // used by the transcoder (next step)
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct Section {
     pub ofs: u32,
@@ -109,7 +109,6 @@ pub struct LevelInfo {
 }
 
 /// A parsed `.basis` file borrowing its bytes.
-#[allow(dead_code)] // codebooks and tables are used by the transcoder (next step)
 #[derive(Debug)]
 pub struct BasisFile<'a> {
     pub(crate) data: &'a [u8],
@@ -124,6 +123,8 @@ pub struct BasisFile<'a> {
     pub(crate) selector_cb: Section,
     pub(crate) tables: Section,
     pub(crate) slices: Vector<SliceDesc, Dynamic>,
+    /// ETC1S codebooks and Huffman tables, decoded on first transcode (None if corrupt).
+    pub(crate) etc1s: OnceLock<Option<super::ll::etc1s::LowlevelEtc1sTranscoder>>,
 }
 
 /// Basis Universal CRC16 (`basist::crc16`).
@@ -244,6 +245,7 @@ impl<'a> BasisFile<'a> {
             selector_cb,
             tables,
             slices,
+            etc1s: OnceLock::new(),
         })
     }
 
