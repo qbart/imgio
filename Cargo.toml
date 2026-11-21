@@ -1,0 +1,25 @@
+[package]
+name = "imgio"
+version = "0.0.0"
+edition = "2024"
+description = "Pure Rust image and GPU texture codecs: BC1-BC7, ASTC, UASTC, Basis Universal transcoding, RGBA/HDR."
+license = "Apache-2.0"
+repository = "https://github.com/qbart/imgio"
+readme = "README.md"
+keywords = ["texture", "bc7", "astc", "basis-universal", "gamedev"]
+categories = ["multimedia::images", "game-development", "graphics"]
+# Test data has its own licenses (see NOTICE.md) and is not published.
+include = ["/src/**", "/Cargo.toml", "/LICENSE", "/LICENSES/**", "/NOTICE.md", "/README.md"]
+
+[dependencies]
+
+[lints.rust]
+# Denied everywhere except the GPU loaders and astcenc SIMD (see AGENTS.md rule 9).
+unsafe_code = "deny"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
