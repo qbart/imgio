@@ -1,6 +1,7 @@
 //! Transcoding `.basis` image levels to GPU formats.
 
 use super::file::{BasisFile, BasisTexFormat, SliceDesc};
+use super::ll::astc_hdr_6x6::LowlevelAstcHdr6x6Transcoder;
 use super::ll::etc1s::{LowlevelEtc1sTranscoder, TranscodeStatus};
 use super::ll::uastc_hdr::LowlevelUastcHdr4x4Transcoder;
 use super::ll::uastc_hdr_6x6i::LowlevelUastcHdr6x6IntermediateTranscoder;
@@ -83,7 +84,6 @@ impl BasisFile<'_> {
     /// True when this file can be transcoded to `format`.
     pub fn can_transcode_to(&self, format: Format) -> bool {
         target(format).is_some_and(|t| basis_is_format_supported(t, ll_format(self.tex_format)))
-            && self.tex_format != BasisTexFormat::AstcHdr6x6
     }
 
     /// Bytes needed to transcode `image`/`level` to `format` (tightly packed).
@@ -180,7 +180,21 @@ impl BasisFile<'_> {
                     -1,
                 ),
             ),
-            BasisTexFormat::AstcHdr6x6 => Err(Error::Unsupported),
+            BasisTexFormat::AstcHdr6x6 => {
+                status(LowlevelAstcHdr6x6Transcoder::new().transcode_image(
+                    t,
+                    dst,
+                    units,
+                    self.data,
+                    color.blocks_x,
+                    color.blocks_y,
+                    color.orig_width,
+                    color.orig_height,
+                    color.file_ofs as u64,
+                    color.file_size,
+                    0,
+                ))
+            }
         }
     }
 

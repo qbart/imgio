@@ -8,7 +8,7 @@
 - [x] BC6H / BC7 decode (multithreaded, tested vs Pillow and bcdec_rs)
 - [x] ETC1 / ETC2 / EAC decode
 - [x] ASTC decode (LDR, HDR), 2D blocks
-- [ ] Basis Universal transcoder: ETC1S, UASTC LDR, UASTC HDR -> all targets
+- [x] Basis Universal transcoder (.basis): ETC1S, UASTC LDR, UASTC HDR 4x4/6x6i, ASTC HDR 6x6 -> all targets except FXT1
 - [ ] BCn / ASTC encoders (multithreaded)
 - [ ] Basis Universal encoders: ETC1S, UASTC LDR/HDR
 - [ ] PNG, TGA, JPG
@@ -30,6 +30,6 @@
 5. [x] Basis core: .basis file, bit reader, Huffman, tables
 6. [x] ETC1S transcoder -> all LDR targets
 7. [x] UASTC LDR 4x4 transcoder -> all LDR targets
-8. [ ] UASTC HDR (4x4, 6x6) transcoder -> BC6H, ASTC HDR, RGBA16F
+8. [x] UASTC HDR (4x4, 6x6) transcoder -> BC6H, ASTC HDR, RGBA16F
 9. [ ] KTX2 reader for Basis payloads (BasisLZ, zstd)
 10. [ ] Golden transcode tests and benches

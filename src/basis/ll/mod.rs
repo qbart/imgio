@@ -9,6 +9,7 @@
 
 pub(crate) mod astc;
 pub(crate) mod astc_6x6_hdr;
+pub(crate) mod astc_hdr_6x6;
 pub(crate) use crate::astc::helpers as astc_helpers;
 pub(crate) mod atc;
 pub(crate) mod bc6h;

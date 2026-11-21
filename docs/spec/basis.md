@@ -23,8 +23,10 @@ Test data `testdata/basis/*.basis`: encoded by Basis Universal v2.50 (C++ CLI bu
   `can_transcode_to`. Output is tightly packed blocks/pixels of `format` for the level size.
 - Targets map to basisu `transcoder_texture_format` (sRGB variants share the unorm target):
   ETC1, ETC2 RGBA, BC1/3/4/5/7, PVRTC1/2, ASTC 4x4 LDR/HDR, ATC, RGBA32, 565, 4444, EAC
-  R11/RG11, BC6H, RGB/RGBA half, RGB9E5, ASTC 6x6 HDR. Not yet: FXT1, plain ASTC HDR 6x6
-  source files (`AstcHdr6x6`).
+  R11/RG11, BC6H, RGB/RGBA half, RGB9E5, ASTC 6x6 HDR. Not yet: FXT1.
+- ASTC HDR 6x6 sources: `ll/astc_hdr_6x6.rs`, ported from C++
+  `basisu_lowlevel_astc_hdr_6x6_transcoder`; shares the output stage
+  (`transcode_astc_6x6_blocks`) with the 6x6 intermediate transcoder.
 - ETC1S codebooks/Huffman tables decoded once per file (`OnceLock`).
 - UASTC 4x4 (LDR/HDR): one row of source blocks per work unit, multithreaded through
   `parallel::for_each_unit` (PVRTC1 transcodes the whole image at once; ETC1S is sequential).
@@ -37,3 +39,4 @@ Test data `testdata/basis/*.basis`: encoded by Basis Universal v2.50 (C++ CLI bu
 - 2026-11-21: transcoder modules copied from ktx-rs; `.basis` parser written from the headers.
 - 2026-11-21: transcode API; ETC1S bit-exact with basisu v2.50 on 168 level/target cases.
 - 2026-11-21: UASTC LDR 4x4 bit-exact on 136 level/target cases; row-parallel UASTC 4x4.
+- 2026-11-21: UASTC HDR 4x4, UASTC HDR 6x6i and new ASTC HDR 6x6 transcoder bit-exact (15 cases).
