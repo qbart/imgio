@@ -9,7 +9,8 @@
 //! - BC4 / BC5: `encode_bc4` on R (and G). BC3: BC4 on A + BC1. BC2: 4-bit alpha + BC1.
 //! - BC7: `bc7f::fast_pack_bc7_auto_rgba` (Fastest: fastest, Fast: fast, Default: partially
 //!   analytical) and basisu `bc7e_scalar` (High: slow, Best: slowest; perceptual for sRGB).
-//! - ETC1 / ETC2 RGB: `etc1f::pack_etc1` (one quality). ETC2 RGBA: EAC alpha + ETC1.
+//! - ETC1 / ETC2 RGB: `etc1f::pack_etc1` up to Default; High / Best: flip x mode search with
+//!   basisu `etc1_optimizer` (slow / uber), see `etc1hq`. ETC2 RGBA: EAC alpha + ETC1.
 //!   EAC R11 / RG11: `pack_eac` on R (G), `pack_eac_high_quality` from `Quality::High`.
 //! - ASTC (every 2D block size; LDR, sRGB, HDR): astcenc (ARM astc-encoder port, via ktx-rs),
 //!   presets fastest (0) / fast (10) / medium (60) / thorough (98) / exhaustive (100); its own
@@ -134,9 +135,16 @@ fn bc4(px: &[Px; 16], c: usize, out: &mut [u8]) {
     out[..8].copy_from_slice(&b);
 }
 
-fn etc1(px: &[Px; 16], out: &mut [u8]) {
-    let mut b = [0u8; 8];
-    pack_etc1(&mut b, px);
+/// ETC1 color block: `etc1f` up to `Quality::Default`, the `etc1_optimizer` search above
+/// (slow for High, uber for Best; `perceptual` for sRGB formats).
+fn etc1(px: &[Px; 16], q: Quality, perceptual: bool, out: &mut [u8]) {
+    let b = if q >= Quality::High {
+        crate::etc1hq::encode_block(px, q == Quality::Best, perceptual)
+    } else {
+        let mut b = [0u8; 8];
+        pack_etc1(&mut b, px);
+        b
+    };
     out[..8].copy_from_slice(&b);
 }
 
@@ -172,10 +180,15 @@ fn encoder(format: Format) -> Option<Encoder> {
             bc4(px, 0, out);
             bc4(px, 1, &mut out[8..]);
         },
-        Etc1Rgb | Etc2Rgb | Etc2Srgb => |px, _, out| etc1(px, out),
-        Etc2Rgba | Etc2RgbaSrgb => |px, q, out| {
+        Etc1Rgb | Etc2Rgb => |px, q, out| etc1(px, q, false, out),
+        Etc2Srgb => |px, q, out| etc1(px, q, true, out),
+        Etc2Rgba => |px, q, out| {
             eac(px, 3, q, out);
-            etc1(px, &mut out[8..]);
+            etc1(px, q, false, &mut out[8..]);
+        },
+        Etc2RgbaSrgb => |px, q, out| {
+            eac(px, 3, q, out);
+            etc1(px, q, true, &mut out[8..]);
         },
         EacR11Unorm => |px, q, out| eac(px, 0, q, out),
         EacRg11Unorm => |px, q, out| {

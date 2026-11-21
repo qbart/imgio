@@ -108,6 +108,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ),
         ("bc6h default", Format::Bc6hUfloat, imgio::Quality::Default),
         ("etc1", Format::Etc1Rgb, imgio::Quality::Default),
+        ("etc1 high", Format::Etc1Rgb, imgio::Quality::High),
+        ("etc1 best", Format::Etc1Rgb, imgio::Quality::Best),
         ("etc2 rgba high", Format::Etc2Rgba, imgio::Quality::High),
         (
             "astc 4x4 fast",

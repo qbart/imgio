@@ -13,9 +13,13 @@
   (`...Fast`), Default (`...PartiallyAnalytical`); `bc7e_scalar` (`src/bc7e.rs`, see bc7e.md)
   for High (`slow`) and Best (`slowest`), perceptual for `Bc7Srgb`. 64x48 test image: bc7f
   32.2 / 37.1 / 37.3 dB, bc7e slow / slowest 38.0 / 38.3 dB (10-50x slower).
-- ETC1 / ETC2 RGB (sRGB): `etc1f::pack_etc1` (basisu real-time ETC1, single quality).
+- ETC1 / ETC2 RGB (sRGB): `etc1f::pack_etc1` (basisu real-time ETC1) up to Default; High /
+  Best: `etc1hq` (own search: flip x individual / differential, each subblock fitted by basisu
+  `etc1_optimizer` at slow / uber quality, the 2nd differential subblock constrained to the
+  1st's base color like rg_etc1; solid blocks via `pack_etc1_block_solid_color`; perceptual
+  for sRGB formats). 64x48 test image: 27.8 dB (etc1f) -> 29.2 dB (High / Best).
   ETC2 RGBA = EAC(A) + ETC1; EAC R11 / RG11 unorm = `pack_eac` on R (G); `Quality::High`+
-  uses `pack_eac_high_quality`. Not yet: ETC2 RGB A1, signed EAC, a slower high-quality ETC1.
+  uses `pack_eac_high_quality`. Not yet: ETC2 RGB A1, signed EAC.
 - ASTC (all 2D blocks; unorm -> LDR, sRGB -> LDR_SRGB, float -> HDR profile): `src/astcenc`,
   the ktx-rs port of ARM astc-encoder (compressor + SSE4.1 / AVX2 copies picked at runtime;
   ktx-rs' `#[isa]` proc macro replaced by `isa_fn! { .. }` wrappers so no macro crate is
@@ -43,6 +47,7 @@
 - 2026-11-21: API + BC1-BC5 encoders (basisu real-time), bit-exact with C++ (24 cases).
 - 2026-11-21: PVRTC1 encoder exposed (`encode_pvrtc1`), 6 golden cases.
 - 2026-11-21: ASTC encoder (astcenc port from ktx-rs), C++ golden passes on every ISA copy.
+- 2026-11-21: high-quality ETC1 (`etc1hq`, etc1_optimizer search) for High / Best.
 - 2026-11-21: BC7 High / Best = bc7e_scalar (12 API cases vs the bc7e golden); bc7f golden cut
   to the 3 presets the API uses (65 lines).
 - 2026-11-21: ETC1 / ETC2 RGBA / EAC encoders (`etc1f`, `pack_eac[_high_quality]`), 65 cases.

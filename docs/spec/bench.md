@@ -31,7 +31,8 @@ split into rows of blocks. Parallel work starts at 64K pixels.
 | BC7 fastest / default (bc7f) | 2.2 / 7.8 ms |
 | BC7 high / best (bc7e slow / slowest) | 139 / 797 ms |
 | BC6H default | 5.0 ms |
-| ETC1 / ETC2 RGBA (HQ EAC) | 1.3 / 9.8 ms |
+| ETC1 default / high / best | 1.3 / 109 / 234 ms |
+| ETC2 RGBA (HQ EAC) | 9.8 ms |
 | ASTC 4x4 fast / medium, 8x8 medium (astcenc) | 107 / 204 / 247 ms |
 
 ## Audit

@@ -155,6 +155,16 @@ fn round_trips() -> Result<(), Box<dyn Error>> {
         let db = psnr(&px, &dec, channels);
         assert!(db > min_db, "{format:?}: {db:.1} dB");
     }
+    // ETC1: the optimizer search (High / Best) beats etc1f (Default).
+    let mut prev = 0.0;
+    for q in [Quality::Default, Quality::High, Quality::Best] {
+        let enc = imgio::encode_to_buffer(&src, Format::Etc1Rgb, &EncodeOptions { quality: q })?;
+        let dec = imgio::decode_to_buffer(Format::Etc1Rgb, &enc, w, h)?;
+        let db = psnr(&px, &dec, &[0, 1, 2]);
+        println!("etc1 {q:?}: {db:.2} dB");
+        assert!(db >= prev, "etc1 {q:?}: {db:.2} dB < {prev:.2}");
+        prev = db;
+    }
     // BC7 at every quality.
     for (q, min_db) in [
         (Quality::Fastest, 30.0),
