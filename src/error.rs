@@ -14,6 +14,9 @@ pub enum Error {
     OutOfMemory,
     /// The format or feature is not supported (yet).
     Unsupported,
+    /// A Vulkan or OpenGL call failed (features `vulkan`, `opengl`): the `VkResult` (negative)
+    /// or the GL error enum (positive).
+    Gpu(i32),
 }
 
 /// `Result` with [`Error`] as the error type.
@@ -29,6 +32,7 @@ impl fmt::Display for Error {
             }
             Error::OutOfMemory => f.write_str("out of memory"),
             Error::Unsupported => f.write_str("unsupported"),
+            Error::Gpu(code) => write!(f, "GPU API error {code}"),
         }
     }
 }

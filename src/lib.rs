@@ -19,6 +19,7 @@ mod error;
 mod etc;
 mod format;
 mod fxt1;
+pub mod gpu;
 pub mod half;
 pub mod image;
 pub mod ktx2;

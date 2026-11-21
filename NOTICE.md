@@ -26,6 +26,9 @@ state that they were modified (Apache-2.0 §4(b)).
 | `src/mip/resampler.rs`, `src/mip/filters.rs` | Basis Universal `basisu_resampler.cpp`, `basisu_resample_filters.cpp`, via ktx-rs `src/basisu` | Binomial LLC | Apache-2.0 |
 | `src/ktx2/basis_writer.rs` | Basis Universal `basisu_comp.cpp` (`create_ktx2_file`, `get_dfd`, DFD templates) | Binomial LLC | Apache-2.0 |
 | `src/ktx2/dfd.rs` | [KTX-Software](https://github.com/KhronosGroup/KTX-Software) dfdutils (`createdfd.c`, `vk2dfd.inl`), via ktx-rs `src/dfd` | The Khronos Group Inc. | Apache-2.0 |
+| `src/gpu/vulkan.rs` | [KTX-Software](https://github.com/KhronosGroup/KTX-Software) `lib/src/vkloader.c`, `vk_funcs.c`, via [ktx-rs](https://github.com/qbart/ktx-rs) `src/vkloader.rs` | Mark Callow, The Khronos Group Inc. and KTX-Software contributors | Apache-2.0 |
+| `src/gpu/gl.rs`, `src/gpu/gl_format.rs` | KTX-Software `lib/src/glloader.c`, `gl_funcs.c`, `vk2gl.h`, via ktx-rs `src/glloader.rs`, `src/glupload.rs`, `src/vk2gl.rs` | Mark Callow, The Khronos Group Inc. and KTX-Software contributors | Apache-2.0 |
+| `tests/gpu_vulkan.rs`, `tests/gpu_gl.rs`, `tests/gpu_common/*` | ktx-rs `tests/vkloader.rs`, `tests/glloader.rs`, `tests/glloader_es.rs`, `tests/gl_common/mod.rs` | Mark Callow, The Khronos Group Inc. and KTX-Software contributors | Apache-2.0 |
 | `src/etc.rs` | [ktx-rs](https://github.com/qbart/ktx-rs) `src/etcunpack.rs` (port of [KTX-Software](https://github.com/KhronosGroup/KTX-Software) `etcunpack.cxx`) | Mark Callow, The Khronos Group Inc. and KTX-Software contributors | Apache-2.0 |
 
 ### Basis Universal NOTICE
@@ -42,6 +45,9 @@ Copyright © 2016–2026 Binomial LLC.
 | [bytemuck](https://crates.io/crates/bytemuck) | SIMD vector casts in the astcenc kernels | Zlib OR Apache-2.0 OR MIT |
 | [zstd-pure-rs](https://crates.io/crates/zstd-pure-rs) | KTX2 Zstandard supercompression (writer) | BSD-3-Clause OR GPL-2.0-only (used under BSD-3-Clause) |
 | [ruzstd](https://crates.io/crates/ruzstd) | Zstandard decoding of KTX2 levels and XUASTC LDR streams | MIT |
+| [ash](https://crates.io/crates/ash) | optional (feature `vulkan`): Vulkan types and command signatures; tests: Vulkan device setup | MIT OR Apache-2.0 |
+| [libloading](https://crates.io/crates/libloading) | optional (features `vulkan`, `opengl`): looks up Vulkan / GL commands in the process; tests: global loading of the system libraries | ISC |
+| [khronos-egl](https://crates.io/crates/khronos-egl) | tests only: surfaceless EGL contexts for the GL upload tests | MIT OR Apache-2.0 |
 | [bcdec_rs](https://crates.io/crates/bcdec_rs) | tests only: reference BC6H/BC7 decoder | MIT |
 | Basis Universal C++ (`ref/basisu`) | `tools/basisu-golden` only (offline generator, not linked into the crate) | Apache-2.0 |
 | [ktx-rs](https://crates.io/crates/ktx-rs) | `tools/astc-golden` only (not a crate dependency): astcenc reference | Apache-2.0 AND BSD-3-Clause AND MIT AND Zlib |

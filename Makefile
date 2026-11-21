@@ -1,4 +1,4 @@
-.PHONY: build test bench lint fmt check publish publish-dry ref
+.PHONY: build test test-gpu bench lint fmt check publish publish-dry ref
 
 build:
 	cargo build --release
@@ -6,11 +6,18 @@ build:
 test:
 	cargo test --release
 
+# GPU upload tests (Vulkan via lavapipe or any device, GL via surfaceless EGL); they skip
+# without a device / context.
+test-gpu:
+	cargo test --release --features vulkan,opengl --test gpu_vulkan --test gpu_gl
+	cargo test --release --features vulkan,opengl --lib gpu
+
 bench:
 	cargo bench
 
 lint:
 	cargo clippy --all-targets --all-features -- -D warnings
+	RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all-features
 
 fmt:
 	cargo fmt --all

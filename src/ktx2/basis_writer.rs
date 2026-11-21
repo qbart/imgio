@@ -381,7 +381,7 @@ pub fn write_basis(basis: &[u8], opts: &BasisKtx2Options) -> Result<Buffer> {
 }
 
 /// Encodes `images` with [`crate::basis::encode_basis`] and writes the result as KTX2
-/// ([`write_basis`]), adding `KTXwriter` = "imgio <version>" unless `ktx2.key_values` has one.
+/// ([`write_basis`]), adding `KTXwriter` = "imgio `<version>`" unless `ktx2.key_values` has one.
 pub fn encode_basis(
     images: &[crate::Surface],
     opts: &crate::basis::BasisEncodeOptions,

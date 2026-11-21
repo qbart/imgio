@@ -30,7 +30,7 @@ pub struct Ktx2Desc {
     pub levels: u32,
 }
 
-/// Options of [`write`].
+/// Options of [`write()`].
 #[derive(Debug, Clone, Copy, Default)]
 pub struct WriteOptions<'a> {
     pub supercompression: Supercompression,

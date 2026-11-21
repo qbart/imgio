@@ -17,3 +17,4 @@ One file per subsystem. Write the spec before implementing; append audit entries
 - [bc7e.md](bc7e.md): basisu bc7e_scalar BC7 encoder port
 - [xubc7_encode.md](xubc7_encode.md): basisu XBC7 (XUBC7) encoder port
 - [bench.md](bench.md): benchmarks
+- [gpu.md](gpu.md): Vulkan / OpenGL texture upload (features `vulkan`, `opengl`)

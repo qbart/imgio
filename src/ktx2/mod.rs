@@ -1,7 +1,7 @@
 //! KTX2 container: Basis Universal payloads (ETC1S/BasisLZ, UASTC LDR 4x4 and HDR 4x4,
 //! ASTC HDR 6x6, UASTC HDR 6x6 intermediate, ASTC LDR, XUASTC LDR, XUBC7) and plain
 //! `VkFormat` payloads of every imgio [`Format`] with a Vulkan equivalent, raw or Zstandard
-//! supercompressed; [`write`] creates plain files.
+//! supercompressed; [`write()`] creates plain files.
 //!
 //! Layout from the KTX 2.0 specification; Basis payload detection follows Basis Universal's
 //! `ktx2_transcoder` (DFD color model, vkFormat, supercompression scheme).

@@ -38,7 +38,7 @@
 
   No bindings, ever: a format or direction without a pure Rust option is skipped (Ptex: only
   C++ bindings exist, not planned).
-- [ ] Optional Vulkan / OpenGL upload features
+- [x] Optional Vulkan / OpenGL upload features (`vulkan`, `opengl`; `gpu::TextureSource`)
 
 ## Follow-ups
 
@@ -69,7 +69,7 @@ C++ / ktx-rs reference (golden hashes from offline builds, as for the transcoder
 11. [ ] Basis Universal v2 encoders: ASTC LDR, XUASTC LDR, XUBC7 (basisu v2.50); XUBC7 slice
     stream encoder done (`basis/xubc7/encoder.rs`, bit-exact), container wiring pending
 12. [x] DDS reader and writer
-13. [ ] Optional Vulkan / OpenGL upload features (ktx-rs `vkloader` / `glloader`)
+13. [x] Optional Vulkan / OpenGL upload features (ktx-rs `vkloader` / `glloader`)
 
 Texture follow-ups found on the way: high-quality ETC1 (basisu `etc1_optimizer` flip / diff
 search), ETC2 RGB A1 and signed EAC encoders, signed BC6H encoder, ASTC encode speed vs C++

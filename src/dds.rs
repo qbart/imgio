@@ -373,7 +373,7 @@ pub struct DdsDesc {
     pub levels: u32,
 }
 
-/// Options of [`write`].
+/// Options of [`write()`].
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct DdsWriteOptions {
     /// Write a legacy (pre-DX10) header when the format has one and the texture is not an array

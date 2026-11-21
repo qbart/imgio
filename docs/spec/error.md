@@ -7,3 +7,4 @@
 ## Audit
 
 - 2026-11-21: initial `Error` (InvalidData, InvalidArgument, BufferTooSmall, Unsupported).
+- 2026-11-21: `Gpu(i32)`: failed Vulkan (`VkResult`, negative) or OpenGL (error enum) call.
