@@ -98,6 +98,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ("bc7 default", Format::Bc7Unorm, imgio::Quality::Default),
         ("bc7 best", Format::Bc7Unorm, imgio::Quality::Best),
         ("bc6h default", Format::Bc6hUfloat, imgio::Quality::Default),
+        ("etc1", Format::Etc1Rgb, imgio::Quality::Default),
+        ("etc2 rgba high", Format::Etc2Rgba, imgio::Quality::High),
     ] {
         let opts = imgio::EncodeOptions { quality: q };
         bench(&format!("encode {name}"), px, || {

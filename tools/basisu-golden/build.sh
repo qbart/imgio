@@ -38,5 +38,5 @@ g++ -O2 -std=c++17 -I../../ref/basisu/transcoder -I../../ref/basisu/encoder -DBA
 "$OUT.unpack" $B/*.basis > $B/golden_decode.txt
 # Block encoder golden (testdata/encode/golden.txt) from testdata/images/raw.
 g++ -O2 -std=c++17 -I../../ref/basisu/transcoder -I../../ref/basisu/zstd -DBASISD_SUPPORT_KTX2_ZSTD=0 \
-    encode.cpp ../../ref/basisu/transcoder/basisu_transcoder.cpp -o "$OUT.encode"
+    encode.cpp -o "$OUT.encode"
 "$OUT.encode" ../../testdata/images/raw/*.rgba ../../testdata/images/raw/*.rgba16f > ../../testdata/encode/golden.txt

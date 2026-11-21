@@ -8,6 +8,8 @@
 //! - BC1: basisu `encode_bc1` (4-color blocks, opaque); quality picks its pass count.
 //! - BC4 / BC5: `encode_bc4` on R (and G). BC3: BC4 on A + BC1. BC2: 4-bit alpha + BC1.
 //! - BC7: `bc7f::fast_pack_bc7_auto_rgba` presets (fastest .. non-analytical).
+//! - ETC1 / ETC2 RGB: `etc1f::pack_etc1` (one quality). ETC2 RGBA: EAC alpha + ETC1.
+//!   EAC R11 / RG11: `pack_eac` on R (G), `pack_eac_high_quality` from `Quality::High`.
 //! - BC6H (unsigned): `fast_encode_bc6h` from RGB halves (source converted to RGBA32F;
 //!   negative / NaN -> 0, clamped to 65504); quality picks `FastBc6hParams`.
 
@@ -18,10 +20,13 @@ use crate::basis::ll::bc7f::{
     fast_pack_bc7_auto_rgba,
 };
 use crate::basis::ll::dxt::Dxt1Block;
+use crate::basis::ll::eac::EacBlock;
 use crate::basis::ll::etc::Color32;
+use crate::basis::ll::etc1f::pack_etc1;
 use crate::basis::ll::uastc_bc1::{
     ENCODE_BC1_HIGH_QUALITY, ENCODE_BC1_HIGHER_QUALITY, encode_bc1, encode_bc4,
 };
+use crate::basis::ll::uastc_etc::{pack_eac, pack_eac_high_quality};
 use crate::parallel::try_for_each_unit;
 use crate::{Buffer, Error, Format, Result, Surface, half};
 
@@ -103,6 +108,23 @@ fn bc4(px: &[Px; 16], c: usize, out: &mut [u8]) {
     out[..8].copy_from_slice(&b);
 }
 
+fn etc1(px: &[Px; 16], out: &mut [u8]) {
+    let mut b = [0u8; 8];
+    pack_etc1(&mut b, px);
+    out[..8].copy_from_slice(&b);
+}
+
+fn eac(px: &[Px; 16], c: usize, q: Quality, out: &mut [u8]) {
+    let mut b = EacBlock::default();
+    let v = px.map(|p| p[c]);
+    if q >= Quality::High {
+        pack_eac_high_quality(&mut b, &v);
+    } else {
+        pack_eac(&mut b, &v);
+    }
+    out[..8].copy_from_slice(&b.bytes);
+}
+
 fn encoder(format: Format) -> Option<Encoder> {
     use Format::*;
     Some(Encoder::Ldr(match format {
@@ -123,6 +145,16 @@ fn encoder(format: Format) -> Option<Encoder> {
         Bc5Unorm => |px, _, out| {
             bc4(px, 0, out);
             bc4(px, 1, &mut out[8..]);
+        },
+        Etc1Rgb | Etc2Rgb | Etc2Srgb => |px, _, out| etc1(px, out),
+        Etc2Rgba | Etc2RgbaSrgb => |px, q, out| {
+            eac(px, 3, q, out);
+            etc1(px, &mut out[8..]);
+        },
+        EacR11Unorm => |px, q, out| eac(px, 0, q, out),
+        EacRg11Unorm => |px, q, out| {
+            eac(px, 0, q, out);
+            eac(px, 1, q, &mut out[8..]);
         },
         Bc7Unorm | Bc7Srgb => |px, q, out| {
             let mut b = [0u8; 16];

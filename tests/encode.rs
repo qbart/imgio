@@ -40,6 +40,10 @@ fn matches_basisu() -> Result<(), Box<dyn Error>> {
             "bc4" => Format::Bc4Unorm,
             "bc5" => Format::Bc5Unorm,
             "bc7" => Format::Bc7Unorm,
+            "etc1" => Format::Etc1Rgb,
+            "etc2rgba" => Format::Etc2Rgba,
+            "eacr11" => Format::EacR11Unorm,
+            "eacrg11" => Format::EacRg11Unorm,
             _ => Format::Bc6hUfloat,
         };
         let all = [
@@ -52,6 +56,8 @@ fn matches_basisu() -> Result<(), Box<dyn Error>> {
         let quality = match (f[1], f[2].parse::<usize>()?) {
             // encode_bc1 flags 0 / 1 / 2.
             ("bc1" | "bc3", q) => [Quality::Fast, Quality::Default, Quality::High][q],
+            // pack_eac / pack_eac_high_quality.
+            ("etc1" | "etc2rgba" | "eacr11" | "eacrg11", q) => [Quality::Default, Quality::High][q],
             (_, q) => all[q],
         };
         let src_format = if f[0].ends_with(".rgba16f") {
@@ -64,7 +70,7 @@ fn matches_basisu() -> Result<(), Box<dyn Error>> {
         assert_eq!(format!("{:016x}", fnv(&out)), f[3], "{line}");
         n += 1;
     }
-    assert_eq!(n, 44);
+    assert_eq!(n, 65);
     Ok(())
 }
 
@@ -91,6 +97,8 @@ fn round_trips() -> Result<(), Box<dyn Error>> {
         (Format::Bc2Unorm, &[0, 1, 2, 3][..], 30.0),
         (Format::Bc3Unorm, &[0, 1, 2, 3][..], 30.0),
         (Format::Bc4Unorm, &[0][..], 40.0),
+        (Format::Etc1Rgb, &[0, 1, 2][..], 26.0),
+        (Format::Etc2Rgba, &[0, 1, 2, 3][..], 26.0),
     ] {
         let enc = imgio::encode_to_buffer(&src, format, &EncodeOptions::default())?;
         let dec = imgio::decode_to_buffer(format, &enc, w, h)?;
