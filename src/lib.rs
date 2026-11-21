@@ -1,6 +1,12 @@
 //! imgio: pure Rust image and GPU texture codecs.
 //!
-//! Every fallible operation returns [`Result`]; the library never panics.
+//! Every fallible operation returns [`Result`]; the library never panics. See the README for
+//! an overview of every format, encoder and decoder.
+
+// The README examples compile and run as doctests.
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;
 
 mod astc;
 pub mod astc_file;

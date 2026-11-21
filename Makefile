@@ -1,4 +1,4 @@
-.PHONY: build test test-gpu bench lint fmt check publish publish-dry ref
+.PHONY: build test test-gpu bench lint fmt check msrv package publish publish-dry ref
 
 build:
 	cargo build --release
@@ -27,10 +27,18 @@ check:
 	cargo clippy --all-targets --all-features -- -D warnings
 	cargo test --release -q
 
-publish-dry:
+# Minimum supported Rust version (Cargo.toml `rust-version`).
+msrv:
+	cargo +1.88 build --release --all-features
+
+# Files that go into the published crate.
+package:
+	cargo package --list
+
+publish-dry: check
 	cargo publish --dry-run
 
-publish:
+publish: check
 	cargo publish
 
 # Reference sources (gitignored): ktx-rs, Basis Universal and vas.

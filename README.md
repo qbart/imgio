@@ -5,7 +5,66 @@ Pure Rust image and GPU texture codecs: BC1-BC7, ETC / EAC, ASTC, PVRTC, Basis U
 DDS / `.astc` / `.basis` containers; image file formats (PNG, TGA, ...) later. No C/C++
 bindings.
 
-Status: early development, see [ROADMAP.md](ROADMAP.md).
+Status: early development, see [ROADMAP.md](ROADMAP.md). Minimum Rust version: 1.88.
+
+## Usage
+
+```toml
+[dependencies]
+imgio = "0.1"
+```
+
+Encode RGBA pixels to BC7 and write a KTX2 file with a full mip chain:
+
+```rust
+use imgio::texture::{build, BuildOptions};
+use imgio::{EncodeOptions, Format, Quality, Surface};
+
+fn main() -> imgio::Result<()> {
+    let (w, h) = (64, 64);
+    let rgba = vec![200u8; (w * h * 4) as usize];
+    let src = Surface::new(Format::Rgba8Srgb, w, h, &rgba)?;
+
+    // One surface, high quality BC7.
+    let opts = EncodeOptions { quality: Quality::High, ..Default::default() };
+    let bc7 = imgio::encode_to_buffer(&src, Format::Bc7Srgb, &opts)?;
+    assert_eq!(bc7.len(), (w * h) as usize);
+
+    // Mips + encode + container in one call.
+    let tex = build(&[src], 0, 1, &BuildOptions::new(Format::Bc7Srgb))?;
+    let ktx2 = tex.to_ktx2(&imgio::ktx2::WriteOptions::default())?;
+
+    // Read it back and decode level 1 to RGBA8.
+    let file = imgio::ktx2::Ktx2File::parse(&ktx2)?;
+    let level1 = file.image_data(1, 0, 0)?;
+    let rgba1 = imgio::decode_to_buffer(Format::Bc7Srgb, level1, 32, 32)?;
+    assert_eq!(rgba1.len(), 32 * 32 * 4);
+    Ok(())
+}
+```
+
+Transcode a Basis Universal KTX2 file to whatever the GPU supports:
+
+```rust,no_run
+use imgio::Format;
+
+fn main() -> imgio::Result<()> {
+    let bytes = std::fs::read("texture.ktx2").map_err(|_| imgio::Error::InvalidData)?;
+    let file = imgio::ktx2::Ktx2File::parse(&bytes)?;
+    let target = if file.can_transcode_to(Format::Bc7Unorm) { Format::Bc7Unorm } else { Format::Rgba8Unorm };
+    let level0 = file.transcode_to_buffer(0, 0, 0, target)?;
+    println!("{} bytes", level0.len());
+    Ok(())
+}
+```
+
+### Cargo features
+
+| Feature | Default | Enables |
+|---|---|---|
+| `png`, `jpeg` | yes | PNG / APNG and JPEG files (`imgio::file`) |
+| `gif`, `webp`, `exr`, `tiff`, `jxl`, `jpeg2000`, `vdb`, `avif` | no | the other image file formats (pure Rust crates) |
+| `vulkan`, `opengl` | no | GPU texture upload (the only bindings; loaded at run time) |
 
 ## Formats
 
