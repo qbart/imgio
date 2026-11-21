@@ -25,6 +25,16 @@
   | WebP | `image-webp` | Lossy, lossless, alpha and animation | Lossless only |
   | PNG | `png` | Yes, including APNG | Yes, including APNG |
   | JPG | - | Yes | - |
+  | EXR | `exr` | Layers, multi-resolution, f16/f32/u32, RLE/ZIP/PIZ/PXR24/B44 (no DWAA/DWAB, limited deep data) | Yes |
+  | TIFF | `tiff` | Yes, incl. JPEG-compressed | Uncompressed, LZW, Deflate, PackBits, float samples, BigTIFF |
+  | HDR (Radiance RGBE) | `image` (hdr) | Yes | Yes |
+  | JPEG XL | `jxl-oxide` / `zune-jpegxl` | Yes (conformant) | Lossless only |
+  | JPEG 2000 | `hayro-jpeg2000` | Yes | - (only C bindings exist) |
+  | OpenVDB | `vdb-rs` | Partial | - (only C++ bindings exist) |
+  | RenderMan zfile | own implementation | Yes | Yes |
+
+  No bindings, ever: a format or direction without a pure Rust option is skipped (Ptex: only
+  C++ bindings exist, not planned).
 - [ ] Optional Vulkan / OpenGL upload features
 
 ## Follow-ups
