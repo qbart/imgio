@@ -142,6 +142,10 @@ GPU format the device supports (BC1-7, ETC, ASTC, PVRTC, ATC, FXT1, RGBA ...).
 
 | Type | Encoder | Decoder | Why / typical use |
 |---|---|---|---|
+| BMP | own (uncompressed: 8-bit gray palette, 24-bit, 32-bit V4 with alpha) | own (OS/2 1.x / 2.x, INFO / V2-V5 headers, 1-32 bpp, bit fields, RLE4 / RLE8) | Windows bitmaps, tool interchange |
+| TGA | own (gray / 24 / 32-bit, raw or RLE) | own (color-mapped, truecolor, gray; raw / RLE; all origins, 2.0 extension) | Game art pipelines, legacy texture sources |
+| Radiance HDR (RGBE) | own (new-style RLE, bit-exact with ffmpeg / imagecodecs) | own (flat / old / new RLE, all orientations) to RGBA32F | HDR environment maps, light probes |
+| RenderMan zfile | own (matrices as options, either byte order) | own (both byte orders, matrices kept) to R32F | Depth maps / shadow maps from RenderMan |
 | JPEG XL (`.jxl`) | `zune-jpegxl` (feature `jxl`; lossless, 8/16-bit gray, gray+alpha, RGB, RGBA) | `jxl-oxide` (conformant: VarDCT, modular, 8/16-bit, float, alpha, animation, container; sRGB / linear sRGB out) | Modern lossy / lossless photos and HDR, lossless archival of 16-bit sources |
 | JPEG 2000 (`.jp2`, `.j2k`) | - (no pure Rust encoder) | `hayro-jpeg2000` (feature `jpeg2000`): JP2 / J2K, 5/3 + 9/7, tiles, layers, reduce, sub-sampling, up to 16-bit out | Digital cinema, medical / geospatial imagery, PDF embedded images |
 | OpenVDB (`.vdb`) | - (only C++ exists) | own (feature `vdb`, partial): grid list, float / double grids densified to `R32Float` volumes, none / zip / active-mask compression (no Blosc) | Sparse volumes from DCC tools (smoke, clouds, level sets) as 3D textures |

@@ -1,0 +1,16 @@
+# file format width height expected reference (scripts/gen_file_testdata_own.py)
+ff_rle.hdr Rgba32Float 40 24 207c1125b5fc2b23.raw ffmpeg+imagecodecs
+ic_rle.hdr Rgba32Float 40 24 207c1125b5fc2b23.raw imagecodecs+ffmpeg
+ic_flat.hdr Rgba32Float 40 24 207c1125b5fc2b23.raw imagecodecs+ffmpeg
+flat_exposure.hdr Rgba32Float 40 24 207c1125b5fc2b23.raw imagecodecs
+old_rle.hdr Rgba32Float 300 6 4a8dc1535a3c8dd8.raw source
+orient_mYpX.hdr Rgba32Float 13 9 2b589f8e4d4209b1.raw imagecodecs
+orient_mYmX.hdr Rgba32Float 13 9 2b589f8e4d4209b1.raw source
+orient_pYpX.hdr Rgba32Float 13 9 2b589f8e4d4209b1.raw source
+orient_pYmX.hdr Rgba32Float 13 9 2b589f8e4d4209b1.raw source
+orient_pXmY.hdr Rgba32Float 13 9 2b589f8e4d4209b1.raw source
+orient_pXpY.hdr Rgba32Float 13 9 2b589f8e4d4209b1.raw source
+orient_mXmY.hdr Rgba32Float 13 9 2b589f8e4d4209b1.raw source
+orient_mXpY.hdr Rgba32Float 13 9 2b589f8e4d4209b1.raw source
+narrow_5x4.hdr Rgba32Float 5 4 97ea72e9a2c9e9ff.raw imagecodecs
+xyze.hdr Rgba32Float 13 9 2b589f8e4d4209b1.raw source

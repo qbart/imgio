@@ -49,6 +49,10 @@
   - Done: OpenVDB (`vdb`, partial): own reader (`vdb-rs` links C Blosc): grid list, densify
     `float` / `double` grids to `R32Float` volumes, none / zip / active-mask compression, half,
     tiles, instances; Blosc grids listed only (bit-exact vs OpenVDB 10).
+  - Done (own code, `docs/spec/file_{bmp,tga,hdr,zfile}.md`): BMP (all headers / depths,
+    RLE4 / RLE8, bit fields; uncompressed encode), TGA (types 1/2/3/9/10/11, origins, 2.0
+    footer; raw / RLE encode), Radiance HDR (all orientations, flat / old / new RLE; RLE
+    encode, bit-exact with ffmpeg / imagecodecs), RenderMan zfile (both byte orders).
 - [x] Optional Vulkan / OpenGL upload features (`vulkan`, `opengl`; `gpu::TextureSource`)
 - [ ] Image resize: any uncompressed `Image` / `Surface` (8/16-bit, float, sRGB-correct),
   filters from the `mip` resampler (box, tent, Mitchell, Catmull-Rom, Kaiser, Lanczos, ...),
