@@ -32,6 +32,7 @@
   | JPEG 2000 | `hayro-jpeg2000` | Yes | - (only C bindings exist) |
   | OpenVDB | `vdb-rs` | Partial | - (only C++ bindings exist) |
   | RenderMan zfile | own implementation | Yes | Yes |
+  | AVIF | `avif-parse` + `rav1d` (decode), `ravif` / `rav1e` (encode) | Yes | Yes (asm features off: pure Rust only) |
 
   No bindings, ever: a format or direction without a pure Rust option is skipped (Ptex: only
   C++ bindings exist, not planned).
