@@ -19,7 +19,16 @@
   1st's base color like rg_etc1; solid blocks via `pack_etc1_block_solid_color`; perceptual
   for sRGB formats). 64x48 test image: 27.8 dB (etc1f) -> 29.2 dB (High / Best).
   ETC2 RGBA = EAC(A) + ETC1; EAC R11 / RG11 unorm = `pack_eac` on R (G); `Quality::High`+
-  uses `pack_eac_high_quality`. Not yet: ETC2 RGB A1, signed EAC.
+  uses `pack_eac_high_quality`.
+- ETC2 RGB A1 (punch-through; alpha < 128 = transparent): `etc1hq::encode_punchthrough_block`
+  (own). Opaque blocks: differential-only `etc1_optimizer` search, opaque bit set. Blocks
+  with transparent texels: opaque bit clear (raw index 2 transparent, 0 / 1 / 3 = base / +b /
+  -b), 5-bit base colors searched around each subblock's opaque average and over the delta
+  box of a fixed best candidate, every flip x table. No T / H / planar modes yet, so
+  two-color subblock edges are weak (mosaic test image ~21 dB vs 29 dB for ETC1).
+- Signed BC4 / BC5 / EAC R11 / RG11: source -> RGBA32F, `round(clamp(v, -1, 1) * 127) + 128`
+  offset bytes through the unsigned encoders, endpoint / base bytes XOR 0x80 (offset binary
+  -> two's complement keeps their order; signed EAC lacks the unsigned +4 bias).
 - ASTC (all 2D blocks; unorm -> LDR, sRGB -> LDR_SRGB, float -> HDR profile): `src/astcenc`,
   the ktx-rs port of ARM astc-encoder (compressor + SSE4.1 / AVX2 copies picked at runtime;
   ktx-rs' `#[isa]` proc macro replaced by `isa_fn! { .. }` wrappers so no macro crate is
@@ -48,6 +57,7 @@
 - 2026-11-21: API + BC1-BC5 encoders (basisu real-time), bit-exact with C++ (24 cases).
 - 2026-11-21: PVRTC1 encoder exposed (`encode_pvrtc1`), 6 golden cases.
 - 2026-11-21: ASTC encoder (astcenc port from ktx-rs), C++ golden passes on every ISA copy.
+- 2026-11-21: ETC2 RGB A1 and signed BC4 / BC5 / EAC encoders (own; round-trip tested).
 - 2026-11-21: high-quality ETC1 (`etc1hq`, etc1_optimizer search) for High / Best.
 - 2026-11-21: BC7 High / Best = bc7e_scalar (12 API cases vs the bc7e golden); bc7f golden cut
   to the 3 presets the API uses (65 lines).

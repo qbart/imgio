@@ -16,6 +16,9 @@
 //!   presets fastest (0) / fast (10) / medium (60) / thorough (98) / exhaustive (100); its own
 //!   threads share one context.
 //! - PVRTC1 4bpp RGB / RGBA: basisu `encode_pvrtc1` (whole image; power-of-two block counts).
+//! - ETC2 RGB A1 (punch-through, alpha < 128 transparent): `etc1hq::encode_punchthrough_block`
+//!   (differential-only optimizer search for opaque blocks; base / base +- b search with
+//!   transparent texels). No T / H / planar modes yet.
 //! - BC6H (unsigned): `fast_encode_bc6h` from RGB halves (source converted to RGBA32F;
 //!   negative / NaN -> 0, clamped to 65504); quality picks `FastBc6hParams`.
 
@@ -64,6 +67,9 @@ type EncoderHdr = fn(&[u16; 48], Quality, &mut [u8]);
 enum Encoder {
     Ldr(Encoder4x4),
     Hdr(EncoderHdr),
+    /// Signed normalized targets: pixels are offset bytes (`round(v * 127) + 128`, 1..255) and
+    /// the encoder converts its endpoints / base codewords to two's complement.
+    Snorm(Encoder4x4),
 }
 
 /// BC7 block: `bc7f` up to `Quality::Default`, `bc7e_scalar` above (`perceptual` for sRGB).
@@ -190,6 +196,14 @@ fn encoder(format: Format) -> Option<Encoder> {
             eac(px, 3, q, out);
             etc1(px, q, true, &mut out[8..]);
         },
+        Etc2Rgba1 => |px, q, out| {
+            let b = crate::etc1hq::encode_punchthrough_block(px, q == Quality::Best, false);
+            out[..8].copy_from_slice(&b);
+        },
+        Etc2Rgba1Srgb => |px, q, out| {
+            let b = crate::etc1hq::encode_punchthrough_block(px, q == Quality::Best, true);
+            out[..8].copy_from_slice(&b);
+        },
         EacR11Unorm => |px, q, out| eac(px, 0, q, out),
         EacRg11Unorm => |px, q, out| {
             eac(px, 0, q, out);
@@ -197,6 +211,20 @@ fn encoder(format: Format) -> Option<Encoder> {
         },
         Bc7Unorm => |px, q, out| bc7(px, q, false, out),
         Bc7Srgb => |px, q, out| bc7(px, q, true, out),
+        Bc4Snorm => return Some(Encoder::Snorm(|px, _, out| bc4_snorm(px, 0, out))),
+        Bc5Snorm => {
+            return Some(Encoder::Snorm(|px, _, out| {
+                bc4_snorm(px, 0, out);
+                bc4_snorm(px, 1, &mut out[8..]);
+            }));
+        }
+        EacR11Snorm => return Some(Encoder::Snorm(|px, q, out| eac_snorm(px, 0, q, out))),
+        EacRg11Snorm => {
+            return Some(Encoder::Snorm(|px, q, out| {
+                eac_snorm(px, 0, q, out);
+                eac_snorm(px, 1, q, &mut out[8..]);
+            }));
+        }
         Bc6hUfloat => {
             return Some(Encoder::Hdr(|px, q, out| {
                 let mut b = [0u8; 16];
@@ -206,6 +234,26 @@ fn encoder(format: Format) -> Option<Encoder> {
         }
         _ => return None,
     }))
+}
+
+/// BC4 snorm: `encode_bc4` on the offset bytes; endpoints to signed (offset binary XOR 0x80
+/// keeps their order, so the 8 / 6 interpolant mode is the same).
+fn bc4_snorm(px: &[Px; 16], c: usize, out: &mut [u8]) {
+    bc4(px, c, out);
+    out[0] ^= 0x80;
+    out[1] ^= 0x80;
+}
+
+/// EAC R11 snorm: `pack_eac` on the offset bytes, base codeword to signed (the signed decode
+/// lacks the unsigned `+ 4` bias: under half an 8-bit step).
+fn eac_snorm(px: &[Px; 16], c: usize, q: Quality, out: &mut [u8]) {
+    eac(px, c, q, out);
+    out[0] ^= 0x80;
+}
+
+/// True for the signed (offset byte) source path.
+fn enc_kind(format: Format) -> bool {
+    matches!(encoder(format), Some(Encoder::Snorm(_)))
 }
 
 /// `v` as a half for the unsigned BC6H encoder: NaN / negative -> 0, clamped to 65504.
@@ -416,13 +464,27 @@ pub fn encode(src: &Surface, format: Format, opts: &EncodeOptions, dst: &mut [u8
         y * wu + x
     };
     match enc {
-        Encoder::Ldr(enc) => {
-            // RGBA8 source (converted when needed; labels only, no sRGB transfer).
+        Encoder::Ldr(enc) | Encoder::Snorm(enc) => {
+            // RGBA8 source (converted when needed; labels only, no sRGB transfer), or offset
+            // bytes of the [-1, 1] values for signed targets.
             let converted;
-            let rgba: &[u8] = match src.format() {
-                Format::Rgba8Unorm | Format::Rgba8Srgb => src.data(),
-                _ => {
+            let rgba: &[u8] = match (enc_kind(format), src.format()) {
+                (false, Format::Rgba8Unorm | Format::Rgba8Srgb) => src.data(),
+                (false, _) => {
                     converted = crate::convert::convert_to_buffer(src, Format::Rgba8Unorm)?;
+                    &converted
+                }
+                (true, _) => {
+                    let mut f = crate::convert::convert_to_buffer(src, Format::Rgba32Float)?;
+                    let n = f.len() / 4;
+                    for i in 0..n {
+                        let b = &f[i * 4..i * 4 + 4];
+                        let v = f32::from_le_bytes([b[0], b[1], b[2], b[3]]);
+                        let v = if v.is_nan() { 0.0 } else { v.clamp(-1.0, 1.0) };
+                        f[i] = ((v * 127.0).round() as i32 + 128) as u8;
+                    }
+                    f.truncate(n);
+                    converted = f;
                     &converted
                 }
             };

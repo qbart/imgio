@@ -166,6 +166,53 @@ fn round_trips() -> Result<(), Box<dyn Error>> {
         let db = psnr(&px, &dec, channels);
         assert!(db > min_db, "{format:?}: {db:.1} dB");
     }
+    // ETC2 RGB A1: alpha < 128 decodes transparent, the rest opaque.
+    for q in [Quality::Default, Quality::Best] {
+        let enc = imgio::encode_to_buffer(&src, Format::Etc2Rgba1, &EncodeOptions { quality: q })?;
+        let dec = imgio::decode_to_buffer(Format::Etc2Rgba1, &enc, w, h)?;
+        for (p, d) in px.as_chunks::<4>().0.iter().zip(dec.as_chunks::<4>().0) {
+            assert_eq!(d[3], if p[3] >= 128 { 255 } else { 0 });
+        }
+    }
+    // Signed targets: a [-1, 1] ramp (RG16 snorm source) through BC4 / BC5 / EAC snorm.
+    let ramp: Vec<u8> = (0..64 * 4)
+        .flat_map(|i| {
+            let (x, y) = (i % 64, i / 64);
+            let r = (x as f32 / 63.0 * 2.0 - 1.0) * 32767.0;
+            let g = (x + y * 3) as f32 / 72.0 * 2.0 - 1.0;
+            let mut v = (r.round() as i16).to_le_bytes().to_vec();
+            v.extend_from_slice(&((g * 32767.0).round() as i16).to_le_bytes());
+            v
+        })
+        .collect();
+    let ssrc = Surface::new(Format::Rg16Snorm, 64, 4, &ramp)?;
+    for f in [
+        Format::Bc4Snorm,
+        Format::Bc5Snorm,
+        Format::EacR11Snorm,
+        Format::EacRg11Snorm,
+    ] {
+        let enc = imgio::encode_to_buffer(&ssrc, f, &EncodeOptions::default())?;
+        let dec = imgio::decode_to_buffer(f, &enc, 64, 4)?;
+        let out = Surface::new(f.decoded(), 64, 4, &dec)?;
+        let a = imgio::convert::convert_to_buffer(&ssrc, Format::Rgba32Float)?;
+        let b = imgio::convert::convert_to_buffer(&out, Format::Rgba32Float)?;
+        let channels = if matches!(f, Format::Bc4Snorm | Format::EacR11Snorm) {
+            1
+        } else {
+            2
+        };
+        let fl = |v: &[u8], i: usize| {
+            f32::from_le_bytes([v[i * 4], v[i * 4 + 1], v[i * 4 + 2], v[i * 4 + 3]])
+        };
+        let mut max = 0f32;
+        for p in 0..256 {
+            for c in 0..channels {
+                max = max.max((fl(&a, p * 4 + c) - fl(&b, p * 4 + c)).abs());
+            }
+        }
+        assert!(max < 0.08, "{f:?}: max error {max}");
+    }
     // ETC1: the optimizer search (High / Best) beats etc1f (Default).
     let mut prev = 0.0;
     for q in [Quality::Default, Quality::High, Quality::Best] {

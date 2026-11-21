@@ -72,7 +72,8 @@ C++ / ktx-rs reference (golden hashes from offline builds, as for the transcoder
 13. [x] Optional Vulkan / OpenGL upload features (ktx-rs `vkloader` / `glloader`)
 
 Texture follow-ups found on the way: [x] high-quality ETC1 (basisu `etc1_optimizer` flip / diff
-search), ETC2 RGB A1 and signed EAC encoders, signed BC6H encoder, ASTC encode speed vs C++
+search), [x] ETC2 RGB A1 and signed BC4 / BC5 / EAC encoders, [ ] ETC2 T / H / planar mode
+encoding (ETC2 RGB / RGB A1 quality), [ ] signed BC6H encoder, [ ] ASTC encode speed vs C++
 astcenc (measured: 4x4 medium 0.5 Mpix/s per thread on the AVX2 copy, ~8x at 16 threads;
 needs a C++ astcenc build to compare).
 
