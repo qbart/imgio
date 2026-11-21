@@ -9,8 +9,10 @@
   Fast = flags 0, Default = high quality, High / Best = higher quality.
 - BC3 = `encode_bc4`(A) + BC1; BC4 = `encode_bc4`(R); BC5 = R + G; BC2 = explicit alpha
   `(a * 15 + 127) / 255` + BC1.
-- BC7: `bc7f::fast_pack_bc7_auto_rgba` with `cPackBC7FlagDefault{Fastest, Fast, (Default),
-  PartiallyAnalytical, NonAnalytical}` for Fastest .. Best (bc7e to come for the slow end).
+- BC7: `bc7f::fast_pack_bc7_auto_rgba` for Fastest (`cPackBC7FlagDefaultFastest`), Fast
+  (`...Fast`), Default (`...PartiallyAnalytical`); `bc7e_scalar` (`src/bc7e.rs`, see bc7e.md)
+  for High (`slow`) and Best (`slowest`), perceptual for `Bc7Srgb`. 64x48 test image: bc7f
+  32.2 / 37.1 / 37.3 dB, bc7e slow / slowest 38.0 / 38.3 dB (10-50x slower).
 - ETC1 / ETC2 RGB (sRGB): `etc1f::pack_etc1` (basisu real-time ETC1, single quality).
   ETC2 RGBA = EAC(A) + ETC1; EAC R11 / RG11 unorm = `pack_eac` on R (G); `Quality::High`+
   uses `pack_eac_high_quality`. Not yet: ETC2 RGB A1, signed EAC, a slower high-quality ETC1.
@@ -41,5 +43,7 @@
 - 2026-11-21: API + BC1-BC5 encoders (basisu real-time), bit-exact with C++ (24 cases).
 - 2026-11-21: PVRTC1 encoder exposed (`encode_pvrtc1`), 6 golden cases.
 - 2026-11-21: ASTC encoder (astcenc port from ktx-rs), C++ golden passes on every ISA copy.
+- 2026-11-21: BC7 High / Best = bc7e_scalar (12 API cases vs the bc7e golden); bc7f golden cut
+  to the 3 presets the API uses (65 lines).
 - 2026-11-21: ETC1 / ETC2 RGBA / EAC encoders (`etc1f`, `pack_eac[_high_quality]`), 65 cases.
 - 2026-11-21: BC7 (`bc7f` presets) and BC6H (`fast_encode_bc6h` presets), 44 cases bit-exact.

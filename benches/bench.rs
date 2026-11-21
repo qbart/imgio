@@ -96,7 +96,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ("bc5", Format::Bc5Unorm, imgio::Quality::Default),
         ("bc7 fastest", Format::Bc7Unorm, imgio::Quality::Fastest),
         ("bc7 default", Format::Bc7Unorm, imgio::Quality::Default),
-        ("bc7 best", Format::Bc7Unorm, imgio::Quality::Best),
+        (
+            "bc7 high (bc7e slow)",
+            Format::Bc7Unorm,
+            imgio::Quality::High,
+        ),
+        (
+            "bc7 best (bc7e slowest)",
+            Format::Bc7Unorm,
+            imgio::Quality::Best,
+        ),
         ("bc6h default", Format::Bc6hUfloat, imgio::Quality::Default),
         ("etc1", Format::Etc1Rgb, imgio::Quality::Default),
         ("etc2 rgba high", Format::Etc2Rgba, imgio::Quality::High),

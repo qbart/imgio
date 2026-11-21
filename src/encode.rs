@@ -7,7 +7,8 @@
 //! Encoders (all ports of Basis Universal, bit-exact with the C++):
 //! - BC1: basisu `encode_bc1` (4-color blocks, opaque); quality picks its pass count.
 //! - BC4 / BC5: `encode_bc4` on R (and G). BC3: BC4 on A + BC1. BC2: 4-bit alpha + BC1.
-//! - BC7: `bc7f::fast_pack_bc7_auto_rgba` presets (fastest .. non-analytical).
+//! - BC7: `bc7f::fast_pack_bc7_auto_rgba` (Fastest: fastest, Fast: fast, Default: partially
+//!   analytical) and basisu `bc7e_scalar` (High: slow, Best: slowest; perceptual for sRGB).
 //! - ETC1 / ETC2 RGB: `etc1f::pack_etc1` (one quality). ETC2 RGBA: EAC alpha + ETC1.
 //!   EAC R11 / RG11: `pack_eac` on R (G), `pack_eac_high_quality` from `Quality::High`.
 //! - ASTC (every 2D block size; LDR, sRGB, HDR): astcenc (ARM astc-encoder port, via ktx-rs),
@@ -19,9 +20,8 @@
 
 use crate::basis::ll::astc_6x6_hdr::{FastBc6hParams, fast_encode_bc6h};
 use crate::basis::ll::bc7f::{
-    PACK_BC7_FLAG_DEFAULT, PACK_BC7_FLAG_DEFAULT_FAST, PACK_BC7_FLAG_DEFAULT_FASTEST,
-    PACK_BC7_FLAG_DEFAULT_NON_ANALYTICAL, PACK_BC7_FLAG_DEFAULT_PARTIALLY_ANALYTICAL,
-    fast_pack_bc7_auto_rgba,
+    PACK_BC7_FLAG_DEFAULT_FAST, PACK_BC7_FLAG_DEFAULT_FASTEST,
+    PACK_BC7_FLAG_DEFAULT_PARTIALLY_ANALYTICAL, fast_pack_bc7_auto_rgba,
 };
 use crate::basis::ll::dxt::Dxt1Block;
 use crate::basis::ll::eac::EacBlock;
@@ -65,14 +65,36 @@ enum Encoder {
     Hdr(EncoderHdr),
 }
 
-fn bc7_flags(q: Quality) -> u32 {
-    match q {
+/// BC7 block: `bc7f` up to `Quality::Default`, `bc7e_scalar` above (`perceptual` for sRGB).
+fn bc7(px: &[Px; 16], q: Quality, perceptual: bool, out: &mut [u8]) {
+    let flags = match q {
         Quality::Fastest => PACK_BC7_FLAG_DEFAULT_FASTEST,
         Quality::Fast => PACK_BC7_FLAG_DEFAULT_FAST,
-        Quality::Default => PACK_BC7_FLAG_DEFAULT,
-        Quality::High => PACK_BC7_FLAG_DEFAULT_PARTIALLY_ANALYTICAL,
-        Quality::Best => PACK_BC7_FLAG_DEFAULT_NON_ANALYTICAL,
-    }
+        Quality::Default => PACK_BC7_FLAG_DEFAULT_PARTIALLY_ANALYTICAL,
+        Quality::High | Quality::Best => {
+            let params = bc7e_params(q, perceptual);
+            out[..16].copy_from_slice(&crate::bc7e::compress_block(px, params));
+            return;
+        }
+    };
+    let mut b = [0u8; 16];
+    fast_pack_bc7_auto_rgba(&mut b, px, flags);
+    out[..16].copy_from_slice(&b);
+}
+
+/// The 4 bc7e presets used (High / Best x linear / perceptual), built once.
+fn bc7e_params(q: Quality, perceptual: bool) -> &'static crate::bc7e::Params {
+    use crate::bc7e::Params;
+    static P: std::sync::OnceLock<[Params; 4]> = std::sync::OnceLock::new();
+    let p = P.get_or_init(|| {
+        [
+            Params::slow(false),
+            Params::slow(true),
+            Params::slowest(false),
+            Params::slowest(true),
+        ]
+    });
+    &p[usize::from(q == Quality::Best) * 2 + usize::from(perceptual)]
 }
 
 fn bc6h_params(q: Quality) -> FastBc6hParams {
@@ -160,11 +182,8 @@ fn encoder(format: Format) -> Option<Encoder> {
             eac(px, 0, q, out);
             eac(px, 1, q, &mut out[8..]);
         },
-        Bc7Unorm | Bc7Srgb => |px, q, out| {
-            let mut b = [0u8; 16];
-            fast_pack_bc7_auto_rgba(&mut b, px, bc7_flags(q));
-            out[..16].copy_from_slice(&b);
-        },
+        Bc7Unorm => |px, q, out| bc7(px, q, false, out),
+        Bc7Srgb => |px, q, out| bc7(px, q, true, out),
         Bc6hUfloat => {
             return Some(Encoder::Hdr(|px, q, out| {
                 let mut b = [0u8; 16];

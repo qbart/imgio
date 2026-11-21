@@ -58,7 +58,7 @@ C++ / ktx-rs reference (golden hashes from offline builds, as for the transcoder
    clamp / wrap, levels in parallel
 3. [x] Encode API (`imgio::encode`, quality presets, multithreaded per block row) with
    BC1 / BC3 / BC4 / BC5 (basisu `encode_bc1` / `encode_bc4`) and BC2
-4. [ ] BC7 encoders: `bc7f` presets [x], basisu v2.50 `bc7e_scalar` (High / Best) [ ]
+4. [x] BC7 encoders: `bc7f` presets, basisu v2.50 `bc7e_scalar` (High / Best)
 5. [x] BC6H encoder (unsigned; `fast_encode_bc6h` presets)
 6. [x] ETC1 / ETC2 / EAC encoders: `etc1f`, EAC (normal / high quality)
 7. [x] ASTC LDR / HDR encoder: astcenc (ktx-rs port)

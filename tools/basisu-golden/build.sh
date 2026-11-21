@@ -40,3 +40,7 @@ g++ -O2 -std=c++17 -I../../ref/basisu/transcoder -I../../ref/basisu/encoder -DBA
 g++ -O2 -std=c++17 -I../../ref/basisu/transcoder -I../../ref/basisu/zstd -DBASISD_SUPPORT_KTX2_ZSTD=0 \
     encode.cpp -o "$OUT.encode"
 "$OUT.encode" ../../testdata/images/raw/*.rgba ../../testdata/images/raw/*.rgba16f > ../../testdata/encode/golden.txt
+# BC7 encoder golden (testdata/encode/bc7e_golden.txt): basisu bc7e_scalar, all presets.
+g++ -O2 -std=c++17 -ffp-contract=off -I../../ref/basisu/encoder \
+    bc7e.cpp ../../ref/basisu/encoder/basisu_bc7e_scalar.cpp -o "$OUT.bc7e"
+"$OUT.bc7e" ../../testdata/images/raw/*.rgba > ../../testdata/encode/bc7e_golden.txt

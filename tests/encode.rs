@@ -82,7 +82,38 @@ fn matches_basisu() -> Result<(), Box<dyn Error>> {
         assert_eq!(format!("{:016x}", fnv(&out)), f[3], "{line}");
         n += 1;
     }
-    assert_eq!(n, 71);
+    assert_eq!(n, 65);
+    Ok(())
+}
+
+/// BC7 High / Best = basisu bc7e_scalar slow / slowest (perceptual for sRGB), vs the bc7e
+/// golden (testdata/encode/bc7e_golden.txt, tools/basisu-golden/bc7e.cpp).
+#[test]
+fn bc7_high_best_match_bc7e() -> Result<(), Box<dyn Error>> {
+    let golden = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/testdata/encode/bc7e_golden.txt"
+    ))?;
+    let mut n = 0;
+    for line in golden.lines() {
+        let f: Vec<&str> = line.split(' ').collect();
+        let quality = match f[1] {
+            "slow" => Quality::High,
+            "slowest" => Quality::Best,
+            _ => continue,
+        };
+        let format = if f[2] == "1" {
+            Format::Bc7Srgb
+        } else {
+            Format::Bc7Unorm
+        };
+        let (w, h, px) = raw(f[0])?;
+        let src = Surface::new(Format::Rgba8Unorm, w, h, &px)?;
+        let out = imgio::encode_to_buffer(&src, format, &EncodeOptions { quality })?;
+        assert_eq!(format!("{:016x}", fnv(&out)), f[3], "{line}");
+        n += 1;
+    }
+    assert_eq!(n, 12);
     Ok(())
 }
 

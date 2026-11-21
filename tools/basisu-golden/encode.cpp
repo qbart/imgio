@@ -4,7 +4,7 @@
 // raw RGBA8 images (testdata/images/raw/NAME_WxH.rgba) block by block with the C++ Basis
 // Universal real-time encoders, edge blocks reading clamped pixels like imgio::encode, and prints
 // "file target quality fnv1a64". Targets: bc1, bc3, bc4, bc5 (quality = encode_bc1 flags), bc7
-// (bc7f presets 0..4 = fastest, fast, default, partially / non analytical). Raw RGBA16F images
+// (bc7f presets 0..2 = fastest, fast, partially analytical: imgio Quality Fastest .. Default). Raw RGBA16F images
 // (NAME_WxH.rgba16f) are encoded to bc6h with imgio's 5 fast_bc6h_params presets. etc1
 // (etc1f), etc2rgba / eacr11 / eacrg11 (quality 0 = pack_eac, 1 = pack_eac_high_quality).
 // pvrtc1rgb / pvrtc1rgba (encode_pvrtc1) on the top-left power-of-two crop (largest w, h).
@@ -131,9 +131,9 @@ int main(int argc, char** argv) {
                 printf("%s %s 0 %016llx\n", name, rgba ? "pvrtc1rgba" : "pvrtc1rgb", (unsigned long long)fnv(out.data(), out.size()));
             }
         }
-        const uint32_t bc7_presets[5] = { basist::bc7f::cPackBC7FlagDefaultFastest, basist::bc7f::cPackBC7FlagDefaultFast,
-            basist::bc7f::cPackBC7FlagDefault, basist::bc7f::cPackBC7FlagDefaultPartiallyAnalytical, basist::bc7f::cPackBC7FlagDefaultNonAnalytical };
-        for (unsigned q = 0; q < 5; q++) {
+        const uint32_t bc7_presets[3] = { basist::bc7f::cPackBC7FlagDefaultFastest, basist::bc7f::cPackBC7FlagDefaultFast,
+            basist::bc7f::cPackBC7FlagDefaultPartiallyAnalytical };
+        for (unsigned q = 0; q < 3; q++) {
             std::vector<uint8_t> out(bx * by * 16);
             for (unsigned y = 0; y < by; y++)
                 for (unsigned x = 0; x < bx; x++) {
