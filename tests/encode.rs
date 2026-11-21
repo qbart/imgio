@@ -41,7 +41,7 @@ fn matches_basisu() -> Result<(), Box<dyn Error>> {
             "bc5" => Format::Bc5Unorm,
             "bc7" => Format::Bc7Unorm,
             "etc1" => Format::Etc1Rgb,
-            "etc2rgba" => Format::Etc2Rgba,
+            "etc2rgba" | "etc2rgba_eac" => Format::Etc2Rgba,
             "eacr11" => Format::EacR11Unorm,
             "eacrg11" => Format::EacRg11Unorm,
             "pvrtc1rgb" => Format::Pvrtc1Rgb,
@@ -59,7 +59,9 @@ fn matches_basisu() -> Result<(), Box<dyn Error>> {
             // encode_bc1 flags 0 / 1 / 2.
             ("bc1" | "bc3", q) => [Quality::Fast, Quality::Default, Quality::High][q],
             // pack_eac / pack_eac_high_quality.
-            ("etc1" | "etc2rgba" | "eacr11" | "eacrg11", q) => [Quality::Default, Quality::High][q],
+            ("etc1" | "etc2rgba" | "etc2rgba_eac" | "eacr11" | "eacrg11", q) => {
+                [Quality::Default, Quality::High][q]
+            }
             (_, q) => all[q],
         };
         let src_format = if f[0].ends_with(".rgba16f") {
@@ -78,7 +80,16 @@ fn matches_basisu() -> Result<(), Box<dyn Error>> {
             (w, h, px)
         };
         let src = Surface::new(src_format, w, h, &px)?;
-        let out = imgio::encode_to_buffer(&src, format, &EncodeOptions { quality })?;
+        let mut out = imgio::encode_to_buffer(&src, format, &EncodeOptions { quality })?.to_vec();
+        if f[1] == "etc2rgba_eac" {
+            // High also changes the ETC1 color halves: compare the EAC alpha halves only.
+            out = out
+                .as_chunks::<16>()
+                .0
+                .iter()
+                .flat_map(|b| b[..8].to_vec())
+                .collect();
+        }
         assert_eq!(format!("{:016x}", fnv(&out)), f[3], "{line}");
         n += 1;
     }

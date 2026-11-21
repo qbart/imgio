@@ -113,6 +113,13 @@ int main(int argc, char** argv) {
                         else if (!strcmp(t, "eacrg11")) { eac(o, 0); eac(o + 8, 1); }
                         else { eac(o, 3); basist::etc1f::pack_etc1(o + 8, px, st); }
                     }
+                if (!is_etc1 && !is_r && strcmp(t, "eacrg11") && hq) {
+                    // imgio High also upgrades the ETC1 color half: compare the EAC alpha halves.
+                    std::vector<uint8_t> alpha;
+                    for (size_t b = 0; b < out.size(); b += 16) alpha.insert(alpha.end(), &out[b], &out[b + 8]);
+                    printf("%s etc2rgba_eac %u %016llx\n", name, hq, (unsigned long long)fnv(alpha.data(), alpha.size()));
+                    continue;
+                }
                 printf("%s %s %u %016llx\n", name, t, hq, (unsigned long long)fnv(out.data(), out.size()));
             }
         }

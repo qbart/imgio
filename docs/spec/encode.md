@@ -40,7 +40,8 @@
   written by `scripts/gen_images.py`): BC1 x 3 qualities, BC3 x 3, BC4, BC5 on 3 images, all
   bit-exact; plus BC7 x 5 presets on the LDR images and BC6H x 5 on `raw/hdr_40x24.rgba16f`
   ETC1, ETC2 RGBA, EAC R11 / RG11 (normal / high quality), PVRTC1 RGB / RGBA on the
-  top-left power-of-two crop (71 lines). Round trips (PSNR / relative error) for BC1/2/3/4/7, BC6H.
+  top-left power-of-two crop; ETC2 RGBA at High compares only its EAC alpha halves
+  (`etc2rgba_eac`) since High also switches the color half to `etc1hq` (65 lines). Round trips (PSNR / relative error) for BC1/2/3/4/7, BC6H.
 
 ## Audit
 

@@ -88,10 +88,10 @@ pub(crate) fn encode_block(px: &[[u8; 4]; 16], uber: bool, perceptual: bool) -> 
     } else {
         block.set_block_color5(&c0, &c1);
     }
-    for s in 0..2 {
-        block.set_inten_table(s as u32, results[s].block_inten_table);
+    for (s, r) in results.iter().enumerate() {
+        block.set_inten_table(s as u32, r.block_inten_table);
         for (k, &i) in subblock_pixels(flip, s).iter().enumerate() {
-            let sel = results[s].selectors.get(k).copied().unwrap_or(0);
+            let sel = r.selectors.get(k).copied().unwrap_or(0);
             block.set_selector((i & 3) as u32, (i >> 2) as u32, u32::from(sel));
         }
     }
