@@ -12,7 +12,7 @@ state that they were modified (Apache-2.0 §4(b)).
 |---|---|---|---|
 | `src/bc/bc6h.rs`, `src/bc/bc7.rs`, `src/bc/tables.rs`, `src/astc/helpers.rs`, `src/astc/tables.rs` | [Basis Universal](https://github.com/BinomialLLC/basis_universal) `basisu_gpu_texture.cpp` and tables, via [ktx-rs](https://github.com/qbart/ktx-rs) `src/basisu` | Binomial LLC | Apache-2.0 |
 
-| `src/basis/ll/*` | Basis Universal transcoder, via ktx-rs `src/basisu` | Binomial LLC | Apache-2.0 |
+| `src/basis/ll/*` | Basis Universal transcoder, via ktx-rs `src/basisu`; `etc1f*.rs` directly from `basisu_transcoder.cpp` / `basisu_etc1_mods.inl` | Binomial LLC | Apache-2.0 |
 | `src/etc.rs` | [ktx-rs](https://github.com/qbart/ktx-rs) `src/etcunpack.rs` (port of [KTX-Software](https://github.com/KhronosGroup/KTX-Software) `etcunpack.cxx`) | Mark Callow, The Khronos Group Inc. and KTX-Software contributors | Apache-2.0 |
 
 ### Basis Universal NOTICE

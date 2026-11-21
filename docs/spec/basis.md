@@ -40,8 +40,9 @@ Test data `testdata/basis/*.basis`: encoded by Basis Universal v2.50 (C++ CLI bu
   height, or to the padded height on the C++ whole-image path: deblocking / PVRTC1).
   Uncompressed: RGBA32 copy; 565/4444 via basisu `mul_8`. 4x4 sources need no clamping.
   Block targets (`transcode_4x4_block`, default channels R and R+A): BC1 (`encode_bc1`), BC3
-  (`encode_bc4` alpha + BC1), BC4 (R), BC5 (R, A), EAC R11 (R) / RG11 (R, A) via `pack_eac`;
-  block rows in parallel.
+  (`encode_bc4` alpha + BC1), BC4 (R), BC5 (R, A), EAC R11 (R) / RG11 (R, A) via `pack_eac`; ETC1 via `ll/etc1f.rs` (port of C++
+  `etc1f`; its `pack_etc1_state` is only a solid-block memo and is omitted) and ETC2 RGBA (EAC
+  alpha + ETC1); block rows in parallel.
 - Deblocking: `.basis` deblocks blocks of >= 80 texels (basisu default); KTX2 deblocks iff key
   `DeblockFilterID` = "1".
 - UASTC 4x4 (LDR/HDR): one row of source blocks per work unit, multithreaded through
@@ -60,3 +61,4 @@ Test data `testdata/basis/*.basis`: encoded by Basis Universal v2.50 (C++ CLI bu
 - 2026-11-21: tex formats 5..33 (XUASTC LDR, ASTC LDR, XUBC7) parsed; test files + golden added.
 - 2026-11-21: ASTC LDR -> same-size ASTC, RGBA32, 565, 4444 bit-exact (70 .basis + 35 KTX2 cases).
 - 2026-11-21: ASTC LDR -> BC1/3/4/5, EAC R11/RG11 bit-exact (154 .basis + 77 KTX2 cases total).
+- 2026-11-21: `etc1f` port; ASTC LDR -> ETC1, ETC2 RGBA bit-exact (182 + 91 cases total).

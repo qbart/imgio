@@ -10,6 +10,7 @@
 use super::ll::dxt::Dxt1Block;
 use super::ll::eac::EacBlock;
 use super::ll::etc::Color32;
+use super::ll::etc1f::pack_etc1;
 use super::ll::uastc_bc1::{encode_bc1, encode_bc4};
 use super::ll::uastc_etc::pack_eac;
 use crate::astc::helpers::{DecodePixels, LogAstcBlock, decode_block, unpack_block};
@@ -61,6 +62,7 @@ pub(crate) fn can_transcode(block: AstcBlock, format: Format) -> bool {
         Rgba8Unorm | Rgba8Srgb | Rgb565 | Bgr565 | Rgba4444 => true,
         Bc1Unorm | Bc1Srgb | Bc3Unorm | Bc3Srgb | Bc4Unorm | Bc5Unorm => true,
         EacR11Unorm | EacRg11Unorm => true,
+        Etc1Rgb | Etc2Rgba | Etc2RgbaSrgb => true,
         _ => false,
     }
 }
@@ -188,6 +190,17 @@ fn encode_4x4(format: Format, px: &[[u8; 4]; 16], out: &mut [u8]) -> Result<()> 
         Bc5Unorm => {
             bc4(px, 0, &mut out[..8]);
             bc4(px, 3, &mut out[8..]);
+        }
+        Etc1Rgb => {
+            let mut b = [0u8; 8];
+            pack_etc1(&mut b, px);
+            out.copy_from_slice(&b);
+        }
+        Etc2Rgba | Etc2RgbaSrgb => {
+            eac(px, 3, &mut out[..8]);
+            let mut b = [0u8; 8];
+            pack_etc1(&mut b, px);
+            out[8..].copy_from_slice(&b);
         }
         EacR11Unorm => eac(px, 0, out),
         EacRg11Unorm => {

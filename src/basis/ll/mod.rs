@@ -18,6 +18,8 @@ pub(crate) mod bitreader;
 pub(crate) mod dxt;
 pub(crate) mod eac;
 pub(crate) mod etc;
+pub(crate) mod etc1f;
+pub(crate) mod etc1f_tables;
 pub(crate) mod etc1s;
 pub(crate) mod hdr_tables;
 pub(crate) mod pvrtc;
