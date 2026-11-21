@@ -72,7 +72,8 @@ C++ / ktx-rs reference (golden hashes from offline builds, as for the transcoder
 
 Texture follow-ups found on the way: high-quality ETC1 (basisu `etc1_optimizer` flip / diff
 search), ETC2 RGB A1 and signed EAC encoders, signed BC6H encoder, ASTC encode speed vs C++
-astcenc (5-10 Mpix/s on 16 threads at medium looks low).
+astcenc (measured: 4x4 medium 0.5 Mpix/s per thread on the AVX2 copy, ~8x at 16 threads;
+needs a C++ astcenc build to compare).
 
 ## Previous plan (done): basisu v2 payloads (XUASTC LDR, ASTC LDR, XUBC7)
 
