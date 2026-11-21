@@ -91,3 +91,9 @@ fn etc1s() -> Result<(), Box<dyn Error>> {
     assert_eq!(check("etc1s_")?, 168); // 176 minus 8 FXT1 lines
     Ok(())
 }
+
+#[test]
+fn uastc_ldr() -> Result<(), Box<dyn Error>> {
+    assert_eq!(check("uastc_rgb")?, 136);
+    Ok(())
+}
