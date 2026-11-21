@@ -15,7 +15,10 @@ lint:
 fmt:
 	cargo fmt --all
 
-check: fmt lint test
+check:
+	cargo fmt --all --check
+	cargo clippy --all-targets --all-features -- -D warnings
+	cargo test --release -q
 
 publish-dry:
 	cargo publish --dry-run

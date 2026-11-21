@@ -208,7 +208,7 @@ impl<'a> BasisFile<'a> {
         slices
             .reserve(total_slices as usize)
             .map_err(|_| Error::OutOfMemory)?;
-        for d in descs.chunks_exact(SLICE_DESC_SIZE) {
+        for d in descs.as_chunks::<SLICE_DESC_SIZE>().0 {
             let s = |ofs, n| le(d, ofs, n);
             let desc = SliceDesc {
                 image_index: s(0, 3),
