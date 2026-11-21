@@ -1,9 +1,92 @@
 # imgio
 
-Pure Rust image and GPU texture codecs: BC1-BC7, ASTC, UASTC, Basis Universal
-transcoding, RGBA and HDR variants, later PNG/TGA/JPG. No C/C++ bindings.
+Pure Rust image and GPU texture codecs: BC1-BC7, ETC / EAC, ASTC, PVRTC, Basis Universal
+(ETC1S, UASTC, XUASTC, XUBC7) encoding and transcoding, RGBA and HDR variants, KTX2 / KTX1 /
+DDS / `.astc` / `.basis` containers; image file formats (PNG, TGA, ...) later. No C/C++
+bindings.
 
 Status: early development, see [ROADMAP.md](ROADMAP.md).
+
+## Formats
+
+Encoders run through `imgio::encode` (quality `Fastest`..`Best`), decoders through
+`imgio::decode`, uncompressed formats through `imgio::convert`. "Port" means a Rust
+translation that is byte identical with the named C++ reference; "own" means imgio's own code.
+
+### Uncompressed
+
+| Type | Encoder | Decoder | Why / typical use |
+|---|---|---|---|
+| R8 / RG8 (unorm, snorm) | `convert` | `convert` | Masks, roughness / AO, 2-channel normal maps |
+| R16 / RG16 (unorm, snorm) | `convert` | `convert` | Height maps, precise single / dual channel data |
+| RGBA8 / RGBA8 sRGB | `convert` | `convert` | Universal 8-bit color, the default decode target |
+| RGB8 / RGB8 sRGB | `convert` | `convert` | Opaque color without alpha padding |
+| BGRA8 / BGRA8 sRGB | `convert` | `convert` | Swapchain / D3D / DDS native byte order |
+| RGB565 / BGR565 / RGBA4444 | `convert` | `convert` | Low-memory legacy and mobile textures, UI |
+| RGBA16 unorm | `convert` | `convert` | 16-bit masters, high precision LDR |
+| RGB16F / RGBA16F | `convert` | `convert` | HDR render targets, environment maps |
+| RGB9E5 | `convert` | `convert` | Compact HDR (shared exponent), lighting data |
+| RGBA32F | `convert` | `convert` | Full precision HDR, interchange / processing |
+
+### Block compressed (desktop: BC)
+
+| Type | Encoder | Decoder | Why / typical use |
+|---|---|---|---|
+| BC1 (+ sRGB) | port, basisu `encode_bc1` | own | Opaque color at 4 bpp, every desktop GPU |
+| BC2 (+ sRGB) | port, BC1 + 4-bit alpha | own | Sharp explicit alpha (legacy) |
+| BC3 (+ sRGB) | port, BC1 + BC4 alpha | own | Color with smooth alpha at 8 bpp |
+| BC4 (unorm, snorm) | port, basisu `encode_bc4` (snorm: own offset) | own | Single channel: masks, height, roughness |
+| BC5 (unorm, snorm) | port, BC4 x 2 (snorm: own offset) | own | Tangent-space normal maps (XY) |
+| BC6H unsigned | port, basisu `fast_encode_bc6h` | port, basisu | HDR color: skyboxes, lightmaps |
+| BC6H signed | own (single-region modes) | port, basisu | Signed HDR data |
+| BC7 (+ sRGB) | port, basisu `bc7f` (Fastest..Default), `bc7e` (High, Best) | port, basisu | High quality color + alpha at 8 bpp |
+
+### Block compressed (mobile: ETC / EAC)
+
+| Type | Encoder | Decoder | Why / typical use |
+|---|---|---|---|
+| ETC1 | port, basisu `etc1f`; High / Best: basisu `etc1_optimizer` | port, KTX-Software | Opaque color on every OpenGL ES 2 device |
+| ETC2 RGB (+ sRGB) | ETC1 + own T / H / planar search at High+ | port, KTX-Software | Opaque color, OpenGL ES 3 / Vulkan mobile baseline |
+| ETC2 RGB A1 (+ sRGB) | own punch-through optimizer + T / H / planar | port, KTX-Software | Cut-out alpha (foliage, fences) |
+| ETC2 RGBA (+ sRGB) | ETC2 RGB + port, basisu EAC | port, KTX-Software | Color with smooth alpha on mobile |
+| EAC R11 / RG11 (unorm, snorm) | port, basisu `pack_eac` (snorm: own offset) | port, KTX-Software | Single / dual channel data, normal maps on mobile |
+
+### Block compressed (ASTC and legacy)
+
+| Type | Encoder | Decoder | Why / typical use |
+|---|---|---|---|
+| ASTC 4x4..12x12 LDR / sRGB / HDR | port, ARM astcenc 6.0 (presets fastest..exhaustive, LZ RDO) | port, basisu ASTC helpers | Flexible bitrate (8 to 0.89 bpp), modern mobile and Apple GPUs |
+| PVRTC1 4bpp RGB / RGBA | port, basisu `encode_pvrtc1` | port, basisu | Older iOS (PowerVR) devices |
+| PVRTC2 4bpp RGB / RGBA | own (hard-transition blocks) | port, basisu (hard-transition blocks) | PowerVR GPUs with PVRTC2 support |
+| ATC RGB / RGBA | own | port, basisu | Older Adreno (Qualcomm) devices |
+| FXT1 RGB | own (CC_MIXED blocks) | port, basisu (CC_MIXED blocks) | 3dfx / Intel legacy GPUs |
+
+### Basis Universal (supercompressed, transcoded at load time)
+
+`imgio::basis::encode_basis` / `imgio::ktx2::encode_basis` encode; `transcode` decodes to the
+GPU format the device supports (BC1-7, ETC, ASTC, PVRTC, ATC, FXT1, RGBA ...).
+
+| Type | Encoder | Decoder | Why / typical use |
+|---|---|---|---|
+| ETC1S (BasisLZ) | port, basisu v2.50 | port, basisu transcoder | Smallest files, one texture for every GPU (web, mobile) |
+| UASTC LDR 4x4 (+ RDO) | port, basisu v2.50 | port, basisu transcoder | High quality universal LDR, near-BC7 quality |
+| UASTC HDR 4x4 | port, basisu v2.50 | port, basisu transcoder | Universal HDR, fast transcode to BC6H / ASTC HDR |
+| ASTC HDR 6x6 / UASTC HDR 6x6 intermediate | port, basisu v2.50 | port, basisu transcoder | Smaller universal HDR |
+| ASTC LDR 4x4..12x12 | port, basisu v2.50 | port, basisu transcoder | Plain ASTC payload in a Basis / KTX2 file |
+| XUASTC LDR 4x4..12x12 | port, basisu v2.50 | port, basisu transcoder | Supercompressed ASTC, small downloads |
+| XUBC7 | port, basisu v2.50 | port, basisu transcoder | Supercompressed BC7, small desktop downloads |
+
+### Containers
+
+`imgio::texture::build` makes a whole texture in one call (mips, encode, container).
+
+| Type | Encoder | Decoder | Why / typical use |
+|---|---|---|---|
+| KTX2 | own `ktx2::write` (raw / Zstd), `write_basis` (Basis payloads) | own `Ktx2File` (raw / Zstd / Basis payloads) | Khronos standard for GPU textures (Vulkan, glTF) |
+| KTX1 | own `ktx1::write` | own `Ktx1File` | Legacy OpenGL / OpenGL ES texture files |
+| DDS | own `dds::write` (legacy and DX10 headers) | own `DdsFile` | DirectX / game engine textures |
+| `.astc` | own `astc_file::write` | own `AstcFile` | ARM astcenc output files |
+| `.basis` | port, basisu `encode_basis` | port, basisu `BasisFile` | Basis Universal native files |
 
 ## License
 

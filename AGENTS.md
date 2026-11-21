@@ -30,6 +30,9 @@ https://github.com/binomialLLC/basis_universal
 9. `unsafe` is denied except in the GPU loaders (`vkloader`, `glloader`) and astcenc SIMD (ktx-rs `src/astcenc/enc/sse.rs` kernels, the instruction set dispatch in `src/astcenc/mod.rs`), or in places where it is necessary or speed matters.
 10. Maintain a Makefile with phony rules like test, build, bench and crate publish.
 11. Maintain legal notices about external use of libraries and test data.
+12. Maintain the format table in README.md (type, encoder method, decoder method, why the type is
+    useful / typical applications). Update it in the same commit as any change that adds, removes
+    or changes a format, encoder, decoder or container.
 
 ## Loop iteration
 
