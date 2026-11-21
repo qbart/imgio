@@ -32,6 +32,7 @@ mod legacy_enc;
 pub mod mip;
 mod parallel;
 mod pvrtc;
+pub mod texture;
 
 pub use buffer::Buffer;
 pub use decode::{can_decode, decode, decode_to_buffer};
