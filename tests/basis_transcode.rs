@@ -97,3 +97,15 @@ fn uastc_ldr() -> Result<(), Box<dyn Error>> {
     assert_eq!(check("uastc_rgb")?, 136);
     Ok(())
 }
+
+#[test]
+fn uastc_hdr() -> Result<(), Box<dyn Error>> {
+    assert_eq!(check("uastc_hdr")?, 10);
+    Ok(())
+}
+
+#[test]
+fn astc_hdr_6x6() -> Result<(), Box<dyn Error>> {
+    assert_eq!(check("astc_hdr6x6")?, 5);
+    Ok(())
+}
