@@ -29,3 +29,10 @@ K=../../testdata/ktx2
     "$OUT" -f 128 $K/xuastc10x8_dct_arith.ktx2 $K/astc_ldr10x10_rgb.ktx2
     "$OUT" -f 512 $K/astc_ldr8x5_rgba.ktx2 $K/xuastc6x6_rgba.ktx2
 } > $K/golden_flags.txt
+# PVRTC1/2, ATC, FXT1 decode golden (needs the basisu_encoder static library).
+BU=${BU:-./bu}
+cmake -S ../../ref/basisu -B "$BU" -DCMAKE_BUILD_TYPE=Release >/dev/null
+cmake --build "$BU" --target basisu_encoder -j8 >/dev/null
+g++ -O2 -std=c++17 -I../../ref/basisu/transcoder -I../../ref/basisu/encoder -DBASISU_SUPPORT_SSE=0 \
+    unpack.cpp "$BU/libbasisu_encoder.a" -lpthread -o "$OUT.unpack"
+"$OUT.unpack" $B/*.basis > $B/golden_decode.txt

@@ -3,6 +3,7 @@
 //! Every fallible operation returns [`Result`]; the library never panics.
 
 mod astc;
+mod atc;
 pub mod basis;
 mod bc;
 mod block;
@@ -12,10 +13,12 @@ mod decode;
 mod error;
 mod etc;
 mod format;
+mod fxt1;
 pub mod half;
 pub mod image;
 pub mod ktx2;
 mod parallel;
+mod pvrtc;
 
 pub use buffer::Buffer;
 pub use decode::{can_decode, decode, decode_to_buffer};

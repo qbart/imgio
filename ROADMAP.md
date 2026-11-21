@@ -31,7 +31,7 @@
 
 - [x] FXT1 transcode target (ETC1S; other payloads unsupported in C++ too)
 - [x] Transcoder options (basisu decode flags: high quality, alpha to opaque, deblock, ...)
-- [ ] PVRTC1/2 and ATC decoders
+- [x] PVRTC1/2, ATC and FXT1 decoders (PVRTC2 / FXT1: the modes Basis Universal emits)
 - [ ] Parallel transcode of many levels/images
 
 ## Current plan (in order): basisu v2 payloads (XUASTC LDR, ASTC LDR, XUBC7)

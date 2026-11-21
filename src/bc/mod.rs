@@ -1,6 +1,6 @@
 //! BC1-BC7 (DXT / BPTC / RGTC) block-compressed formats.
 
-mod bc1;
+pub(crate) mod bc1;
 mod bc6h;
 pub(crate) mod bc7;
 mod tables;

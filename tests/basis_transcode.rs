@@ -206,3 +206,39 @@ fn options_flags_roundtrip() {
     }
     assert_eq!(TranscodeOptions::default().flags(), 0);
 }
+
+/// PVRTC1/2, ATC and FXT1 decoders vs basisu `gpu_image::unpack` (testdata/basis/
+/// golden_decode.txt, tools/basisu-golden/unpack.cpp): our transcode of every level, decoded to
+/// RGBA8. "fail" lines (PVRTC1 on non-power-of-two levels or grids under 2x2 blocks, which the
+/// C++ unpacker rejects) are skipped. Returns the number of checked lines.
+#[test]
+fn decode_legacy_formats() -> Result<(), Box<dyn Error>> {
+    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/basis/");
+    let golden = std::fs::read_to_string(format!("{dir}golden_decode.txt"))?;
+    let mut failures = Vec::new();
+    let mut n = 0;
+    for line in golden.lines().filter(|l| !l.ends_with(" fail")) {
+        let f: Vec<&str> = line.split(' ').collect();
+        let (name, id, level) = (f[0], f[1].parse::<u32>()?, f[2].parse::<u32>()?);
+        let data = std::fs::read(format!("{dir}{name}"))?;
+        let file = BasisFile::parse(&data)?;
+        let fmt = format(id).ok_or("unknown format id")?;
+        let info = file.level_info(0, level)?;
+        let got = file
+            .transcode_to_buffer(0, level, fmt)
+            .and_then(|b| imgio::decode_to_buffer(fmt, &b, info.width, info.height));
+        let hash = got.as_ref().map(|b| format!("{:016x}", fnv(b)));
+        if hash.as_deref().ok() != Some(f[3]) {
+            failures.push(format!("{line} -> {hash:?}"));
+        }
+        n += 1;
+    }
+    assert!(
+        failures.is_empty(),
+        "{} failures:\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
+    assert_eq!(n, 104);
+    Ok(())
+}
