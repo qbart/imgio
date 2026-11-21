@@ -135,8 +135,8 @@ fn write(format: Format, v: [f32; 4], out: &mut [u8]) {
         Format::R16Snorm => put16(0, s16n(v[0])),
         Format::Rg16Unorm | Format::Rgba16Unorm => {
             let n = if format == Format::Rg16Unorm { 2 } else { 4 };
-            for c in 0..n {
-                put16(c, u16n(v[c]));
+            for (c, &x) in v[..n].iter().enumerate() {
+                put16(c, u16n(x));
             }
         }
         Format::Rg16Snorm => {
@@ -161,8 +161,8 @@ fn write(format: Format, v: [f32; 4], out: &mut [u8]) {
         ),
         Format::Rgb16Float | Format::Rgba16Float => {
             let n = if format == Format::Rgb16Float { 3 } else { 4 };
-            for c in 0..n {
-                put16(c, half::from_f32(v[c]).to_le_bytes());
+            for (c, &x) in v[..n].iter().enumerate() {
+                put16(c, half::from_f32(x).to_le_bytes());
             }
         }
         Format::Rgb9e5Float => out[..4].copy_from_slice(&rgb9e5(v).to_le_bytes()),
