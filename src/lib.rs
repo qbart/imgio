@@ -21,6 +21,7 @@ mod error;
 mod etc;
 mod etc1hq;
 mod etc2modes;
+pub mod file;
 mod format;
 mod fxt1;
 pub mod gpu;

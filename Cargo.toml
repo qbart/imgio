@@ -18,6 +18,19 @@ zstd-pure-rs = "0.2.0"
 vas = { version = "0.42.0", features = ["alloc"] }
 
 [features]
+default = ["png", "jpeg"]
+# Image file formats backed by pure Rust crates (`imgio::file`); BMP, TGA, HDR and zfile are
+# always built in.
+png = []
+gif = []
+webp = []
+jpeg = []
+exr = []
+tiff = []
+jxl = []
+jpeg2000 = []
+vdb = []
+avif = []
 # Vulkan texture upload (`imgio::gpu::vulkan`, port of KTX-Software vkloader.c). Vulkan and
 # OpenGL are the only allowed bindings: commands are looked up at run time, nothing is linked.
 vulkan = ["dep:ash", "dep:libloading"]
