@@ -1,6 +1,6 @@
-//! Transcoding `.basis` image levels to GPU formats.
+//! Container-independent transcoding of one Basis slice, plus the `.basis` front end.
 
-use super::file::{BasisFile, BasisTexFormat, SliceDesc};
+use super::file::{BasisFile, BasisTexFormat};
 use super::ll::astc_hdr_6x6::LowlevelAstcHdr6x6Transcoder;
 use super::ll::etc1s::{LowlevelEtc1sTranscoder, TranscodeStatus};
 use super::ll::uastc_hdr::LowlevelUastcHdr4x4Transcoder;
@@ -56,16 +56,20 @@ fn ll_format(f: BasisTexFormat) -> super::ll::BasisTexFormat {
     }
 }
 
-/// Decoded ETC1S codebooks and Huffman tables, shared by all slices of a file.
-pub(crate) fn etc1s_transcoder(file: &BasisFile) -> Result<LowlevelEtc1sTranscoder> {
-    let sec = |s: super::file::Section| &file.data[s.ofs as usize..(s.ofs + s.size) as usize];
+/// True when `tex` payloads can be transcoded to `format`.
+pub(crate) fn can_transcode(tex: BasisTexFormat, format: Format) -> bool {
+    target(format).is_some_and(|t| basis_is_format_supported(t, ll_format(tex)))
+}
+
+/// Decodes ETC1S endpoint/selector codebooks and Huffman tables.
+pub(crate) fn etc1s_transcoder(
+    endpoints: (u32, &[u8]),
+    selectors: (u32, &[u8]),
+    tables: &[u8],
+) -> Result<LowlevelEtc1sTranscoder> {
     let mut t = LowlevelEtc1sTranscoder::new();
-    if !t.decode_palettes(
-        file.total_endpoints,
-        sec(file.endpoint_cb),
-        file.total_selectors,
-        sec(file.selector_cb),
-    ) || !t.decode_tables(sec(file.tables))
+    if !t.decode_palettes(endpoints.0, endpoints.1, selectors.0, selectors.1)
+        || !t.decode_tables(tables)
     {
         return Err(Error::InvalidData);
     }
@@ -80,16 +84,184 @@ fn status(s: TranscodeStatus) -> Result<()> {
     }
 }
 
+/// One compressed image slice: offsets point into `data`.
+#[derive(Clone, Copy)]
+pub(crate) struct SliceRef<'a> {
+    pub tex: BasisTexFormat,
+    pub data: &'a [u8],
+    pub ofs: u64,
+    pub len: u32,
+    /// ETC1S alpha slice (offset, length), `(0, 0)` when none.
+    pub alpha: (u64, u32),
+    pub width: u32,
+    pub height: u32,
+    pub blocks_x: u32,
+    pub blocks_y: u32,
+    pub level: u32,
+    pub has_alpha: bool,
+    pub video: bool,
+}
+
+/// Transcodes one slice to `format` into `dst` (tightly packed). `etc1s` is required for ETC1S.
+pub(crate) fn transcode_slice(
+    s: &SliceRef,
+    etc1s: Option<&LowlevelEtc1sTranscoder>,
+    format: Format,
+    dst: &mut [u8],
+) -> Result<()> {
+    if !can_transcode(s.tex, format) {
+        return Err(Error::Unsupported);
+    }
+    let t = target(format).ok_or(Error::Unsupported)?;
+    let needed = format.surface_bytes(s.width, s.height)?;
+    if dst.len() < needed {
+        return Err(Error::BufferTooSmall {
+            needed,
+            got: dst.len(),
+        });
+    }
+    let dst = &mut dst[..needed];
+    let units = if format.is_compressed() {
+        needed / format.block_bytes()
+    } else {
+        (s.width as usize) * (s.height as usize)
+    } as u32;
+    let mut state = TranscoderState::new();
+    match s.tex {
+        BasisTexFormat::Etc1s => status(etc1s.ok_or(Error::InvalidData)?.transcode_image(
+            t,
+            dst,
+            units,
+            s.data,
+            s.blocks_x,
+            s.blocks_y,
+            s.width,
+            s.height,
+            s.level,
+            s.ofs,
+            s.len,
+            s.alpha.0,
+            s.alpha.1,
+            0,
+            s.has_alpha,
+            s.video,
+            0,
+            &mut state,
+            0,
+        )),
+        BasisTexFormat::UastcLdr4x4 | BasisTexFormat::UastcHdr4x4 => {
+            transcode_uastc_4x4(s, t, format, dst)
+        }
+        BasisTexFormat::UastcHdr6x6Intermediate => status(
+            LowlevelUastcHdr6x6IntermediateTranscoder::new().transcode_image(
+                t,
+                dst,
+                units,
+                s.data,
+                s.blocks_x,
+                s.blocks_y,
+                s.width,
+                s.height,
+                s.level,
+                s.ofs,
+                s.len,
+                0,
+                s.has_alpha,
+                s.video,
+                0,
+                &mut state,
+                0,
+                -1,
+                -1,
+            ),
+        ),
+        BasisTexFormat::AstcHdr6x6 => status(LowlevelAstcHdr6x6Transcoder::new().transcode_image(
+            t, dst, units, s.data, s.blocks_x, s.blocks_y, s.width, s.height, s.ofs, s.len, 0,
+        )),
+    }
+}
+
+/// UASTC 4x4 (LDR or HDR): blocks are independent, so rows of blocks are transcoded in
+/// parallel (except PVRTC1, which needs the whole image).
+fn transcode_uastc_4x4(s: &SliceRef, t: T, format: Format, dst: &mut [u8]) -> Result<()> {
+    let hdr = s.tex == BasisTexFormat::UastcHdr4x4;
+    let run = |out: &mut [u8], first_row: u32, rows: u32, height: u32| -> TranscodeStatus {
+        let bx = s.blocks_x;
+        let ofs = s.ofs + u64::from(first_row) * u64::from(bx) * 16;
+        let len = bx * rows * 16;
+        let units = if format.is_compressed() {
+            bx * rows
+        } else {
+            s.width * height
+        };
+        let mut state = TranscoderState::new();
+        let (w, a, v, l) = (s.width, s.has_alpha, s.video, s.level);
+        if hdr {
+            LowlevelUastcHdr4x4Transcoder::new().transcode_image(
+                t, out, units, s.data, bx, rows, w, height, l, ofs, len, 0, a, v, 0, &mut state, 0,
+                -1, -1,
+            )
+        } else {
+            LowlevelUastcLdr4x4Transcoder::new().transcode_image(
+                t, out, units, s.data, bx, rows, w, height, l, ofs, len, 0, a, v, 0, &mut state, 0,
+                -1, -1,
+            )
+        }
+    };
+    if (s.len as u64) < u64::from(s.blocks_x) * u64::from(s.blocks_y) * 16 {
+        return Err(Error::InvalidData);
+    }
+    if matches!(format, Format::Pvrtc1Rgb | Format::Pvrtc1Rgba) {
+        return status(run(dst, 0, s.blocks_y, s.height));
+    }
+    // One unit = one row of 4x4 source blocks.
+    let row = format.row_bytes(s.width)?;
+    let unit = if format.is_compressed() { row } else { row * 4 };
+    let first_error = Mutex::new(None);
+    for_each_unit(dst, unit, |by, out| {
+        let by = by as u32;
+        let height = (s.height - by * 4).min(4);
+        if let Err(e) = status(run(out, by, 1, height))
+            && let Ok(mut slot) = first_error.lock()
+        {
+            slot.get_or_insert(e);
+        }
+    });
+    match first_error.into_inner() {
+        Ok(Some(e)) => Err(e),
+        _ => Ok(()),
+    }
+}
+
 impl BasisFile<'_> {
     /// True when this file can be transcoded to `format`.
     pub fn can_transcode_to(&self, format: Format) -> bool {
-        target(format).is_some_and(|t| basis_is_format_supported(t, ll_format(self.tex_format)))
+        can_transcode(self.tex_format, format)
     }
 
     /// Bytes needed to transcode `image`/`level` to `format` (tightly packed).
     pub fn transcoded_size(&self, image: u32, level: u32, format: Format) -> Result<usize> {
         let info = self.level_info(image, level)?;
         format.surface_bytes(info.width, info.height)
+    }
+
+    fn etc1s(&self) -> Result<&LowlevelEtc1sTranscoder> {
+        self.etc1s
+            .get_or_init(|| {
+                let sec = |s: super::file::Section| {
+                    self.data
+                        .get(s.ofs as usize..(s.ofs as usize).saturating_add(s.size as usize))
+                        .unwrap_or(&[])
+                };
+                etc1s_transcoder(
+                    (self.total_endpoints, sec(self.endpoint_cb)),
+                    (self.total_selectors, sec(self.selector_cb)),
+                    sec(self.tables),
+                )
+                .ok()
+            })
+            .as_ref()
+            .ok_or(Error::InvalidData)
     }
 
     /// Transcodes `image`/`level` to `format` into `dst` (tightly packed blocks or pixels).
@@ -100,159 +272,32 @@ impl BasisFile<'_> {
         if !self.can_transcode_to(format) {
             return Err(Error::Unsupported);
         }
-        let t = target(format).ok_or(Error::Unsupported)?;
-        let needed = self.transcoded_size(image, level, format)?;
-        if dst.len() < needed {
-            return Err(Error::BufferTooSmall {
-                needed,
-                got: dst.len(),
-            });
-        }
-        let dst = &mut dst[..needed];
-        let color = self
+        let c = self
             .slice(image, level, false)
             .ok_or(Error::InvalidArgument)?;
-        let units = if format.is_compressed() {
-            needed / format.block_bytes()
+        let etc1s = self.tex_format == BasisTexFormat::Etc1s;
+        let alpha = if etc1s && self.has_alpha() {
+            let a = self.slice(image, level, true).ok_or(Error::InvalidData)?;
+            (a.file_ofs as u64, a.file_size)
         } else {
-            (color.orig_width * color.orig_height) as usize
-        } as u32;
-        let mut state = TranscoderState::new();
-        let video = self.tex_type == super::file::BasisTexType::VideoFrames;
-        match self.tex_format {
-            BasisTexFormat::Etc1s => {
-                let etc1s = self
-                    .etc1s
-                    .get_or_init(|| etc1s_transcoder(self).ok())
-                    .as_ref()
-                    .ok_or(Error::InvalidData)?;
-                let alpha = if self.has_alpha() {
-                    let a = self.slice(image, level, true).ok_or(Error::InvalidData)?;
-                    (a.file_ofs as u64, a.file_size)
-                } else {
-                    (0, 0)
-                };
-                status(etc1s.transcode_image(
-                    t,
-                    dst,
-                    units,
-                    self.data,
-                    color.blocks_x,
-                    color.blocks_y,
-                    color.orig_width,
-                    color.orig_height,
-                    level,
-                    color.file_ofs as u64,
-                    color.file_size,
-                    alpha.0,
-                    alpha.1,
-                    0,
-                    self.has_alpha(),
-                    video,
-                    0,
-                    &mut state,
-                    0,
-                ))
-            }
-            BasisTexFormat::UastcLdr4x4 | BasisTexFormat::UastcHdr4x4 => {
-                self.transcode_uastc_4x4(t, format, color, level, dst)
-            }
-            BasisTexFormat::UastcHdr6x6Intermediate => status(
-                LowlevelUastcHdr6x6IntermediateTranscoder::new().transcode_image(
-                    t,
-                    dst,
-                    units,
-                    self.data,
-                    color.blocks_x,
-                    color.blocks_y,
-                    color.orig_width,
-                    color.orig_height,
-                    level,
-                    color.file_ofs as u64,
-                    color.file_size,
-                    0,
-                    self.has_alpha(),
-                    video,
-                    0,
-                    &mut state,
-                    0,
-                    -1,
-                    -1,
-                ),
-            ),
-            BasisTexFormat::AstcHdr6x6 => {
-                status(LowlevelAstcHdr6x6Transcoder::new().transcode_image(
-                    t,
-                    dst,
-                    units,
-                    self.data,
-                    color.blocks_x,
-                    color.blocks_y,
-                    color.orig_width,
-                    color.orig_height,
-                    color.file_ofs as u64,
-                    color.file_size,
-                    0,
-                ))
-            }
-        }
-    }
-
-    /// UASTC 4x4 (LDR or HDR): blocks are independent, so rows of blocks are transcoded in
-    /// parallel (except PVRTC1, which needs the whole image).
-    fn transcode_uastc_4x4(
-        &self,
-        t: T,
-        format: Format,
-        color: &SliceDesc,
-        level: u32,
-        dst: &mut [u8],
-    ) -> Result<()> {
-        let hdr = self.tex_format == BasisTexFormat::UastcHdr4x4;
-        let video = self.tex_type == super::file::BasisTexType::VideoFrames;
-        let run = |out: &mut [u8], first_row: u32, rows: u32, height: u32| -> TranscodeStatus {
-            let bx = color.blocks_x;
-            let ofs = color.file_ofs as u64 + u64::from(first_row) * u64::from(bx) * 16;
-            let len = bx * rows * 16;
-            let units = if format.is_compressed() {
-                bx * rows
-            } else {
-                color.orig_width * height
-            };
-            let mut state = TranscoderState::new();
-            let (w, has_alpha) = (color.orig_width, self.has_alpha());
-            if hdr {
-                LowlevelUastcHdr4x4Transcoder::new().transcode_image(
-                    t, out, units, self.data, bx, rows, w, height, level, ofs, len, 0, has_alpha,
-                    video, 0, &mut state, 0, -1, -1,
-                )
-            } else {
-                LowlevelUastcLdr4x4Transcoder::new().transcode_image(
-                    t, out, units, self.data, bx, rows, w, height, level, ofs, len, 0, has_alpha,
-                    video, 0, &mut state, 0, -1, -1,
-                )
-            }
+            (0, 0)
         };
-        if matches!(format, Format::Pvrtc1Rgb | Format::Pvrtc1Rgba) {
-            return status(run(dst, 0, color.blocks_y, color.orig_height));
-        }
-        // One unit = one row of 4x4 source blocks.
-        let row = format.row_bytes(color.orig_width)?;
-        let unit = if format.is_compressed() { row } else { row * 4 };
-        let first_error = Mutex::new(None);
-        for_each_unit(dst, unit, |by, out| {
-            let by = by as u32;
-            let height = (color.orig_height - by * 4).min(4);
-            if let Err(e) = status(run(out, by, 1, height))
-                && let Ok(mut slot) = first_error.lock()
-            {
-                slot.get_or_insert(e);
-            }
-        });
-        match first_error.into_inner() {
-            Ok(Some(e)) => Err(e),
-            _ => Ok(()),
-        }
+        let s = SliceRef {
+            tex: self.tex_format,
+            data: self.data,
+            ofs: c.file_ofs as u64,
+            len: c.file_size,
+            alpha,
+            width: c.orig_width,
+            height: c.orig_height,
+            blocks_x: c.blocks_x,
+            blocks_y: c.blocks_y,
+            level,
+            has_alpha: self.has_alpha(),
+            video: self.tex_type == super::file::BasisTexType::VideoFrames,
+        };
+        let e = if etc1s { Some(self.etc1s()?) } else { None };
+        transcode_slice(&s, e, format, dst)
     }
 
     /// Like [`BasisFile::transcode`] but allocates the output.
