@@ -33,7 +33,7 @@ transcoder via `tools/basisu-golden`.
 2. [x] ASTC LDR -> ASTC passthrough and uncompressed targets (RGBA32, 565, 4444), 4x4 re-blocking
 3. [x] ASTC LDR -> BC1/BC3/BC4/BC5/EAC via the real-time encoders already in `ll`
 4. [x] `etc1f` real-time ETC1 encoder -> ETC1 / ETC2 RGBA targets
-5. [ ] `bc7f` real-time BC7 encoder -> BC7 target
+5. [x] `bc7f` real-time BC7 encoder -> BC7 target
 6. [ ] Deblocking filter and PVRTC1 encoder -> every ASTC LDR target
 7. [ ] XUASTC LDR decompression, zstd syntax (+ DCT weight grids)
 8. [ ] XUASTC LDR arithmetic and hybrid syntaxes

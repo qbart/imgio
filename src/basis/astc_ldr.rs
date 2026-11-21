@@ -7,6 +7,7 @@
 //! padded width, y to the image height, or to the padded height when the whole image path of
 //! the C++ transcoder is used (deblocking, PVRTC1).
 
+use super::ll::bc7f::{PACK_BC7_FLAG_DEFAULT, fast_pack_bc7_auto_rgba};
 use super::ll::dxt::Dxt1Block;
 use super::ll::eac::EacBlock;
 use super::ll::etc::Color32;
@@ -63,6 +64,7 @@ pub(crate) fn can_transcode(block: AstcBlock, format: Format) -> bool {
         Bc1Unorm | Bc1Srgb | Bc3Unorm | Bc3Srgb | Bc4Unorm | Bc5Unorm => true,
         EacR11Unorm | EacRg11Unorm => true,
         Etc1Rgb | Etc2Rgba | Etc2RgbaSrgb => true,
+        Bc7Unorm | Bc7Srgb => true,
         _ => false,
     }
 }
@@ -201,6 +203,11 @@ fn encode_4x4(format: Format, px: &[[u8; 4]; 16], out: &mut [u8]) -> Result<()> 
             let mut b = [0u8; 8];
             pack_etc1(&mut b, px);
             out[8..].copy_from_slice(&b);
+        }
+        Bc7Unorm | Bc7Srgb => {
+            let mut b = [0u8; 16];
+            fast_pack_bc7_auto_rgba(&mut b, px, PACK_BC7_FLAG_DEFAULT);
+            out.copy_from_slice(&b);
         }
         EacR11Unorm => eac(px, 0, out),
         EacRg11Unorm => {

@@ -13,6 +13,7 @@ pub(crate) mod astc_hdr_6x6;
 pub(crate) use crate::astc::helpers as astc_helpers;
 pub(crate) mod atc;
 pub(crate) mod bc6h;
+pub(crate) mod bc7f;
 pub(crate) mod bc7m5;
 pub(crate) mod bitreader;
 pub(crate) mod dxt;

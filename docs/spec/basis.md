@@ -42,7 +42,7 @@ Test data `testdata/basis/*.basis`: encoded by Basis Universal v2.50 (C++ CLI bu
   Block targets (`transcode_4x4_block`, default channels R and R+A): BC1 (`encode_bc1`), BC3
   (`encode_bc4` alpha + BC1), BC4 (R), BC5 (R, A), EAC R11 (R) / RG11 (R, A) via `pack_eac`; ETC1 via `ll/etc1f.rs` (port of C++
   `etc1f`; its `pack_etc1_state` is only a solid-block memo and is omitted) and ETC2 RGBA (EAC
-  alpha + ETC1); block rows in parallel.
+  alpha + ETC1); BC7 via `ll/bc7f.rs` (port of C++ `bc7f`, default flags); block rows in parallel.
 - Deblocking: `.basis` deblocks blocks of >= 80 texels (basisu default); KTX2 deblocks iff key
   `DeblockFilterID` = "1".
 - UASTC 4x4 (LDR/HDR): one row of source blocks per work unit, multithreaded through
@@ -62,3 +62,6 @@ Test data `testdata/basis/*.basis`: encoded by Basis Universal v2.50 (C++ CLI bu
 - 2026-11-21: ASTC LDR -> same-size ASTC, RGBA32, 565, 4444 bit-exact (70 .basis + 35 KTX2 cases).
 - 2026-11-21: ASTC LDR -> BC1/3/4/5, EAC R11/RG11 bit-exact (154 .basis + 77 KTX2 cases total).
 - 2026-11-21: `etc1f` port; ASTC LDR -> ETC1, ETC2 RGBA bit-exact (182 + 91 cases total).
+- 2026-11-21: `bc7f` port (`ll/bc7f.rs`, scalar path; C++ float->int casts emulate x86
+  `cvttss2si`, mixed signed/unsigned arithmetic kept); ASTC LDR -> BC7 via
+  `fast_pack_bc7_auto_rgba` bit-exact (196 + 98 cases; all 8 BC7 modes exercised).
