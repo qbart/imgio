@@ -49,7 +49,14 @@
 - BC6H unsigned: `fast_encode_bc6h` (transcoder's encoder) on RGB halves; source -> RGBA32F,
   `v > 0 ? half(min(v, 65504)) : 0`. Presets `{diff endpoint modes, 2-subset patterns,
   hq_ls, brute force weights}`: Fastest {0,0,-,-}, Fast {2,0,-,-}, Default {2,1,hq,-} (basisu
-  default), High {4,8,hq,-}, Best {9,32,hq,brute}. Signed BC6H: no encoder yet.
+  default), High {4,8,hq,-}, Best {9,32,hq,brute}.
+- BC6H signed (`bc6h_signed`, own): single-region modes 11 (10.10 direct), 12 (11.9),
+  13 (12.8), 14 (16.4) in the decoder's signed unquantized domain (`sign * |h| * 32 / 31`),
+  correlation-aligned bounding box, then (effort 1 / 2 = Fast..Default / High..Best)
+  alternating index assignment and per-channel endpoint searches (radius 2 / 6); anchor
+  swap only if the negated delta fits; packed by `pack_bc6h_block`. Source NaN -> 0, clamped
+  to +-65504. Gradients crossing zero inside a block stay non-linear (BC6H interpolates in
+  the half bit domain).
 - Golden test `tests/encode.rs` vs `testdata/encode/golden.txt` (`tools/basisu-golden/encode.cpp`,
   C++ basisu encoders with the same edge clamping) on `testdata/images/raw` (raw RGBA8 copies
   written by `scripts/gen_images.py`): BC1 x 3 qualities, BC3 x 3, BC4, BC5 on 3 images, all
@@ -63,6 +70,7 @@
 - 2026-11-21: API + BC1-BC5 encoders (basisu real-time), bit-exact with C++ (24 cases).
 - 2026-11-21: PVRTC1 encoder exposed (`encode_pvrtc1`), 6 golden cases.
 - 2026-11-21: ASTC encoder (astcenc port from ktx-rs), C++ golden passes on every ISA copy.
+- 2026-11-21: signed BC6H encoder (`bc6h_signed`).
 - 2026-11-21: ETC2 T / H / planar mode encoding (`etc2modes`).
 - 2026-11-21: ETC2 RGB A1 and signed BC4 / BC5 / EAC encoders (own; round-trip tested).
 - 2026-11-21: high-quality ETC1 (`etc1hq`, etc1_optimizer search) for High / Best.

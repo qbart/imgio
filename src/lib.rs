@@ -8,6 +8,7 @@ pub(crate) mod astcenc;
 mod atc;
 pub mod basis;
 mod bc;
+mod bc6h_signed;
 mod bc7e;
 mod block;
 mod buffer;

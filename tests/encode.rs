@@ -264,6 +264,35 @@ fn round_trips() -> Result<(), Box<dyn Error>> {
     }
     let mean = err / f64::from(hw * hh * 3);
     assert!(mean < 0.1, "bc6h mean relative error {mean}");
+    // Signed BC6H: the HDR image mirrored to negative on the right half.
+    let neg: Vec<u8> = hpx
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .enumerate()
+        .flat_map(|(i, b)| {
+            let (x, c) = ((i / 4) as u32 % hw, i % 4);
+            let v = u16::from_le_bytes(*b);
+            let v = if x >= hw / 2 && c < 3 { v | 0x8000 } else { v };
+            v.to_le_bytes()
+        })
+        .collect();
+    let nsrc = Surface::new(Format::Rgba16Float, hw, hh, &neg)?;
+    let enc = imgio::encode_to_buffer(&nsrc, Format::Bc6hSfloat, &EncodeOptions::default())?;
+    let dec = imgio::decode_to_buffer(Format::Bc6hSfloat, &enc, hw, hh)?;
+    let mut err = 0f64;
+    for p in 0..(hw * hh) as usize {
+        for c in 0..3 {
+            let (a, b) = (half(&neg, p * 4 + c), half(&dec, p * 4 + c));
+            assert!(
+                a.abs() < 0.05 || a.signum() == b.signum(),
+                "sign {a} vs {b}"
+            );
+            err += f64::from((a - b).abs() / a.abs().max(0.05));
+        }
+    }
+    let mean = err / f64::from(hw * hh * 3);
+    assert!(mean < 0.1, "bc6h signed mean relative error {mean}");
     // ASTC LDR / sRGB through astcenc (multithreaded on large images: tile the source).
     let big: Vec<u8> = (0..512 * 384)
         .flat_map(|i| {

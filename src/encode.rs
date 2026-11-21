@@ -19,6 +19,7 @@
 //! - ETC2 RGB A1 (punch-through, alpha < 128 transparent): `etc1hq::encode_punchthrough_block`
 //!   (differential-only optimizer search for opaque blocks; base / base +- b search with
 //!   transparent texels). No T / H / planar modes yet.
+//! - BC6H signed: own mode 11 / 12 / 13 / 14 single-region encoder (`bc6h_signed`).
 //! - BC6H (unsigned): `fast_encode_bc6h` from RGB halves (source converted to RGBA32F;
 //!   negative / NaN -> 0, clamped to 65504); quality picks `FastBc6hParams`.
 
@@ -242,6 +243,16 @@ fn encoder(format: Format) -> Option<Encoder> {
                 eac_snorm(px, 1, q, &mut out[8..]);
             }));
         }
+        Bc6hSfloat => {
+            return Some(Encoder::Hdr(|px, q, out| {
+                let effort = match q {
+                    Quality::Fastest => 0,
+                    Quality::Fast | Quality::Default => 1,
+                    Quality::High | Quality::Best => 2,
+                };
+                out[..16].copy_from_slice(&crate::bc6h_signed::encode_block(px, effort));
+            }));
+        }
         Bc6hUfloat => {
             return Some(Encoder::Hdr(|px, q, out| {
                 let mut b = [0u8; 16];
@@ -266,6 +277,15 @@ fn bc4_snorm(px: &[Px; 16], c: usize, out: &mut [u8]) {
 fn eac_snorm(px: &[Px; 16], c: usize, q: Quality, out: &mut [u8]) {
     eac(px, c, q, out);
     out[0] ^= 0x80;
+}
+
+/// `v` as a half for the signed BC6H encoder: NaN -> 0, clamped to +-65504.
+fn bc6h_shalf(v: f32) -> u16 {
+    if v.is_nan() {
+        0
+    } else {
+        half::from_f32(v.clamp(-65504.0, 65504.0))
+    }
 }
 
 /// True for the signed (offset byte) source path.
@@ -518,6 +538,7 @@ pub fn encode(src: &Surface, format: Format, opts: &EncodeOptions, dst: &mut [u8
             })
         }
         Encoder::Hdr(enc) => {
+            let signed = format == Format::Bc6hSfloat;
             let converted;
             let rgba: &[u8] = match src.format() {
                 Format::Rgba32Float => src.data(),
@@ -533,7 +554,8 @@ pub fn encode(src: &Surface, format: Format, opts: &EncodeOptions, dst: &mut [u8
                         let a = at(bx, by, i) * 16;
                         for c in 0..3 {
                             let b = &rgba[a + c * 4..a + c * 4 + 4];
-                            px[i * 3 + c] = bc6h_half(f32::from_le_bytes([b[0], b[1], b[2], b[3]]));
+                            let v = f32::from_le_bytes([b[0], b[1], b[2], b[3]]);
+                            px[i * 3 + c] = if signed { bc6h_shalf(v) } else { bc6h_half(v) };
                         }
                     }
                     enc(&px, q, o);
