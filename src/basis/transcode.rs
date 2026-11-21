@@ -218,7 +218,8 @@ fn transcode_uastc_4x4(s: &SliceRef, t: T, format: Format, dst: &mut [u8]) -> Re
     let row = format.row_bytes(s.width)?;
     let unit = if format.is_compressed() { row } else { row * 4 };
     let first_error = Mutex::new(None);
-    for_each_unit(dst, unit, |by, out| {
+    let pixels = (s.width as usize).saturating_mul(s.height as usize);
+    for_each_unit(dst, unit, pixels, |by, out| {
         let by = by as u32;
         let height = (s.height - by * 4).min(4);
         if let Err(e) = status(run(out, by, 1, height))

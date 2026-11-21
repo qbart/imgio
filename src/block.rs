@@ -44,7 +44,8 @@ pub(crate) fn decode_surface(
     let src_row = format.row_bytes(width)?;
     let dst_row = out_fmt.row_bytes(width)?;
     let w = width as usize;
-    for_each_unit(&mut dst[..dst_len], dst_row * bh, |by, rows| {
+    let pixels = (width as usize).saturating_mul(height as usize);
+    for_each_unit(&mut dst[..dst_len], dst_row * bh, pixels, |by, rows| {
         let src_blocks = &src[by * src_row..(by + 1) * src_row];
         let pixel_rows = rows.len() / dst_row;
         let mut out = [0u8; MAX_BLOCK_OUT];

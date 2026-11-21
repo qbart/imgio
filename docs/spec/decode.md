@@ -5,7 +5,7 @@
   Errors: `Unsupported`, `BufferTooSmall` (src or dst), `InvalidArgument` (size overflow).
 - `decode_to_buffer(...) -> Result<Buffer>`: same, allocates (vas `Buffer`).
 - `block::decode_surface`: shared driver, one row of blocks per work unit through
-  `parallel::for_each_unit` (std scoped threads, caller participates, inline below 256 KiB).
+  `parallel::for_each_unit` (std scoped threads, caller participates, inline below 64K pixels).
   Per-family block decoders: `bc::decode_block`, `etc::decode_block`.
 
 ## Audit

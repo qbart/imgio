@@ -116,7 +116,8 @@ pub fn convert(src: &Surface, dst_format: Format, dst: &mut [u8]) -> Result<()> 
         dst.copy_from_slice(data);
         return Ok(());
     }
-    for_each_unit(dst, dst_row, |y, row| {
+    let pixels = (w as usize).saturating_mul(h as usize);
+    for_each_unit(dst, dst_row, pixels, |y, row| {
         let s = &data[y * src_row..(y + 1) * src_row];
         for (sp, dp) in s.chunks_exact(sp).zip(row.chunks_exact_mut(dp)) {
             write(dst_format, read(sf, sp), dp);

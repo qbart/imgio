@@ -5,16 +5,16 @@
 
 use std::sync::Mutex;
 
-/// Below this many output bytes the work runs on the calling thread.
-const MIN_PARALLEL_BYTES: usize = 256 * 1024;
+/// Below this many pixels the work runs on the calling thread.
+pub(crate) const MIN_PARALLEL_PIXELS: usize = 64 * 1024;
 
 fn worker_count() -> usize {
     std::thread::available_parallelism().map_or(1, |n| n.get())
 }
 
 /// Splits `dst` into units of `unit_bytes` (the last may be shorter) and calls
-/// `f(unit_index, unit)` for each, in parallel when the buffer is large enough.
-pub(crate) fn for_each_unit<F>(dst: &mut [u8], unit_bytes: usize, f: F)
+/// `f(unit_index, unit)` for each, in parallel when `pixels` (the work size) is large enough.
+pub(crate) fn for_each_unit<F>(dst: &mut [u8], unit_bytes: usize, pixels: usize, f: F)
 where
     F: Fn(usize, &mut [u8]) + Sync,
 {
@@ -23,7 +23,7 @@ where
     }
     let units = dst.len().div_ceil(unit_bytes);
     let workers = worker_count().min(units);
-    if workers <= 1 || dst.len() < MIN_PARALLEL_BYTES {
+    if workers <= 1 || pixels < MIN_PARALLEL_PIXELS {
         for (i, u) in dst.chunks_mut(unit_bytes).enumerate() {
             f(i, u);
         }
@@ -59,8 +59,10 @@ mod tests {
 
     #[test]
     fn covers_every_unit() {
-        let mut buf = vec![0u8; MIN_PARALLEL_BYTES * 2 + 3];
-        for_each_unit(&mut buf, 1000, |i, u| u.fill((i % 251) as u8));
+        let mut buf = vec![0u8; 1_000_003];
+        for_each_unit(&mut buf, 1000, MIN_PARALLEL_PIXELS, |i, u| {
+            u.fill((i % 251) as u8)
+        });
         for (i, b) in buf.iter().enumerate() {
             assert_eq!(*b, ((i / 1000) % 251) as u8);
         }
