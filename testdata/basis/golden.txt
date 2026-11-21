@@ -1173,3 +1173,227 @@ xubc7_rgba.basis 21 3 64 2ee4497dcf6434f8
 xubc7_rgba.basis 21 4 16 9451fd59eb8a6f3e
 xubc7_rgba.basis 21 5 16 982ed9abdadd3692
 xubc7_rgba.basis 21 6 16 1d460e50392a95c6
+xuastc6x6_mosaic_rgb.basis 0 0 1040 45b547a5050fae0e
+xuastc6x6_mosaic_rgb.basis 1 0 2080 2b41bc6447e9a1ba
+xuastc6x6_mosaic_rgb.basis 2 0 1040 1122b5ab6b28c27b
+xuastc6x6_mosaic_rgb.basis 3 0 2080 d69a055199cadadb
+xuastc6x6_mosaic_rgb.basis 4 0 1040 3aa6b57a3657794a
+xuastc6x6_mosaic_rgb.basis 5 0 2080 6ee5d592cf1c922a
+xuastc6x6_mosaic_rgb.basis 6 0 2080 5f15635dc63140c4
+xuastc6x6_mosaic_rgb.basis 8 0 fail
+xuastc6x6_mosaic_rgb.basis 9 0 fail
+xuastc6x6_mosaic_rgb.basis 13 0 7600 2ddcfa77dfe7789e
+xuastc6x6_mosaic_rgb.basis 14 0 3800 62b0d0f3f232b315
+xuastc6x6_mosaic_rgb.basis 15 0 3800 52edb01705ed0cf0
+xuastc6x6_mosaic_rgb.basis 16 0 3800 75ed08213f47b57b
+xuastc6x6_mosaic_rgb.basis 20 0 1040 79e3014c37c8d2f8
+xuastc6x6_mosaic_rgb.basis 21 0 2080 035934503849759c
+xuastc6x6_mosaic_rgb.basis 31 0 1008 84d352af989fe572
+xuastc6x6_mosaic_rgba.basis 0 0 1040 7cefb0add98fff39
+xuastc6x6_mosaic_rgba.basis 0 1 280 c319fe5aaf5dddbf
+xuastc6x6_mosaic_rgba.basis 0 2 72 995122bb8473d67e
+xuastc6x6_mosaic_rgba.basis 0 3 16 6304d7891e061ccd
+xuastc6x6_mosaic_rgba.basis 0 4 8 1f09c9df140de85b
+xuastc6x6_mosaic_rgba.basis 0 5 8 28d535d220d19ee9
+xuastc6x6_mosaic_rgba.basis 1 0 2080 0f391fdd4d790164
+xuastc6x6_mosaic_rgba.basis 1 1 560 3927e93940348f6c
+xuastc6x6_mosaic_rgba.basis 1 2 144 aa9a98c51832fa70
+xuastc6x6_mosaic_rgba.basis 1 3 32 7237fcf7695a6931
+xuastc6x6_mosaic_rgba.basis 1 4 16 86a3e276627ce6a3
+xuastc6x6_mosaic_rgba.basis 1 5 16 fb412a1a10b4b2dc
+xuastc6x6_mosaic_rgba.basis 2 0 1040 2bbc537b14186bb9
+xuastc6x6_mosaic_rgba.basis 2 1 280 c626379b5853a630
+xuastc6x6_mosaic_rgba.basis 2 2 72 926eb699af846ae0
+xuastc6x6_mosaic_rgba.basis 2 3 16 fa50331b6fed89ec
+xuastc6x6_mosaic_rgba.basis 2 4 8 346f4255c396647c
+xuastc6x6_mosaic_rgba.basis 2 5 8 331d00a91767cb3a
+xuastc6x6_mosaic_rgba.basis 3 0 2080 8bb9289d26c0f323
+xuastc6x6_mosaic_rgba.basis 3 1 560 dc8baa8cf6fd2c9a
+xuastc6x6_mosaic_rgba.basis 3 2 144 c5be850779bbf382
+xuastc6x6_mosaic_rgba.basis 3 3 32 594cb2282abfa920
+xuastc6x6_mosaic_rgba.basis 3 4 16 4e632c1d9e9f5a40
+xuastc6x6_mosaic_rgba.basis 3 5 16 e660fa47a8a1055a
+xuastc6x6_mosaic_rgba.basis 4 0 1040 29ebb29738da7201
+xuastc6x6_mosaic_rgba.basis 4 1 280 ef4048a363808fce
+xuastc6x6_mosaic_rgba.basis 4 2 72 bbf20ff34a996ef4
+xuastc6x6_mosaic_rgba.basis 4 3 16 a883ac1cc2fe3e1f
+xuastc6x6_mosaic_rgba.basis 4 4 8 f47a08ecf30cad22
+xuastc6x6_mosaic_rgba.basis 4 5 8 58d8e18ca02355bd
+xuastc6x6_mosaic_rgba.basis 5 0 2080 fdfb94740ebbcc4f
+xuastc6x6_mosaic_rgba.basis 5 1 560 dff1bc100b419070
+xuastc6x6_mosaic_rgba.basis 5 2 144 fb4e375fd9ecf83a
+xuastc6x6_mosaic_rgba.basis 5 3 32 6e9d1d3d8464bf83
+xuastc6x6_mosaic_rgba.basis 5 4 16 471ef01e159dfe36
+xuastc6x6_mosaic_rgba.basis 5 5 16 f8bc87593e784a5d
+xuastc6x6_mosaic_rgba.basis 6 0 2080 d92c30b4bcf607ef
+xuastc6x6_mosaic_rgba.basis 6 1 560 add8236243caa7d9
+xuastc6x6_mosaic_rgba.basis 6 2 144 ad7e23e210c51060
+xuastc6x6_mosaic_rgba.basis 6 3 32 aa4f60e237ba73da
+xuastc6x6_mosaic_rgba.basis 6 4 16 9d78dc5085711a38
+xuastc6x6_mosaic_rgba.basis 6 5 16 0962a6ae66a709f5
+xuastc6x6_mosaic_rgba.basis 8 0 fail
+xuastc6x6_mosaic_rgba.basis 8 1 fail
+xuastc6x6_mosaic_rgba.basis 8 2 fail
+xuastc6x6_mosaic_rgba.basis 8 3 fail
+xuastc6x6_mosaic_rgba.basis 8 4 fail
+xuastc6x6_mosaic_rgba.basis 8 5 8 b3658c7eb7ca144c
+xuastc6x6_mosaic_rgba.basis 9 0 fail
+xuastc6x6_mosaic_rgba.basis 9 1 fail
+xuastc6x6_mosaic_rgba.basis 9 2 fail
+xuastc6x6_mosaic_rgba.basis 9 3 fail
+xuastc6x6_mosaic_rgba.basis 9 4 fail
+xuastc6x6_mosaic_rgba.basis 9 5 8 530c91c37744a767
+xuastc6x6_mosaic_rgba.basis 13 0 7600 2a49ffe93df805ea
+xuastc6x6_mosaic_rgba.basis 13 1 1900 0794f0551827caff
+xuastc6x6_mosaic_rgba.basis 13 2 432 f311ff29bc31c255
+xuastc6x6_mosaic_rgba.basis 13 3 96 646dcf019eae923e
+xuastc6x6_mosaic_rgba.basis 13 4 24 2b58103e64396825
+xuastc6x6_mosaic_rgba.basis 13 5 4 2f3f63cf0c89a9ee
+xuastc6x6_mosaic_rgba.basis 14 0 3800 3b4d5ef0d3d75b5e
+xuastc6x6_mosaic_rgba.basis 14 1 950 fae4e0b6c7e64ad0
+xuastc6x6_mosaic_rgba.basis 14 2 216 907502a7e85eef12
+xuastc6x6_mosaic_rgba.basis 14 3 48 27ded4cfd7d802ab
+xuastc6x6_mosaic_rgba.basis 14 4 12 e9e680fdba86c354
+xuastc6x6_mosaic_rgba.basis 14 5 2 07cfbf07b4975007
+xuastc6x6_mosaic_rgba.basis 15 0 3800 b54aa14e8e5d7ef9
+xuastc6x6_mosaic_rgba.basis 15 1 950 a6a2b201ddd1250e
+xuastc6x6_mosaic_rgba.basis 15 2 216 ed2e52089e716bfa
+xuastc6x6_mosaic_rgba.basis 15 3 48 95f853e1827a1c8d
+xuastc6x6_mosaic_rgba.basis 15 4 12 fed0d48f4771e2db
+xuastc6x6_mosaic_rgba.basis 15 5 2 08173b07b4d4255e
+xuastc6x6_mosaic_rgba.basis 16 0 3800 529f035cd15f6b39
+xuastc6x6_mosaic_rgba.basis 16 1 950 77be99a60d9db66a
+xuastc6x6_mosaic_rgba.basis 16 2 216 fe2fa536efb2b674
+xuastc6x6_mosaic_rgba.basis 16 3 48 32ae55ab2cfb861d
+xuastc6x6_mosaic_rgba.basis 16 4 12 9613f30cee28756c
+xuastc6x6_mosaic_rgba.basis 16 5 2 08b40607b559c0f1
+xuastc6x6_mosaic_rgba.basis 20 0 1040 15567566b1b2f83b
+xuastc6x6_mosaic_rgba.basis 20 1 280 13f1fa4f8fb8231d
+xuastc6x6_mosaic_rgba.basis 20 2 72 7c7f8db15344bbbe
+xuastc6x6_mosaic_rgba.basis 20 3 16 4f9a765c63d508e4
+xuastc6x6_mosaic_rgba.basis 20 4 8 20490c9bf87e8feb
+xuastc6x6_mosaic_rgba.basis 20 5 8 cdc70c624c0ce56e
+xuastc6x6_mosaic_rgba.basis 21 0 2080 7da02740d9898692
+xuastc6x6_mosaic_rgba.basis 21 1 560 17c6c6ffc037409e
+xuastc6x6_mosaic_rgba.basis 21 2 144 ddba1901da38fbe4
+xuastc6x6_mosaic_rgba.basis 21 3 32 83e7535c9c5967f8
+xuastc6x6_mosaic_rgba.basis 21 4 16 14a2bb2f0f784e73
+xuastc6x6_mosaic_rgba.basis 21 5 16 72f5e6a7d82d104b
+xuastc6x6_mosaic_rgba.basis 31 0 1008 a4ffea8e806a9c81
+xuastc6x6_mosaic_rgba.basis 31 1 320 b43023bbaa04e412
+xuastc6x6_mosaic_rgba.basis 31 2 64 ffab8b21cfda9f87
+xuastc6x6_mosaic_rgba.basis 31 3 16 07953da7ba49d5b8
+xuastc6x6_mosaic_rgba.basis 31 4 16 1f4bdd8eff3351b2
+xuastc6x6_mosaic_rgba.basis 31 5 16 6398596c5de90db6
+xuastc8x6_mosaic_rgb.basis 0 0 1040 94712f6fc1ce74f0
+xuastc8x6_mosaic_rgb.basis 1 0 2080 de2a597d4d009d30
+xuastc8x6_mosaic_rgb.basis 2 0 1040 32f15aa6889d2108
+xuastc8x6_mosaic_rgb.basis 3 0 2080 d50f63ed582dd9a8
+xuastc8x6_mosaic_rgb.basis 4 0 1040 0fd910f17653a949
+xuastc8x6_mosaic_rgb.basis 5 0 2080 72bbb1ca7ecbd5c5
+xuastc8x6_mosaic_rgb.basis 6 0 2080 5b366a05c5289ef8
+xuastc8x6_mosaic_rgb.basis 8 0 fail
+xuastc8x6_mosaic_rgb.basis 9 0 fail
+xuastc8x6_mosaic_rgb.basis 13 0 7600 cc4ed9e5ede83848
+xuastc8x6_mosaic_rgb.basis 14 0 3800 7d6034fc9450a8a9
+xuastc8x6_mosaic_rgb.basis 15 0 3800 ff07e218b019c3ef
+xuastc8x6_mosaic_rgb.basis 16 0 3800 7b91f3c2c3d88711
+xuastc8x6_mosaic_rgb.basis 20 0 1040 98479e635dca5672
+xuastc8x6_mosaic_rgb.basis 21 0 2080 bab6830d18be5eda
+xuastc8x6_mosaic_rgb.basis 33 0 784 e9d2b3fc2e56c0ba
+xuastc8x6_mosaic_rgba.basis 0 0 1040 6d7b54dfb4b546cc
+xuastc8x6_mosaic_rgba.basis 0 1 280 c61142c1f4b2d631
+xuastc8x6_mosaic_rgba.basis 0 2 72 dc2898120230bff6
+xuastc8x6_mosaic_rgba.basis 0 3 16 4cff73023a0bdccc
+xuastc8x6_mosaic_rgba.basis 0 4 8 69ddc1a605124cc8
+xuastc8x6_mosaic_rgba.basis 0 5 8 28d535d220d19ee9
+xuastc8x6_mosaic_rgba.basis 1 0 2080 f11d68124bdf0367
+xuastc8x6_mosaic_rgba.basis 1 1 560 ecf80df9421fbd35
+xuastc8x6_mosaic_rgba.basis 1 2 144 bfdaa85bc4b51bc8
+xuastc8x6_mosaic_rgba.basis 1 3 32 0fb6b8bce95a3270
+xuastc8x6_mosaic_rgba.basis 1 4 16 cf75e0d1a7062d4c
+xuastc8x6_mosaic_rgba.basis 1 5 16 fb412a1a10b4b2dc
+xuastc8x6_mosaic_rgba.basis 2 0 1040 c0d7a844fe5887ba
+xuastc8x6_mosaic_rgba.basis 2 1 280 4ed5a38611fa465d
+xuastc8x6_mosaic_rgba.basis 2 2 72 0f25e8efa1fb4ef3
+xuastc8x6_mosaic_rgba.basis 2 3 16 8e88c270f685ac30
+xuastc8x6_mosaic_rgba.basis 2 4 8 60788b48fc448654
+xuastc8x6_mosaic_rgba.basis 2 5 8 331d00a91767cb3a
+xuastc8x6_mosaic_rgba.basis 3 0 2080 cc0a86559273b7de
+xuastc8x6_mosaic_rgba.basis 3 1 560 4832dc5ba29920e3
+xuastc8x6_mosaic_rgba.basis 3 2 144 1b8f29cdde7d0ebc
+xuastc8x6_mosaic_rgba.basis 3 3 32 0a7d0612ecbbe9d0
+xuastc8x6_mosaic_rgba.basis 3 4 16 b1620def9bf144f0
+xuastc8x6_mosaic_rgba.basis 3 5 16 e660fa47a8a1055a
+xuastc8x6_mosaic_rgba.basis 4 0 1040 83ad269cc2d6b4ed
+xuastc8x6_mosaic_rgba.basis 4 1 280 a037d5750de4c9db
+xuastc8x6_mosaic_rgba.basis 4 2 72 e1d13dc225175b7a
+xuastc8x6_mosaic_rgba.basis 4 3 16 29a146385d122042
+xuastc8x6_mosaic_rgba.basis 4 4 8 f8b228a95273f4dd
+xuastc8x6_mosaic_rgba.basis 4 5 8 58d8e18ca02355bd
+xuastc8x6_mosaic_rgba.basis 5 0 2080 1b6179cbdcf36385
+xuastc8x6_mosaic_rgba.basis 5 1 560 9e5a4a63ab83ab6d
+xuastc8x6_mosaic_rgba.basis 5 2 144 bb8e407321b7c561
+xuastc8x6_mosaic_rgba.basis 5 3 32 72f4ea24c7c4f6ae
+xuastc8x6_mosaic_rgba.basis 5 4 16 6f0c1e74a352a189
+xuastc8x6_mosaic_rgba.basis 5 5 16 f8bc87593e784a5d
+xuastc8x6_mosaic_rgba.basis 6 0 2080 86debe1c0dc4ea59
+xuastc8x6_mosaic_rgba.basis 6 1 560 86fae5f4a954bddc
+xuastc8x6_mosaic_rgba.basis 6 2 144 a0e9c522e75374ef
+xuastc8x6_mosaic_rgba.basis 6 3 32 b6b88ed74c690fa3
+xuastc8x6_mosaic_rgba.basis 6 4 16 ff6b0053f14fdbb4
+xuastc8x6_mosaic_rgba.basis 6 5 16 0962a6ae66a709f5
+xuastc8x6_mosaic_rgba.basis 8 0 fail
+xuastc8x6_mosaic_rgba.basis 8 1 fail
+xuastc8x6_mosaic_rgba.basis 8 2 fail
+xuastc8x6_mosaic_rgba.basis 8 3 fail
+xuastc8x6_mosaic_rgba.basis 8 4 fail
+xuastc8x6_mosaic_rgba.basis 8 5 8 b3658c7eb7ca144c
+xuastc8x6_mosaic_rgba.basis 9 0 fail
+xuastc8x6_mosaic_rgba.basis 9 1 fail
+xuastc8x6_mosaic_rgba.basis 9 2 fail
+xuastc8x6_mosaic_rgba.basis 9 3 fail
+xuastc8x6_mosaic_rgba.basis 9 4 fail
+xuastc8x6_mosaic_rgba.basis 9 5 8 530c91c37744a767
+xuastc8x6_mosaic_rgba.basis 13 0 7600 3c26acdad95f2259
+xuastc8x6_mosaic_rgba.basis 13 1 1900 387fe05735ad2360
+xuastc8x6_mosaic_rgba.basis 13 2 432 7822396e3522d769
+xuastc8x6_mosaic_rgba.basis 13 3 96 766e46ccb1747725
+xuastc8x6_mosaic_rgba.basis 13 4 24 2e7454f08baa1ac3
+xuastc8x6_mosaic_rgba.basis 13 5 4 2f3f63cf0c89a9ee
+xuastc8x6_mosaic_rgba.basis 14 0 3800 708a39895ff74886
+xuastc8x6_mosaic_rgba.basis 14 1 950 a0fe414d452778f1
+xuastc8x6_mosaic_rgba.basis 14 2 216 3fb356fd49944afc
+xuastc8x6_mosaic_rgba.basis 14 3 48 ddb10c328bebc315
+xuastc8x6_mosaic_rgba.basis 14 4 12 79bcb6c1c79ba85d
+xuastc8x6_mosaic_rgba.basis 14 5 2 07cfbf07b4975007
+xuastc8x6_mosaic_rgba.basis 15 0 3800 2b0415b9284d5bc7
+xuastc8x6_mosaic_rgba.basis 15 1 950 03d0ea6f0e320c9f
+xuastc8x6_mosaic_rgba.basis 15 2 216 598af383a11ca596
+xuastc8x6_mosaic_rgba.basis 15 3 48 0ea921d36c1b1253
+xuastc8x6_mosaic_rgba.basis 15 4 12 8c93b44b645b0348
+xuastc8x6_mosaic_rgba.basis 15 5 2 08173b07b4d4255e
+xuastc8x6_mosaic_rgba.basis 16 0 3800 f5995847227fa50d
+xuastc8x6_mosaic_rgba.basis 16 1 950 b3c5d0e315f2253a
+xuastc8x6_mosaic_rgba.basis 16 2 216 caaa8212a58473a9
+xuastc8x6_mosaic_rgba.basis 16 3 48 a97acd86548417c2
+xuastc8x6_mosaic_rgba.basis 16 4 12 f462323b2cdc2c33
+xuastc8x6_mosaic_rgba.basis 16 5 2 08b40607b559c0f1
+xuastc8x6_mosaic_rgba.basis 20 0 1040 52f713270c3ea00f
+xuastc8x6_mosaic_rgba.basis 20 1 280 dcd66a724361555a
+xuastc8x6_mosaic_rgba.basis 20 2 72 5a73fe06bd8bf3c9
+xuastc8x6_mosaic_rgba.basis 20 3 16 3608af0d5d7254c5
+xuastc8x6_mosaic_rgba.basis 20 4 8 b9736789c0bde96d
+xuastc8x6_mosaic_rgba.basis 20 5 8 cdc70c624c0ce56e
+xuastc8x6_mosaic_rgba.basis 21 0 2080 86e9c176abfae000
+xuastc8x6_mosaic_rgba.basis 21 1 560 42e51c1b9eaedfc6
+xuastc8x6_mosaic_rgba.basis 21 2 144 9983439f272d6ffb
+xuastc8x6_mosaic_rgba.basis 21 3 32 0c694f1e1d999c01
+xuastc8x6_mosaic_rgba.basis 21 4 16 9415e654321b7ba9
+xuastc8x6_mosaic_rgba.basis 21 5 16 72f5e6a7d82d104b
+xuastc8x6_mosaic_rgba.basis 33 0 784 97b46bf1e373841f
+xuastc8x6_mosaic_rgba.basis 33 1 256 fd9eefbf944af362
+xuastc8x6_mosaic_rgba.basis 33 2 64 f590b79e1ba4e238
+xuastc8x6_mosaic_rgba.basis 33 3 16 d6a472ac722a697b
+xuastc8x6_mosaic_rgba.basis 33 4 16 aa1deb742d5c998e
+xuastc8x6_mosaic_rgba.basis 33 5 16 6398596c5de90db6

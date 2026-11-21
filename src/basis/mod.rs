@@ -7,6 +7,7 @@ pub(crate) mod ll;
 mod pvrtc1_enc;
 pub(crate) mod transcode;
 pub(crate) mod xuastc;
+mod xuastc_bc7;
 mod xubc7;
 
 pub use file::{BasisFile, BasisTexFormat, BasisTexType, LevelInfo};

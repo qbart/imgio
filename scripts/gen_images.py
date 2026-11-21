@@ -30,6 +30,48 @@ def ldr(w, h, seed, alpha):
     return (np.stack(chans, -1) * 255 + 0.5).astype(np.uint8)
 
 
+def mosaic(w, h, seed, alpha):
+    """12x12 tiles of solid colours, 2-colour stripes, gradients, hard edges, uncorrelated
+    channels and circles (exercises the XUASTC -> BC7 fast paths: solid, shared endpoints,
+    2 subsets, dual plane), some tiles with an alpha ramp."""
+    rng = np.random.default_rng(seed)
+    y, x = np.mgrid[0:h, 0:w].astype(np.float32)
+    img = np.zeros((h, w, 4), np.float32)
+    img[..., 3] = 1.0
+    pal = np.array([[0.9, 0.1, 0.1], [0.1, 0.2, 0.9], [0.95, 0.9, 0.2], [0.2, 0.7, 0.3]], np.float32)
+    for ry in range(0, h, 12):
+        for rx in range(0, w, 12):
+            k = int(rng.integers(0, 8))
+            sl = (slice(ry, ry + 12), slice(rx, rx + 12))
+            yy, xx = y[sl] - ry, x[sl] - rx
+            a, b = pal[rng.integers(0, 4)], pal[rng.integers(0, 4)]
+            if k <= 1:  # solid
+                img[sl][..., :3] = a
+            elif k == 2:  # 2-colour stripes (same endpoints in every block)
+                m = ((xx // 2) % 2)[..., None]
+                img[sl][..., :3] = a * (1 - m) + b * m
+            elif k == 3:  # low contrast gradient
+                t = (xx + yy)[..., None] / 22.0
+                img[sl][..., :3] = a * (1 - 0.08 * t) + 0.08 * t * b
+            elif k == 4:  # hard diagonal edge
+                m = (xx + 0.6 * yy > 7)[..., None]
+                img[sl][..., :3] = np.where(m, a, b)
+            elif k == 5:  # uncorrelated channels
+                img[sl][..., 0] = xx / 11.0
+                img[sl][..., 1] = rng.random(xx.shape) * 0.6
+                img[sl][..., 2] = yy / 11.0
+            elif k == 6:  # strong gradient
+                t = (xx / 11.0)[..., None]
+                img[sl][..., :3] = a * (1 - t) + b * t
+            else:  # circle on a solid background
+                m = (((xx - 5) ** 2 + (yy - 6) ** 2) < 16)[..., None]
+                img[sl][..., :3] = np.where(m, a, b)
+            if alpha and rng.random() < 0.3:
+                img[sl][..., 3] = 0.3 + 0.7 * yy / 11.0
+    out = (np.clip(img, 0, 1) * 255 + 0.5).astype(np.uint8)
+    return out if alpha else out[..., :3]
+
+
 def write_hdr(path, rgb):
     """Radiance RGBE (.hdr), flat (uncompressed) scanlines."""
     h, w, _ = rgb.shape
@@ -51,6 +93,9 @@ def main():
     Image.fromarray(ldr(37, 29, 2, False), "RGB").save(os.path.join(OUT, "rgb_37x29.png"))
     # Power-of-two source (PVRTC1 targets).
     Image.fromarray(ldr(32, 32, 5, True), "RGBA").save(os.path.join(OUT, "rgba_32x32.png"))
+    # Block-structured mosaics (XUASTC -> BC7 fast paths).
+    Image.fromarray(mosaic(50, 38, 7, True), "RGBA").save(os.path.join(OUT, "mosaic_rgba_50x38.png"))
+    Image.fromarray(mosaic(50, 38, 8, False), "RGB").save(os.path.join(OUT, "mosaic_rgb_50x38.png"))
     # Benchmark source.
     Image.fromarray(ldr(512, 512, 4, True), "RGBA").save(os.path.join(OUT, "bench_512.png"))
     # HDR: LDR pattern scaled to a 0..16 range with a hot spot.

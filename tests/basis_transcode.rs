@@ -162,17 +162,9 @@ fn xuastc_ldr() -> Result<(), Box<dyn Error>> {
     // xuastc4x4_rgba: full Zstd (small mips: full arithmetic); xuastc5x4_dct: Zstd + DCT;
     // xuastc6x6_rgba_arith: arithmetic; xuastc8x6_rgb_hybrid: <= 64 blocks, so arithmetic;
     // xuastc4x4_hybrid_dct: hybrid + DCT; xuastc6x5_dct_arith: arithmetic + DCT;
-    // xuastc12x12_pow2: deblocked, PVRTC1.
-    // BC7 (id 6) from 4x4, 6x6 and 8x6 uses the direct ASTC -> BC7 fast path (ROADMAP step 9).
-    let fast_bc7 = |l: &str| {
-        ["xuastc4x4", "xuastc6x6", "xuastc8x6"]
-            .iter()
-            .any(|p| l.starts_with(p))
-            && l.split(' ').nth(1) == Some("6")
-    };
-    assert_eq!(
-        check_where(|l| l.starts_with("xuastc") && !fast_bc7(l), false)?,
-        458
-    );
+    // xuastc12x12_pow2: deblocked, PVRTC1; xuastc{6x6,8x6}_mosaic_*: block-structured images
+    // reaching every branch of the 6x6 / 8x6 BC7 fast paths.
+    // BC7 (id 6) from 4x4, 6x6 and 8x6 uses the direct ASTC -> BC7 fast paths.
+    assert_eq!(check_where(|l| l.starts_with("xuastc"), false)?, 704);
     Ok(())
 }

@@ -53,6 +53,12 @@ enc xuastc4x4_hybrid_dct.basis -basis -ldr_4x4i -xuastc_hybrid -quality 60 -file
 enc xuastc6x5_dct_arith.basis -basis -ldr_6x5i -xuastc_arith -quality 50 -file "$I/rgba_64x48.png"
 enc xuastc6x6_rgba.ktx2 -ktx2 -ldr_6x6i -file "$I/rgba_64x48.png" -mipmap
 enc xuastc10x8_dct_arith.ktx2 -ktx2 -ldr_10x8i -xuastc_arith -quality 40 -file "$I/rgb_37x29.png"
+# Block-structured mosaics: solid / shared-endpoint / 2-subset / dual-plane / alpha blocks for
+# the XUASTC -> BC7 fast paths (mips cover the small edge cases).
+enc xuastc6x6_mosaic_rgba.basis -basis -ldr_6x6i -file "$I/mosaic_rgba_50x38.png" -mipmap
+enc xuastc6x6_mosaic_rgb.basis -basis -ldr_6x6i -linear -file "$I/mosaic_rgb_50x38.png"
+enc xuastc8x6_mosaic_rgba.basis -basis -ldr_8x6i -file "$I/mosaic_rgba_50x38.png" -mipmap
+enc xuastc8x6_mosaic_rgb.basis -basis -ldr_8x6i -linear -file "$I/mosaic_rgb_50x38.png"
 enc xuastc4x4_array.ktx2 -ktx2 -ldr_4x4i -tex_array -file "$I/rgb_37x29.png" -file "$I/rgb_37x29.png"
 
 # XUBC7 (tex format 33)

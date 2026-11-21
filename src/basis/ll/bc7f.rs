@@ -6,7 +6,8 @@
 //!
 //! Only the scalar code path is ported (`BASISU_BC7F_USE_SSE41` is 0 upstream). Float math
 //! follows the C++ operation order in `f32`; float to int casts emulate x86 `cvttss2si`.
-//! The ASTC helpers (`pack_from_astc_*`, `fast_pack_astc*`) and perf stats are not ported.
+//! The direct ASTC -> BC7 packers (`pack_from_astc_*`) live in `bc7f_xuastc.rs`; perf stats
+//! are not ported.
 
 use super::uastc::uastc_tables;
 use super::uastc_tables::{
@@ -136,7 +137,7 @@ fn tables() -> &'static Tables {
 
 /// `(int)x` as compiled for x86-64 (`cvttss2si`): out of range / NaN gives `INT_MIN`.
 #[inline]
-fn f2i(x: f32) -> i32 {
+pub(super) fn f2i(x: f32) -> i32 {
     if x >= -2147483648.0 && x < 2147483648.0 {
         x as i32
     } else {
@@ -1233,7 +1234,7 @@ fn scale_to_8(v: u8, total_bits: u32) -> u8 {
 }
 
 /// `determine_unique_pbits`: `xl`/`xh` are in [0,1]. Returns (min color, max color, pbits).
-fn determine_unique_pbits(
+pub(super) fn determine_unique_pbits(
     total_comps: usize,
     comp_bits: u32,
     xl: &[f32; 4],
@@ -1275,7 +1276,7 @@ fn determine_unique_pbits(
 }
 
 /// `determine_shared_pbits`: both endpoints use the same p-bit.
-fn determine_shared_pbits(
+pub(super) fn determine_shared_pbits(
     total_comps: usize,
     comp_bits: u32,
     xl: &[f32; 4],

@@ -77,6 +77,20 @@ Test data `testdata/basis/*.basis`: encoded by Basis Universal v2.50 (C++ CLI bu
   profile and alpha flag are used instead of the container's. Then the ASTC LDR pipeline above
   runs on the logical blocks (ASTC target: `pack_astc_block`; others: `decode_block`, equal to
   C++ `decode_block_xuastc_ldr`). Corrupt streams return `InvalidData`.
+- XUASTC -> BC7 fast paths (`basis/xuastc_bc7.rs`, `ll/bc7f_xuastc.rs` = `bc7f::pack_from_astc_*`),
+  logical blocks only (plain ASTC LDR keeps the pixel path), block 4x4 / 6x6 / 8x6, no
+  deblocking; default decode flags (fast BC7 on, not high quality). 4x4: solid -> mode 5,
+  1 subset single plane -> mode 6 from ASTC endpoints + upsampled weights (`(w*15+32)>>6`),
+  else decode + `fast_pack_bc7_auto_rgb[a]` (stream `has_alpha`). 8x6: tiles of 1x2 ASTC
+  blocks -> 2x3 BC7; 6x6: 2x2 ASTC blocks -> 3x3 BC7, center block last. Per BC7 block: inside
+  one simple block (mode 5 / mode 6), straddling two with equal solid colors (6x6) or equal
+  endpoints (tol 0 for 8x6, 1 for 6x6: averaged endpoints, mode 6), two opaque different
+  blocks (mode 1, part 13 or 0; 8x6 uses the `_hq` variant: endpoints refit to the used weight
+  range via `channel_interpolate`, both subsets low contrast -> decoded texels +
+  `fast_pack_bc7_rgb_analytical`), otherwise decode + analytical encode. Edge tiles duplicate
+  the last ASTC column / row (C++ pointer clamping), not pixel clamping. Row pairs of ASTC
+  blocks (3 BC7 rows each) run in parallel. The non-`_hq` 8x6 packer is unreachable with
+  default flags and not ported.
 - UASTC 4x4 (LDR/HDR): one row of source blocks per work unit, multithreaded through
   `parallel::for_each_unit` (PVRTC1 transcodes the whole image at once; ETC1S is sequential).
 - Golden test: `tests/basis_transcode.rs` vs `testdata/basis/golden.txt`, FNV-1a hashes of every
@@ -110,3 +124,6 @@ Test data `testdata/basis/*.basis`: encoded by Basis Universal v2.50 (C++ CLI bu
   `fast_pack_bc7_auto_rgb`/`_rgba`; plain ASTC LDR always RGBA): every XUASTC golden line passes
   (458 .basis + 151 KTX2) except BC7 from 4x4/6x6/8x6, which the C++ transcodes with direct
   ASTC -> BC7 fast paths (step 9).
+- 2026-11-21: XUASTC -> BC7 fast paths (4x4 / 6x6 / 8x6): every XUASTC golden line passes (704
+  .basis + 160 KTX2). New mosaic test images / files (`xuastc{6x6,8x6}_mosaic_{rgb,rgba}.basis`)
+  reach every fast-path branch (checked with temporary counters).

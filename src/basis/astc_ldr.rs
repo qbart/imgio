@@ -5,7 +5,8 @@
 //! an RGBA8 image (padded to whole blocks, rows of blocks in parallel) and then emits the
 //! target from it, 4x4 block by 4x4 block. Edge blocks read clamped pixels: x is clamped to the
 //! padded width, y to the image height, or to the padded height when the whole image path of
-//! the C++ transcoder is used (deblocking, PVRTC1).
+//! the C++ transcoder is used (deblocking, PVRTC1). XUASTC 4x4 / 6x6 / 8x6 -> BC7 without
+//! deblocking takes the direct ASTC -> BC7 fast paths in `xuastc_bc7.rs` instead.
 
 use super::ll::bc7f::{PACK_BC7_FLAG_DEFAULT, fast_pack_bc7_auto_rgb, fast_pack_bc7_auto_rgba};
 use super::ll::dxt::Dxt1Block;
@@ -93,7 +94,13 @@ fn decode_ldr(block: &[u8; 16], w: u32, h: u32, srgb: bool, out: &mut [[u8; 4]])
 
 /// Decodes one logical ASTC LDR block into `out` (basisu `decode_block_xuastc_ldr` equals
 /// `decode_block`).
-fn decode_log(log: &LogAstcBlock, w: u32, h: u32, srgb: bool, out: &mut [[u8; 4]]) -> Result<()> {
+pub(super) fn decode_log(
+    log: &LogAstcBlock,
+    w: u32,
+    h: u32,
+    srgb: bool,
+    out: &mut [[u8; 4]],
+) -> Result<()> {
     let mut px = if srgb {
         DecodePixels::Srgb8(out)
     } else {
@@ -296,6 +303,24 @@ pub(crate) fn transcode(src: &AstcLdrImage, format: Format, dst: &mut [u8]) -> R
             }
         }
         return Ok(());
+    }
+    // XUASTC 4x4 / 6x6 / 8x6 -> BC7 (no deblocking): direct ASTC -> BC7 fast paths.
+    if let Blocks::Logical(blocks) = src.blocks
+        && matches!(format, Format::Bc7Unorm | Format::Bc7Srgb)
+        && !src.deblock
+        && super::xuastc_bc7::has_fast_path(src.block)
+    {
+        return super::xuastc_bc7::transcode(
+            blocks,
+            src.block,
+            src.blocks_x,
+            src.blocks_y,
+            src.width,
+            src.height,
+            src.srgb,
+            src.has_alpha,
+            dst,
+        );
     }
     let pvrtc1 = matches!(format, Format::Pvrtc1Rgb | Format::Pvrtc1Rgba);
     if pvrtc1 && (!src.width.is_power_of_two() || !src.height.is_power_of_two()) {

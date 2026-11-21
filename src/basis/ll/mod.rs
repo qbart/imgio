@@ -15,6 +15,7 @@ pub(crate) mod atc;
 pub(crate) mod bc6h;
 pub(crate) mod bc7f;
 pub(crate) mod bc7f_astc;
+pub(crate) mod bc7f_xuastc;
 pub(crate) mod bc7m5;
 pub(crate) mod bc7u;
 pub(crate) mod bitreader;

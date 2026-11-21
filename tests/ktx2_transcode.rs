@@ -138,12 +138,8 @@ fn xubc7() -> Result<(), Box<dyn Error>> {
 #[test]
 fn xuastc_ldr() -> Result<(), Box<dyn Error>> {
     // xuastc10x8_dct_arith.ktx2 carries DeblockFilterID = 1.
-    // BC7 (id 6) from 4x4 and 6x6 uses the direct ASTC -> BC7 fast path (ROADMAP step 9).
-    let fast_bc7 = |l: &str| {
-        (l.starts_with("xuastc4x4") || l.starts_with("xuastc6x6"))
-            && l.split(' ').nth(1) == Some("6")
-    };
-    assert_eq!(check(|l| l.starts_with("xuastc") && !fast_bc7(l))?, 151);
+    // BC7 (id 6) from 4x4 and 6x6 uses the direct ASTC -> BC7 fast paths.
+    assert_eq!(check(|l| l.starts_with("xuastc"))?, 160);
     Ok(())
 }
 

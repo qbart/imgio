@@ -9,7 +9,7 @@
 - [x] ETC1 / ETC2 / EAC decode
 - [x] ASTC decode (LDR, HDR), 2D blocks
 - [x] Basis Universal transcoder (.basis): ETC1S, UASTC LDR, UASTC HDR 4x4/6x6i, ASTC HDR 6x6 -> all targets except FXT1
-- [ ] Basis Universal v2 payloads: XUASTC LDR, ASTC LDR, XUBC7 (see current plan)
+- [x] Basis Universal v2 payloads: XUASTC LDR, ASTC LDR, XUBC7 -> all targets (bit-exact vs C++)
 - [ ] BCn / ASTC encoders (multithreaded)
 - [ ] Basis Universal encoders: ETC1S, UASTC LDR/HDR
 - [x] KTX2 reader for Basis payloads (BasisLZ, zstd, arrays, cubemaps)
@@ -37,7 +37,7 @@ transcoder via `tools/basisu-golden`.
 6. [x] Deblocking filter and PVRTC1 encoder -> every ASTC LDR target
 7. [x] XUASTC LDR decompression, zstd syntax (+ DCT weight grids)
 8. [x] XUASTC LDR arithmetic and hybrid syntaxes
-9. [ ] XUASTC direct BC7 fast path (default transcode path)
+9. [x] XUASTC direct BC7 fast path (default transcode path)
 10. [x] XUBC7 transcoder
 
 Previous plan (done): image types, conversion, ETC/ASTC decode, Basis core, ETC1S, UASTC LDR,
