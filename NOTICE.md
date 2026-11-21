@@ -74,5 +74,6 @@ Not included in the published crate.
 | `testdata/ktx2/mips/*` | `testdata/images` PNGs mipmapped by `ktx create --generate-mipmap` (ktx-rs port; `tools/ktx2-golden/gen.py`) | Apache-2.0 |
 | `testdata/ktx2/basis/*.basis` | `.basis` twins of `testdata/ktx2/*.ktx2`, same Basis Universal v2.50 CLI options (`scripts/gen_basis_testdata.sh`) | Apache-2.0 |
 | `testdata/ktx2/plain/*` | synthetic raw images (`tools/ktx2-golden/gen.py`) packed by `ktx create --raw` (KTX-Software CLI, ktx-rs port) | Apache-2.0 |
+| `testdata/astc/files/*` | `testdata/images` raw image (as TGA) encoded / decoded by ARM astcenc 6.0 (`ref/astcenc`) | Apache-2.0 |
 | `testdata/dds/*.dds` | `testdata/images` PNGs written by the Basis Universal v2.50 CLI (`basisu -dds`) | Apache-2.0 |
 | `testdata/bench/*.ktx2` | `scripts/gen_images.py` bench image encoded by the Basis Universal v2.50 CLI | Apache-2.0 |
