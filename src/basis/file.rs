@@ -2,7 +2,7 @@
 //!
 //! Layout from Basis Universal `transcoder/basisu_file_headers.h` (packed little endian).
 
-use crate::{Error, Result};
+use crate::{AstcBlock, Error, Result};
 use std::sync::OnceLock;
 use vas::Vector;
 use vas::storage::Dynamic;
@@ -16,6 +16,7 @@ const SLICE_DESC_SIZE: usize = 23;
 const FLAG_ETC1S: u32 = 1;
 const FLAG_Y_FLIPPED: u32 = 2;
 const FLAG_HAS_ALPHA_SLICES: u32 = 4;
+const FLAG_SRGB: u32 = 16;
 const SLICE_FLAG_HAS_ALPHA: u32 = 1;
 
 /// Payload encoding of a Basis Universal texture.
@@ -32,7 +33,31 @@ pub enum BasisTexFormat {
     AstcHdr6x6,
     /// UASTC HDR 6x6 intermediate (supercompressed).
     UastcHdr6x6Intermediate,
+    /// XUASTC LDR: supercompressed ASTC LDR with the given block size.
+    XuastcLdr(AstcBlock),
+    /// Plain ASTC LDR blocks with the given block size.
+    AstcLdr(AstcBlock),
+    /// XUBC7: supercompressed BC7.
+    Xubc7,
 }
+
+/// ASTC block sizes in basisu `basis_tex_format` order (XUASTC 5..18, ASTC LDR 19..32).
+pub(crate) const BASIS_ASTC_ORDER: [AstcBlock; 14] = [
+    AstcBlock::B4x4,
+    AstcBlock::B5x4,
+    AstcBlock::B5x5,
+    AstcBlock::B6x5,
+    AstcBlock::B6x6,
+    AstcBlock::B8x5,
+    AstcBlock::B8x6,
+    AstcBlock::B10x5,
+    AstcBlock::B10x6,
+    AstcBlock::B8x8,
+    AstcBlock::B10x8,
+    AstcBlock::B10x10,
+    AstcBlock::B12x10,
+    AstcBlock::B12x12,
+];
 
 impl BasisTexFormat {
     pub(crate) fn from_u32(v: u32) -> Option<Self> {
@@ -42,6 +67,9 @@ impl BasisTexFormat {
             2 => Self::UastcHdr4x4,
             3 => Self::AstcHdr6x6,
             4 => Self::UastcHdr6x6Intermediate,
+            5..=18 => Self::XuastcLdr(BASIS_ASTC_ORDER[v as usize - 5]),
+            19..=32 => Self::AstcLdr(BASIS_ASTC_ORDER[v as usize - 19]),
+            33 => Self::Xubc7,
             _ => return None,
         })
     }
@@ -50,7 +78,16 @@ impl BasisTexFormat {
     pub fn block_dim(self) -> (u32, u32) {
         match self {
             Self::AstcHdr6x6 | Self::UastcHdr6x6Intermediate => (6, 6),
+            Self::XuastcLdr(b) | Self::AstcLdr(b) => b.dim(),
             _ => (4, 4),
+        }
+    }
+
+    /// The ASTC block size of XUASTC LDR and ASTC LDR payloads.
+    pub fn astc_block(self) -> Option<AstcBlock> {
+        match self {
+            Self::XuastcLdr(b) | Self::AstcLdr(b) => Some(b),
+            _ => None,
         }
     }
 
@@ -269,6 +306,11 @@ impl<'a> BasisFile<'a> {
         self.flags & FLAG_HAS_ALPHA_SLICES != 0
     }
 
+    /// True when the ASTC LDR / XUASTC LDR payload was encoded for the sRGB decode profile.
+    pub fn is_srgb(&self) -> bool {
+        self.flags & FLAG_SRGB != 0
+    }
+
     /// True when the encoder flipped the image vertically.
     pub fn y_flipped(&self) -> bool {
         self.flags & FLAG_Y_FLIPPED != 0
@@ -322,6 +364,32 @@ mod tests {
     fn crc() {
         assert_eq!(crc16(b"", 0), 0);
         assert_eq!(crc16(b"123456789", 0), crc16(b"6789", crc16(b"12345", 0)));
+    }
+
+    #[test]
+    fn tex_format_ids() {
+        assert_eq!(
+            BasisTexFormat::from_u32(5),
+            Some(BasisTexFormat::XuastcLdr(AstcBlock::B4x4))
+        );
+        assert_eq!(
+            BasisTexFormat::from_u32(14),
+            Some(BasisTexFormat::XuastcLdr(AstcBlock::B8x8))
+        );
+        assert_eq!(
+            BasisTexFormat::from_u32(19),
+            Some(BasisTexFormat::AstcLdr(AstcBlock::B4x4))
+        );
+        assert_eq!(
+            BasisTexFormat::from_u32(32),
+            Some(BasisTexFormat::AstcLdr(AstcBlock::B12x12))
+        );
+        assert_eq!(BasisTexFormat::from_u32(33), Some(BasisTexFormat::Xubc7));
+        assert_eq!(BasisTexFormat::from_u32(34), None);
+        assert_eq!(
+            BasisTexFormat::AstcLdr(AstcBlock::B10x8).block_dim(),
+            (10, 8)
+        );
     }
 
     #[test]

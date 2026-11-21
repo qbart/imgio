@@ -36,6 +36,25 @@ fn format(id: u32) -> Option<Format> {
         25 => Rgba16Float,
         26 => Rgb9e5Float,
         27 => Astc(AstcBlock::B6x6, AstcKind::Float),
+        // ASTC LDR 5x4 .. 12x12 (basisu order).
+        28..=40 => Astc(
+            [
+                AstcBlock::B5x4,
+                AstcBlock::B5x5,
+                AstcBlock::B6x5,
+                AstcBlock::B6x6,
+                AstcBlock::B8x5,
+                AstcBlock::B8x6,
+                AstcBlock::B10x5,
+                AstcBlock::B10x6,
+                AstcBlock::B8x8,
+                AstcBlock::B10x8,
+                AstcBlock::B10x10,
+                AstcBlock::B12x10,
+                AstcBlock::B12x12,
+            ][id as usize - 28],
+            AstcKind::Unorm,
+        ),
         _ => return None, // 17 = FXT1, not ported yet
     })
 }
@@ -46,12 +65,12 @@ fn fnv(b: &[u8]) -> u64 {
     })
 }
 
-#[test]
-fn matches_basisu() -> Result<(), Box<dyn Error>> {
+/// Checks every golden line whose file name passes `filter`; returns the count.
+fn check(filter: impl Fn(&str) -> bool) -> Result<usize, Box<dyn Error>> {
     let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/ktx2/");
     let golden = std::fs::read_to_string(format!("{dir}golden.txt"))?;
     let (mut failures, mut checked) = (Vec::new(), 0);
-    for line in golden.lines() {
+    for line in golden.lines().filter(|l| filter(l)) {
         let f: Vec<&str> = line.split(' ').collect();
         let n = |i: usize| f[i].parse::<u32>();
         let (id, level, layer, face) = (n(1)?, n(2)?, n(3)?, n(4)?);
@@ -77,7 +96,19 @@ fn matches_basisu() -> Result<(), Box<dyn Error>> {
         failures.len(),
         failures.join("\n")
     );
-    assert_eq!(checked, 349 - 9); // minus FXT1 lines
+    Ok(checked)
+}
+
+/// Payloads not transcodable yet (see ROADMAP.md).
+fn pending(line: &str) -> bool {
+    ["astc_ldr", "xuastc", "xubc7"]
+        .iter()
+        .any(|p| line.starts_with(p))
+}
+
+#[test]
+fn matches_basisu() -> Result<(), Box<dyn Error>> {
+    assert_eq!(check(|l| !pending(l))?, 349 - 9); // minus FXT1 lines
     Ok(())
 }
 
@@ -133,6 +164,66 @@ fn header_info() -> Result<(), Box<dyn Error>> {
         bad[0] = 0;
         assert!(Ktx2File::parse(&bad).is_err());
         assert!(Ktx2File::parse(&data[..100]).is_err());
+    }
+    Ok(())
+}
+
+#[test]
+fn header_info_astc_ldr_xuastc_xubc7() -> Result<(), Box<dyn Error>> {
+    use BasisTexFormat::{AstcLdr, XuastcLdr, Xubc7};
+    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/ktx2/");
+    // (name, format, levels, layers, alpha, sRGB)
+    let cases = [
+        (
+            "astc_ldr8x5_rgba.ktx2",
+            AstcLdr(AstcBlock::B8x5),
+            7,
+            1,
+            true,
+            true,
+        ),
+        (
+            "astc_ldr10x10_rgb.ktx2",
+            AstcLdr(AstcBlock::B10x10),
+            1,
+            1,
+            false,
+            false,
+        ),
+        (
+            "xuastc6x6_rgba.ktx2",
+            XuastcLdr(AstcBlock::B6x6),
+            7,
+            1,
+            true,
+            true,
+        ),
+        (
+            "xuastc10x8_dct_arith.ktx2",
+            XuastcLdr(AstcBlock::B10x8),
+            1,
+            1,
+            false,
+            true,
+        ),
+        (
+            "xuastc4x4_array.ktx2",
+            XuastcLdr(AstcBlock::B4x4),
+            1,
+            2,
+            false,
+            true,
+        ),
+        ("xubc7_rgba.ktx2", Xubc7, 6, 1, true, true),
+    ];
+    for (name, tex, levels, layers, alpha, srgb) in cases {
+        let data = std::fs::read(format!("{dir}{name}"))?;
+        let f = Ktx2File::parse(&data)?;
+        assert_eq!(f.tex_format(), tex, "{name}");
+        assert_eq!(f.level_count(), levels, "{name}");
+        assert_eq!(f.layer_count(), layers, "{name}");
+        assert_eq!(f.has_alpha(), alpha, "{name}");
+        assert_eq!(f.is_srgb(), srgb, "{name}");
     }
     Ok(())
 }

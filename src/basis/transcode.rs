@@ -45,20 +45,27 @@ fn target(format: Format) -> Option<T> {
     })
 }
 
-fn ll_format(f: BasisTexFormat) -> super::ll::BasisTexFormat {
+fn ll_format(f: BasisTexFormat) -> Option<super::ll::BasisTexFormat> {
     use super::ll::BasisTexFormat as L;
-    match f {
+    Some(match f {
         BasisTexFormat::Etc1s => L::Etc1s,
         BasisTexFormat::UastcLdr4x4 => L::UastcLdr4x4,
         BasisTexFormat::UastcHdr4x4 => L::UastcHdr4x4,
         BasisTexFormat::AstcHdr6x6 => L::AstcHdr6x6,
         BasisTexFormat::UastcHdr6x6Intermediate => L::UastcHdr6x6Intermediate,
-    }
+        // Not transcodable yet.
+        BasisTexFormat::XuastcLdr(_) | BasisTexFormat::AstcLdr(_) | BasisTexFormat::Xubc7 => {
+            return None;
+        }
+    })
 }
 
 /// True when `tex` payloads can be transcoded to `format`.
 pub(crate) fn can_transcode(tex: BasisTexFormat, format: Format) -> bool {
-    target(format).is_some_and(|t| basis_is_format_supported(t, ll_format(tex)))
+    match (target(format), ll_format(tex)) {
+        (Some(t), Some(l)) => basis_is_format_supported(t, l),
+        _ => false,
+    }
 }
 
 /// Decodes ETC1S endpoint/selector codebooks and Huffman tables.
@@ -178,6 +185,9 @@ pub(crate) fn transcode_slice(
         BasisTexFormat::AstcHdr6x6 => status(LowlevelAstcHdr6x6Transcoder::new().transcode_image(
             t, dst, units, s.data, s.blocks_x, s.blocks_y, s.width, s.height, s.ofs, s.len, 0,
         )),
+        BasisTexFormat::XuastcLdr(_) | BasisTexFormat::AstcLdr(_) | BasisTexFormat::Xubc7 => {
+            Err(Error::Unsupported)
+        }
     }
 }
 

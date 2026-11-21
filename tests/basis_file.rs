@@ -90,3 +90,108 @@ fn rejects_corruption() -> Result<(), Box<dyn Error>> {
     assert!(BasisFile::parse(&data).is_err());
     Ok(())
 }
+
+#[test]
+fn parses_astc_ldr_xuastc_xubc7() -> Result<(), Box<dyn Error>> {
+    use BasisTexFormat::{AstcLdr, XuastcLdr, Xubc7};
+    use imgio::AstcBlock::*;
+    // (name, format, width, height, levels, alpha, sRGB decode profile)
+    let cases = [
+        (
+            "astc_ldr4x4_rgba.basis",
+            AstcLdr(B4x4),
+            64,
+            48,
+            7,
+            true,
+            true,
+        ),
+        (
+            "astc_ldr6x5_rgb.basis",
+            AstcLdr(B6x5),
+            37,
+            29,
+            1,
+            false,
+            false,
+        ),
+        (
+            "astc_ldr8x8_pow2.basis",
+            AstcLdr(B8x8),
+            32,
+            32,
+            6,
+            true,
+            true,
+        ),
+        (
+            "astc_ldr12x12_rgba.basis",
+            AstcLdr(B12x12),
+            64,
+            48,
+            1,
+            true,
+            true,
+        ),
+        (
+            "xuastc4x4_rgba.basis",
+            XuastcLdr(B4x4),
+            64,
+            48,
+            7,
+            true,
+            true,
+        ),
+        (
+            "xuastc5x4_dct.basis",
+            XuastcLdr(B5x4),
+            64,
+            48,
+            1,
+            true,
+            true,
+        ),
+        (
+            "xuastc6x6_rgba_arith.basis",
+            XuastcLdr(B6x6),
+            64,
+            48,
+            7,
+            true,
+            true,
+        ),
+        (
+            "xuastc8x6_rgb_hybrid.basis",
+            XuastcLdr(B8x6),
+            37,
+            29,
+            1,
+            false,
+            false,
+        ),
+        (
+            "xuastc12x12_pow2.basis",
+            XuastcLdr(B12x12),
+            32,
+            32,
+            6,
+            true,
+            true,
+        ),
+        ("xubc7_rgba.basis", Xubc7, 64, 48, 7, true, true),
+        ("xubc7_rgb.basis", Xubc7, 37, 29, 1, false, true),
+    ];
+    for (name, fmt, w, h, levels, alpha, srgb) in cases {
+        let data = read(name)?;
+        let f = BasisFile::parse(&data)?;
+        assert_eq!(f.tex_format(), fmt, "{name}");
+        assert_eq!(f.level_count(0), levels, "{name}");
+        assert_eq!(f.has_alpha(), alpha, "{name}");
+        assert_eq!(f.is_srgb(), srgb, "{name}");
+        let l0 = f.level_info(0, 0)?;
+        assert_eq!((l0.width, l0.height), (w, h), "{name}");
+        let (bw, bh) = fmt.block_dim();
+        assert_eq!((l0.blocks_x, l0.blocks_y), (w.div_ceil(bw), h.div_ceil(bh)));
+    }
+    Ok(())
+}

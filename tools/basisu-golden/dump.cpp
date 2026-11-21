@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 imgio contributors
 // SPDX-License-Identifier: Apache-2.0
 // Offline golden generator (dev tool, not part of the crate): transcodes every image level of
-// the given .basis / .ktx2 files to every supported transcoder_texture_format (0..27) with the
+// the given .basis / .ktx2 files to every supported transcoder_texture_format (0..40) with the
 // C++ Basis Universal transcoder and prints "file format level size fnv1a64" (.basis, image 0)
 // or "file format level layer face size fnv1a64" (.ktx2, every layer and face).
 // Build: see build.sh (needs ../../ref/basisu).
@@ -31,7 +31,7 @@ int main(int argc, char** argv) {
         if (strstr(name, ".ktx2")) {
             ktx2_transcoder k;
             if (!k.init(d.data(), (uint32_t)d.size()) || !k.start_transcoding()) return 3;
-            for (int fmt = 0; fmt <= 27; fmt++) {
+            for (int fmt = 0; fmt <= 40; fmt++) {
                 auto tf = (transcoder_texture_format)fmt;
                 if (!basis_is_format_supported(tf, k.get_basis_tex_format())) continue;
                 for (uint32_t l = 0; l < k.get_levels(); l++)
@@ -60,7 +60,7 @@ int main(int argc, char** argv) {
         if (!t.validate_header(d.data(), (uint32_t)d.size()) || !t.start_transcoding(d.data(), (uint32_t)d.size())) return 2;
         basisu_file_info fi;
         t.get_file_info(d.data(), (uint32_t)d.size(), fi);
-        for (int fmt = 0; fmt <= 27; fmt++) {
+        for (int fmt = 0; fmt <= 40; fmt++) {
             auto tf = (transcoder_texture_format)fmt;
             if (!basis_is_format_supported(tf, fi.m_tex_format)) continue;
             uint32_t levels = t.get_total_image_levels(d.data(), (uint32_t)d.size(), 0);

@@ -35,6 +35,25 @@ fn format(id: u32) -> Option<Format> {
         25 => Rgba16Float,
         26 => Rgb9e5Float,
         27 => Astc(AstcBlock::B6x6, AstcKind::Float),
+        // ASTC LDR 5x4 .. 12x12 (basisu order).
+        28..=40 => Astc(
+            [
+                AstcBlock::B5x4,
+                AstcBlock::B5x5,
+                AstcBlock::B6x5,
+                AstcBlock::B6x6,
+                AstcBlock::B8x5,
+                AstcBlock::B8x6,
+                AstcBlock::B10x5,
+                AstcBlock::B10x6,
+                AstcBlock::B8x8,
+                AstcBlock::B10x8,
+                AstcBlock::B10x10,
+                AstcBlock::B12x10,
+                AstcBlock::B12x12,
+            ][id as usize - 28],
+            AstcKind::Unorm,
+        ),
         _ => return None,
     })
 }

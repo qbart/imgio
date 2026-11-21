@@ -9,6 +9,7 @@
 - [x] ETC1 / ETC2 / EAC decode
 - [x] ASTC decode (LDR, HDR), 2D blocks
 - [x] Basis Universal transcoder (.basis): ETC1S, UASTC LDR, UASTC HDR 4x4/6x6i, ASTC HDR 6x6 -> all targets except FXT1
+- [ ] Basis Universal v2 payloads: XUASTC LDR, ASTC LDR, XUBC7 (see current plan)
 - [ ] BCn / ASTC encoders (multithreaded)
 - [ ] Basis Universal encoders: ETC1S, UASTC LDR/HDR
 - [x] KTX2 reader for Basis payloads (BasisLZ, zstd, arrays, cubemaps)
@@ -20,18 +21,24 @@
 
 - [ ] FXT1 transcode target
 - [ ] PVRTC1/2 and ATC decoders
-- [ ] XUASTC LDR and ASTC LDR (basisu v2 tex formats 5+)
 - [ ] Parallel transcode of many levels/images
 
-## Current plan (in order)
+## Current plan (in order): basisu v2 payloads (XUASTC LDR, ASTC LDR, XUBC7)
 
-1. [x] Image types: `Surface`, mip chain helpers
-2. [x] Raw conversion: half/f32, R8/RG8/RGBA8/RGBA16F/RGBA32F -> RGBA8/RGBA32F
-3. [x] ETC1/ETC2/EAC decode
-4. [x] ASTC decode (LDR, HDR)
-5. [x] Basis core: .basis file, bit reader, Huffman, tables
-6. [x] ETC1S transcoder -> all LDR targets
-7. [x] UASTC LDR 4x4 transcoder -> all LDR targets
-8. [x] UASTC HDR (4x4, 6x6) transcoder -> BC6H, ASTC HDR, RGBA16F
-9. [x] KTX2 reader for Basis payloads (BasisLZ, zstd)
-10. [x] Golden transcode tests and benches
+Ported from C++ basisu (`ref/basisu`; ktx-rs has no groundwork here), bit-exact vs the C++
+transcoder via `tools/basisu-golden`.
+
+1. [x] Containers: tex formats 5..33 in `.basis` and KTX2 (DFD 169/170, ASTC LDR vkFormats),
+   test files (`scripts/gen_basis_testdata.sh`), golden hashes for targets 0..40
+2. [ ] ASTC LDR -> ASTC passthrough and uncompressed targets (RGBA32, 565, 4444), 4x4 re-blocking
+3. [ ] ASTC LDR -> BC1/BC3/BC4/BC5/EAC via the real-time encoders already in `ll`
+4. [ ] `etc1f` real-time ETC1 encoder -> ETC1 / ETC2 RGBA targets
+5. [ ] `bc7f` real-time BC7 encoder -> BC7 target
+6. [ ] Deblocking filter and PVRTC1 encoder -> every ASTC LDR target
+7. [ ] XUASTC LDR decompression, zstd syntax (+ DCT weight grids)
+8. [ ] XUASTC LDR arithmetic and hybrid syntaxes
+9. [ ] XUASTC direct BC7 fast path (default transcode path)
+10. [ ] XUBC7 transcoder
+
+Previous plan (done): image types, conversion, ETC/ASTC decode, Basis core, ETC1S, UASTC LDR,
+UASTC HDR, KTX2 reader, golden tests and benches.

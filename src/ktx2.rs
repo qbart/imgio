@@ -1,5 +1,6 @@
 //! KTX2 container with Basis Universal payloads (ETC1S/BasisLZ, UASTC LDR 4x4 and HDR 4x4,
-//! ASTC HDR 6x6, UASTC HDR 6x6 intermediate), raw or Zstandard supercompressed.
+//! ASTC HDR 6x6, UASTC HDR 6x6 intermediate, ASTC LDR, XUASTC LDR, XUBC7), raw or Zstandard
+//! supercompressed.
 //!
 //! Layout from the KTX 2.0 specification; payload detection follows Basis Universal's
 //! `ktx2_transcoder` (DFD color model, vkFormat, supercompression scheme).
@@ -7,7 +8,7 @@
 use crate::basis::BasisTexFormat;
 use crate::basis::ll::etc1s::LowlevelEtc1sTranscoder;
 use crate::basis::transcode::{SliceRef, can_transcode, etc1s_transcoder, transcode_slice};
-use crate::{Buffer, Error, Format, Result};
+use crate::{AstcBlock, Buffer, Error, Format, Result};
 use std::sync::OnceLock;
 use vas::Vector;
 use vas::storage::Dynamic;
@@ -22,15 +23,21 @@ const SS_NONE: u32 = 0;
 const SS_BASISLZ: u32 = 1;
 const SS_ZSTD: u32 = 2;
 const SS_UASTC_HDR_6X6I: u32 = 4;
+const SS_XUASTC_LDR: u32 = 5;
+const SS_XUBC7: u32 = 6;
 
 const MODEL_ASTC: u32 = 162;
 const MODEL_ETC1S: u32 = 163;
 const MODEL_UASTC_LDR_4X4: u32 = 166;
 const MODEL_UASTC_HDR_4X4: u32 = 167;
 const MODEL_UASTC_HDR_6X6I: u32 = 168;
+const MODEL_XUASTC_LDR: u32 = 169;
+const MODEL_XUBC7: u32 = 170;
 
 const VK_ASTC_4X4_SFLOAT: u32 = 1_000_066_000;
 const VK_ASTC_6X6_SFLOAT: u32 = 1_000_066_004;
+/// `VK_FORMAT_ASTC_4x4_UNORM_BLOCK` .. `VK_FORMAT_ASTC_12x12_SRGB_BLOCK` (odd = unorm).
+const VK_ASTC_LDR: std::ops::RangeInclusive<u32> = 157..=184;
 
 const TRANSFER_SRGB: u32 = 2;
 const CHANNEL_UASTC_RGBA: u32 = 3;
@@ -66,7 +73,7 @@ pub struct Ktx2File<'a> {
     has_alpha: bool,
     video: bool,
     levels: Vector<Level, Dynamic>,
-    /// ETC1S or 6x6i slice locations, indexed `level * layers * faces + layer * faces + face`.
+    /// ETC1S, 6x6i, XUASTC or XUBC7 slice locations, indexed `level * layers * faces + layer * faces + face`.
     images: Vector<ImageDesc, Dynamic>,
     etc1s: Option<LowlevelEtc1sTranscoder>,
     /// Zstandard-inflated level data, filled on first use.
@@ -158,6 +165,8 @@ impl<'a> Ktx2File<'a> {
         }
         let bits = u32le(dfd, 12)?;
         let (model, transfer) = (bits & 255, (bits >> 16) & 255);
+        let dims = u32le(dfd, 16)?;
+        let dfd_block = AstcBlock::from_dim((dims & 255) + 1, ((dims >> 8) & 255) + 1);
         let chan0 = (u32le(dfd, 28)? >> 24) & 15;
         let uastc_alpha = chan0 == CHANNEL_UASTC_RGBA || chan0 == CHANNEL_UASTC_RRRG;
         let (tex_format, has_alpha) = match model {
@@ -169,6 +178,21 @@ impl<'a> Ktx2File<'a> {
                 (BasisTexFormat::UastcHdr4x4, false)
             }
             MODEL_ASTC if vk_format == VK_ASTC_6X6_SFLOAT => (BasisTexFormat::AstcHdr6x6, false),
+            MODEL_ASTC if VK_ASTC_LDR.contains(&vk_format) => {
+                // vkFormat order: 4x4 .. 12x12, each as UNORM then SRGB.
+                let b = AstcBlock::ALL[((vk_format - 157) / 2) as usize];
+                if dfd_block != Some(b) {
+                    return Err(Error::InvalidData);
+                }
+                (BasisTexFormat::AstcLdr(b), uastc_alpha)
+            }
+            MODEL_XUASTC_LDR if vk_format == 0 && scheme == SS_XUASTC_LDR => {
+                let b = dfd_block.ok_or(Error::InvalidData)?;
+                (BasisTexFormat::XuastcLdr(b), uastc_alpha)
+            }
+            MODEL_XUBC7 if vk_format == 0 && scheme == SS_XUBC7 => {
+                (BasisTexFormat::Xubc7, uastc_alpha)
+            }
             MODEL_UASTC_HDR_6X6I
                 if vk_format == 0 && (scheme == SS_UASTC_HDR_6X6I || scheme == SS_BASISLZ) =>
             {
@@ -178,7 +202,10 @@ impl<'a> Ktx2File<'a> {
         };
         let plain = matches!(
             tex_format,
-            BasisTexFormat::UastcLdr4x4 | BasisTexFormat::UastcHdr4x4 | BasisTexFormat::AstcHdr6x6
+            BasisTexFormat::UastcLdr4x4
+                | BasisTexFormat::UastcHdr4x4
+                | BasisTexFormat::AstcHdr6x6
+                | BasisTexFormat::AstcLdr(_)
         );
         if plain {
             if scheme != SS_NONE && scheme != SS_ZSTD {
@@ -236,8 +263,13 @@ impl<'a> Ktx2File<'a> {
                     video = true;
                 }
             } else {
-                // UASTC HDR 6x6i: offset/length (+ profile in the standard layout) per image.
-                let stride = if scheme == SS_UASTC_HDR_6X6I { 12 } else { 8 };
+                // UASTC HDR 6x6i, XUASTC LDR, XUBC7: offset/length (+ profile in the standard
+                // layout) per image.
+                let std_layout = matches!(scheme, SS_UASTC_HDR_6X6I | SS_XUASTC_LDR | SS_XUBC7);
+                let stride = if std_layout { 12 } else { 8 };
+                if sgd.len() != total_images * stride {
+                    return Err(Error::InvalidData);
+                }
                 for i in 0..total_images {
                     let at = i * stride;
                     images
@@ -389,7 +421,10 @@ impl<'a> Ktx2File<'a> {
             video: self.video,
         };
         match self.tex_format {
-            BasisTexFormat::Etc1s | BasisTexFormat::UastcHdr6x6Intermediate => {
+            BasisTexFormat::Etc1s
+            | BasisTexFormat::UastcHdr6x6Intermediate
+            | BasisTexFormat::XuastcLdr(_)
+            | BasisTexFormat::Xubc7 => {
                 let d = self.images.get(image as usize).ok_or(Error::InvalidData)?;
                 s.ofs = l.ofs + u64::from(d.rgb.0);
                 s.len = d.rgb.1;
