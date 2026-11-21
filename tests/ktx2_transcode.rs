@@ -199,7 +199,7 @@ fn header_info() -> Result<(), Box<dyn Error>> {
     for (name, tex, levels, layers, alpha) in cases {
         let data = std::fs::read(format!("{dir}{name}"))?;
         let f = Ktx2File::parse(&data)?;
-        assert_eq!(f.tex_format(), tex, "{name}");
+        assert_eq!(f.tex_format(), Some(tex), "{name}");
         assert_eq!(f.level_count(), levels, "{name}");
         assert_eq!(f.layer_count(), layers, "{name}");
         assert_eq!(f.has_alpha(), alpha, "{name}");
@@ -267,7 +267,7 @@ fn header_info_astc_ldr_xuastc_xubc7() -> Result<(), Box<dyn Error>> {
     for (name, tex, levels, layers, alpha, srgb) in cases {
         let data = std::fs::read(format!("{dir}{name}"))?;
         let f = Ktx2File::parse(&data)?;
-        assert_eq!(f.tex_format(), tex, "{name}");
+        assert_eq!(f.tex_format(), Some(tex), "{name}");
         assert_eq!(f.level_count(), levels, "{name}");
         assert_eq!(f.layer_count(), layers, "{name}");
         assert_eq!(f.has_alpha(), alpha, "{name}");

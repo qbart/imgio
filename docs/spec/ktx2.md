@@ -1,6 +1,30 @@
-# KTX2 (Basis payloads)
+# KTX2
 
-`imgio::ktx2::Ktx2File` borrows the file bytes.
+`imgio::ktx2::Ktx2File` borrows the file bytes; `imgio::ktx2::write` creates plain files.
+
+## Plain `VkFormat` payloads
+
+- `vk::vk_format(Format)` / `format_from_vk(u32)`: every `Format` with a Vulkan equivalent (no
+  ATC, FXT1). Written as: BC1 -> `BC1_RGBA` (133/134), ETC1 -> `ETC2_R8G8B8`, PVRTC1/2 ->
+  `*_4BPP_UNORM_BLOCK_IMG`; read: `BC1_RGB` too, PVRTC sRGB as unorm.
+- Reader: when no Basis payload matches and the DFD model is the vkFormat's standard model
+  (from `dfd::dfd`), the file is plain: `format()`, `vk_format()`, `image_data(level, layer,
+  face)` (zstd inflated once per level), `has_alpha` from an alpha DFD sample (BC1A: "alpha
+  present"); `typeSize` must match. `tex_format()` is `Option` (`None` for plain); plain ASTC
+  LDR / ASTC 6x6 HDR files are both plain and Basis (transcodable).
+- `dfd::dfd(Format)`: port of KTX-Software `vk2dfd` / `createDFD{Unpacked,Packed,Compressed}`
+  (little-endian; E5B9G9R9 special case), fixed-size words.
+- `write(desc, levels, opts)`: `Ktx2Desc` (format, size, layers (0 = no array), faces, levels),
+  `levels[i]` = all layer/face images of level i; `WriteOptions { supercompression: None |
+  Zstd(level), key_values }`. Layout as `ktxTexture2_WriteToMemory`: header, level index,
+  DFD, key/values sorted by key (each padded to 4, padding counted), levels smallest first,
+  aligned to lcm(block bytes, 4) (1 when supercompressed); empty KVD -> offset 0. Zstandard
+  via `zstd-pure-rs` (libzstd translation): byte-identical with `ktx create --zstd N`.
+- Golden test `tests/ktx2_plain.rs`: 94 files from `ktx create --raw` (KTX-Software CLI as
+  ported by ktx-rs; `tools/ktx2-golden/gen.py`): every vkFormat, mips, arrays, cubemaps,
+  cube arrays, zstd 1/3/19. Reader returns every image; writer output is byte-identical.
+
+## Basis payloads
 
 - Header (80 bytes), level index (24 bytes/level), DFD (44 or 60 bytes, one basic block),
   key/values (`KTXanimData` -> video), supercompression global data.
@@ -21,7 +45,7 @@
   global data (offsets relative to the level); plain payloads are `(layer * faces + face)`
   images of `blocks * 16` bytes in the (inflated) level.
 - Zstandard levels are inflated with `ruzstd` (pure Rust) into a vas `Buffer`, once per level.
-- Not supported: depth > 0, non-Basis KTX2 (plain BCn etc.).
+- Not supported: depth > 0 (3D textures), plain vkFormats outside `Format`.
 - `transcode(level, layer, face, format, dst)` reuses the container-independent
   `basis::transcode::transcode_slice`; `transcode_with` takes `basis::TranscodeOptions`
   (`Deblock::Auto` follows `DeblockFilterID`, `Off`/`Force` override it like C++).
@@ -34,3 +58,5 @@ array, UASTC zstd and raw, HDR 4x4, ASTC HDR 6x6, 6x6i) bit-exact with the C++ `
 
 - 2026-11-21: initial reader written from the KTX 2.0 spec and basisu `ktx2_transcoder`.
 - 2026-11-21: DFD models 169 (XUASTC LDR), 170 (XUBC7) and ASTC LDR vkFormats parsed.
+- 2026-11-21: plain vkFormat reader + writer (raw / zstd), DFD generation; 94 KTX-Software
+  reference files read and rewritten byte-identically.

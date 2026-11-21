@@ -13,6 +13,7 @@ include = ["/src/**", "/Cargo.toml", "/LICENSE", "/LICENSES/**", "/NOTICE.md", "
 
 [dependencies]
 ruzstd = "0.9.1"
+zstd-pure-rs = "0.2.0"
 vas = { version = "0.42.0", features = ["alloc"] }
 
 [lints.rust]

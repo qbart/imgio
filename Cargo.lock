@@ -15,6 +15,7 @@ dependencies = [
  "bcdec_rs",
  "ruzstd",
  "vas",
+ "zstd-pure-rs",
 ]
 
 [[package]]
@@ -37,3 +38,9 @@ name = "vas"
 version = "0.42.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d648e35d4841492360299a284a61c0914bd9baa9742a1ea5daaa7e87d8a64236"
+
+[[package]]
+name = "zstd-pure-rs"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "71cafafebc1c81515698e9b97846d619f993db5cbcf50b72e4c6e58a8477b86f"

@@ -13,7 +13,7 @@
 - [ ] BCn / ASTC encoders (multithreaded)
 - [ ] Basis Universal encoders: ETC1S, UASTC LDR/HDR
 - [x] KTX2 reader for Basis payloads (BasisLZ, zstd, arrays, cubemaps)
-- [ ] KTX2 plain formats, KTX2 writer
+- [x] KTX2 plain formats, KTX2 writer (raw / zstd; Basis payload writing still open)
 - [ ] DDS reader and writer (own implementation: legacy FourCC and DX10 headers, mips, arrays,
   cubemaps; every `Format` with a DXGI equivalent)
 - [ ] Image file formats (encode/decode API on byte slices, pure Rust; table = target scope,

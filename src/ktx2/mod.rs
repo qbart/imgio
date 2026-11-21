@@ -1,9 +1,18 @@
-//! KTX2 container with Basis Universal payloads (ETC1S/BasisLZ, UASTC LDR 4x4 and HDR 4x4,
-//! ASTC HDR 6x6, UASTC HDR 6x6 intermediate, ASTC LDR, XUASTC LDR, XUBC7), raw or Zstandard
-//! supercompressed.
+//! KTX2 container: Basis Universal payloads (ETC1S/BasisLZ, UASTC LDR 4x4 and HDR 4x4,
+//! ASTC HDR 6x6, UASTC HDR 6x6 intermediate, ASTC LDR, XUASTC LDR, XUBC7) and plain
+//! `VkFormat` payloads of every imgio [`Format`] with a Vulkan equivalent, raw or Zstandard
+//! supercompressed; [`write`] creates plain files.
 //!
-//! Layout from the KTX 2.0 specification; payload detection follows Basis Universal's
+//! Layout from the KTX 2.0 specification; Basis payload detection follows Basis Universal's
 //! `ktx2_transcoder` (DFD color model, vkFormat, supercompression scheme).
+
+mod dfd;
+mod vk;
+mod writer;
+
+pub use dfd::{Dfd, dfd};
+pub use vk::{format_from_vk, vk_format};
+pub use writer::{Ktx2Desc, Supercompression, WriteOptions, write};
 
 use crate::basis::BasisTexFormat;
 use crate::basis::TranscodeOptions;
@@ -17,7 +26,7 @@ use std::sync::OnceLock;
 use vas::Vector;
 use vas::storage::Dynamic;
 
-const IDENTIFIER: [u8; 12] = [
+pub(crate) const IDENTIFIER: [u8; 12] = [
     0xAB, 0x4B, 0x54, 0x58, 0x20, 0x32, 0x30, 0xBB, 0x0D, 0x0A, 0x1A, 0x0A,
 ];
 const HEADER_SIZE: usize = 80;
@@ -67,7 +76,11 @@ struct ImageDesc {
 #[derive(Debug)]
 pub struct Ktx2File<'a> {
     data: &'a [u8],
-    tex_format: BasisTexFormat,
+    /// Basis Universal payload (`None` for plain formats).
+    tex_format: Option<BasisTexFormat>,
+    /// Plain payload: the `VkFormat`'s imgio format when the DFD model is its standard one.
+    format: Option<Format>,
+    vk_format: u32,
     width: u32,
     height: u32,
     layers: u32,
@@ -104,6 +117,26 @@ fn range(data: &[u8], ofs: u64, len: u64) -> Result<&[u8]> {
         .ok_or(Error::InvalidData)
 }
 
+/// True when a DFD sample is alpha (BC1A: "alpha present").
+fn dfd_has_alpha(dfd: &[u8], model: u32) -> bool {
+    let samples = (dfd.len().saturating_sub(28)) / 16;
+    (0..samples).any(|i| {
+        let ch = u32le(dfd, 28 + i * 16).map_or(0, |w| (w >> 24) & 15);
+        ch == 15 || (model == 0x80 && ch == 1)
+    })
+}
+
+/// KTX2 `typeSize`: the size of the data type for uncompressed formats, 1 otherwise.
+pub(crate) fn type_size_of(format: Format) -> u32 {
+    use Format::*;
+    match format {
+        R16Unorm | R16Snorm | Rg16Unorm | Rg16Snorm | Rgb16Float | Rgba16Float | Rgb565
+        | Bgr565 | Rgba4444 => 2,
+        Rgba32Float | Rgb9e5Float => 4,
+        _ => 1,
+    }
+}
+
 fn oom<T>(_: T) -> Error {
     Error::OutOfMemory
 }
@@ -134,7 +167,7 @@ impl<'a> Ktx2File<'a> {
         let (layer_count, faces, level_count, scheme) = (h(32)?, h(36)?, h(40)?, h(44)?);
         let (dfd_ofs, dfd_len, kvd_ofs, kvd_len) = (h(48)?, h(52)?, h(56)?, h(60)?);
         let (sgd_ofs, sgd_len) = (u64le(data, 64)?, u64le(data, 72)?);
-        if type_size != 1 || width == 0 || height == 0 || depth != 0 {
+        if width == 0 || height == 0 || depth != 0 {
             return Err(Error::Unsupported);
         }
         if (faces != 1 && faces != 6) || (faces == 6 && width != height) {
@@ -160,12 +193,9 @@ impl<'a> Ktx2File<'a> {
             levels.push(l).map_err(oom)?;
         }
 
-        // Data format descriptor: one basic block, 1 or 2 samples.
-        if dfd_len != 44 && dfd_len != 60 {
-            return Err(Error::Unsupported);
-        }
+        // Data format descriptor: one basic block (Basis payloads: 1 or 2 samples).
         let dfd = range(data, dfd_ofs.into(), dfd_len.into())?;
-        if u32le(dfd, 0)? != dfd_len {
+        if dfd_len < 28 || u32le(dfd, 0)? != dfd_len {
             return Err(Error::InvalidData);
         }
         let bits = u32le(dfd, 12)?;
@@ -174,44 +204,68 @@ impl<'a> Ktx2File<'a> {
         let dfd_block = AstcBlock::from_dim((dims & 255) + 1, ((dims >> 8) & 255) + 1);
         let chan0 = (u32le(dfd, 28)? >> 24) & 15;
         let uastc_alpha = chan0 == CHANNEL_UASTC_RGBA || chan0 == CHANNEL_UASTC_RRRG;
-        let (tex_format, has_alpha) = match model {
+        let plain_format = format_from_vk(vk_format).filter(|&f| {
+            // Standard DFD model of the vkFormat; Basis payloads use their own models.
+            dfd::dfd(f).is_some_and(|d| d.words()[3] & 255 == model)
+        });
+        let basis = (dfd_len == 44 || dfd_len == 60) && type_size == 1;
+        let detected = match model {
+            _ if !basis => None,
             MODEL_ETC1S if vk_format == 0 && scheme == SS_BASISLZ => {
-                (BasisTexFormat::Etc1s, dfd_len == 60)
+                Some((BasisTexFormat::Etc1s, dfd_len == 60))
             }
-            MODEL_UASTC_LDR_4X4 if vk_format == 0 => (BasisTexFormat::UastcLdr4x4, uastc_alpha),
+            MODEL_UASTC_LDR_4X4 if vk_format == 0 => {
+                Some((BasisTexFormat::UastcLdr4x4, uastc_alpha))
+            }
             MODEL_UASTC_HDR_4X4 if vk_format == VK_ASTC_4X4_SFLOAT => {
-                (BasisTexFormat::UastcHdr4x4, false)
+                Some((BasisTexFormat::UastcHdr4x4, false))
             }
-            MODEL_ASTC if vk_format == VK_ASTC_6X6_SFLOAT => (BasisTexFormat::AstcHdr6x6, false),
+            MODEL_ASTC if vk_format == VK_ASTC_6X6_SFLOAT => {
+                Some((BasisTexFormat::AstcHdr6x6, false))
+            }
             MODEL_ASTC if VK_ASTC_LDR.contains(&vk_format) => {
                 // vkFormat order: 4x4 .. 12x12, each as UNORM then SRGB.
                 let b = AstcBlock::ALL[((vk_format - 157) / 2) as usize];
                 if dfd_block != Some(b) {
                     return Err(Error::InvalidData);
                 }
-                (BasisTexFormat::AstcLdr(b), uastc_alpha)
+                Some((BasisTexFormat::AstcLdr(b), uastc_alpha))
             }
             MODEL_XUASTC_LDR if vk_format == 0 && scheme == SS_XUASTC_LDR => {
                 let b = dfd_block.ok_or(Error::InvalidData)?;
-                (BasisTexFormat::XuastcLdr(b), uastc_alpha)
+                Some((BasisTexFormat::XuastcLdr(b), uastc_alpha))
             }
             MODEL_XUBC7 if vk_format == 0 && scheme == SS_XUBC7 => {
-                (BasisTexFormat::Xubc7, uastc_alpha)
+                Some((BasisTexFormat::Xubc7, uastc_alpha))
             }
             MODEL_UASTC_HDR_6X6I
                 if vk_format == 0 && (scheme == SS_UASTC_HDR_6X6I || scheme == SS_BASISLZ) =>
             {
-                (BasisTexFormat::UastcHdr6x6Intermediate, false)
+                Some((BasisTexFormat::UastcHdr6x6Intermediate, false))
             }
-            _ => return Err(Error::Unsupported),
+            _ => None,
         };
-        let plain = matches!(
-            tex_format,
-            BasisTexFormat::UastcLdr4x4
-                | BasisTexFormat::UastcHdr4x4
-                | BasisTexFormat::AstcHdr6x6
-                | BasisTexFormat::AstcLdr(_)
-        );
+        let (tex_format, has_alpha) = match (detected, plain_format) {
+            (Some((t, a)), _) => (Some(t), a),
+            (None, Some(_)) => (None, dfd_has_alpha(dfd, model)),
+            (None, None) => return Err(Error::Unsupported),
+        };
+        if let Some(f) = plain_format
+            && type_size != type_size_of(f)
+        {
+            return Err(Error::InvalidData);
+        }
+        // Payloads stored as whole blocks per image (no supercompression global data).
+        let plain = match tex_format {
+            None => true,
+            Some(t) => matches!(
+                t,
+                BasisTexFormat::UastcLdr4x4
+                    | BasisTexFormat::UastcHdr4x4
+                    | BasisTexFormat::AstcHdr6x6
+                    | BasisTexFormat::AstcLdr(_)
+            ),
+        };
         if plain {
             if scheme != SS_NONE && scheme != SS_ZSTD {
                 return Err(Error::Unsupported);
@@ -239,7 +293,7 @@ impl<'a> Ktx2File<'a> {
         let mut etc1s = None;
         if !plain {
             let sgd = range(data, sgd_ofs, sgd_len)?;
-            if tex_format == BasisTexFormat::Etc1s {
+            if tex_format == Some(BasisTexFormat::Etc1s) {
                 let g = |ofs| u32le(sgd, ofs);
                 let endpoint_count = g(0)? & 0xFFFF;
                 let selector_count = g(0)? >> 16;
@@ -296,6 +350,8 @@ impl<'a> Ktx2File<'a> {
         Ok(Self {
             data,
             tex_format,
+            format: plain_format,
+            vk_format,
             width,
             height,
             layers,
@@ -313,9 +369,33 @@ impl<'a> Ktx2File<'a> {
         })
     }
 
-    /// Payload format.
-    pub fn tex_format(&self) -> BasisTexFormat {
+    /// The Basis Universal payload format (`None` for plain `VkFormat` payloads).
+    pub fn tex_format(&self) -> Option<BasisTexFormat> {
         self.tex_format
+    }
+    /// The plain payload format: the header's `VkFormat` as an imgio [`Format`], when the DFD
+    /// uses that format's standard color model (also set for ASTC files from Basis).
+    pub fn format(&self) -> Option<Format> {
+        self.format
+    }
+    /// The header's `VkFormat` (0 for Basis-specific payloads).
+    pub fn vk_format(&self) -> u32 {
+        self.vk_format
+    }
+    /// The bytes of one image (`level`, array `layer`, cube `face`) of a plain payload,
+    /// inflated if Zstandard supercompressed: `format().surface_bytes(level size)` bytes.
+    ///
+    /// Errors: `Unsupported` (no plain format), `InvalidArgument` (no such image),
+    /// `InvalidData`.
+    pub fn image_data(&self, level: u32, layer: u32, face: u32) -> Result<&[u8]> {
+        let f = self.format.ok_or(Error::Unsupported)?;
+        if level >= self.level_count() || layer >= self.layers || face >= self.faces {
+            return Err(Error::InvalidArgument);
+        }
+        let (w, h) = self.level_dim(level);
+        let size = f.surface_bytes(w, h)? as u64;
+        let data = self.level_data(level)?;
+        range(data, u64::from(layer * self.faces + face) * size, size)
     }
     /// Width of level 0 in pixels.
     pub fn width(&self) -> u32 {
@@ -357,7 +437,7 @@ impl<'a> Ktx2File<'a> {
 
     /// True when this file can be transcoded to `format`.
     pub fn can_transcode_to(&self, format: Format) -> bool {
-        can_transcode(self.tex_format, format)
+        self.tex_format.is_some_and(|t| can_transcode(t, format))
     }
 
     /// Bytes needed to transcode one image of `level` to `format` (tightly packed).
@@ -425,12 +505,13 @@ impl<'a> Ktx2File<'a> {
             return Err(Error::InvalidArgument);
         }
         let (width, height) = self.level_dim(level);
-        let (bw, bh) = self.tex_format.block_dim();
+        let tex = self.tex_format.ok_or(Error::Unsupported)?;
+        let (bw, bh) = tex.block_dim();
         let (blocks_x, blocks_y) = (width.div_ceil(bw), height.div_ceil(bh));
         let image = (level * self.layers + layer) * self.faces + face;
         let l = self.levels[level as usize];
         let mut s = SliceRef {
-            tex: self.tex_format,
+            tex,
             data: self.data,
             ofs: 0,
             len: 0,
@@ -446,7 +527,7 @@ impl<'a> Ktx2File<'a> {
             deblock: opts.deblock.resolve(self.deblock),
             opts: *opts,
         };
-        match self.tex_format {
+        match tex {
             BasisTexFormat::Etc1s
             | BasisTexFormat::UastcHdr6x6Intermediate
             | BasisTexFormat::XuastcLdr(_)
@@ -500,7 +581,8 @@ impl<'a> Ktx2File<'a> {
             (0..layers * faces).map(move |i| Ok((i / faces, i % faces, level, w, h)))
         });
         let mut items = alloc_items(format, keys, count)?;
-        transcode_items(self.tex_format, format, &mut items, |t| {
+        let tex = self.tex_format.ok_or(Error::Unsupported)?;
+        transcode_items(tex, format, &mut items, |t| {
             self.transcode_with(t.level, t.image, t.face, format, opts, &mut t.data)
         })?;
         Ok(items)
