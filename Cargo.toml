@@ -74,6 +74,9 @@ vdb = ["dep:miniz_oxide"]
 avif = ["dep:avif-parse", "dep:re_rav1d", "dep:ravif"]
 # ICC / CICP colour management (`imgio::color`, pure Rust `moxcms`).
 color = ["dep:moxcms"]
+# The `imgio` command line tool (src/bin/imgio.rs). `cargo install imgio --all-features` for
+# every file format.
+cli = ["png", "jpeg", "color"]
 # Vulkan texture upload (`imgio::gpu::vulkan`, port of KTX-Software vkloader.c). Vulkan and
 # OpenGL are the only allowed bindings: commands are looked up at run time, nothing is linked.
 vulkan = ["dep:ash", "dep:libloading"]
@@ -107,6 +110,10 @@ miniz_oxide = "0.8.9"
 ash = { version = "0.38.0", features = ["loaded"] }
 khronos-egl = { version = "6.0.0", features = ["dynamic"] }
 libloading = "0.8.9"
+
+[[bin]]
+name = "imgio"
+required-features = ["cli"]
 
 [[bench]]
 name = "bench"

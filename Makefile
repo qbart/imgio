@@ -1,7 +1,14 @@
-.PHONY: build test test-gpu bench lint fmt check msrv package publish publish-dry ref
+.PHONY: cli install build test test-gpu bench lint fmt check msrv package publish publish-dry ref
 
 build:
 	cargo build --release
+
+# The `imgio` command line tool with every file format.
+cli:
+	cargo build --release --all-features --bin imgio
+
+install:
+	cargo install --path . --all-features --bin imgio
 
 # Every image file format is a cargo feature: test them all (GPU tests skip without a device).
 test:

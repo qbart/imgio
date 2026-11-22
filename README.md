@@ -85,6 +85,19 @@ fn main() -> imgio::Result<()> {
 }
 ```
 
+### Command line
+
+```sh
+cargo install imgio --all-features   # or --features cli for PNG / JPEG only
+imgio convert photo.jpg photo.ktx2 --resize 1024x0 --format bc7-srgb --quality high
+imgio convert hero.png hero.ktx2 --basis etc1s
+imgio pack -o orm.png --orm ao.png roughness.png metallic.png
+imgio atlas -o sprites.png --json sprites.json icons/*.png --trim --rotate --extrude 1
+imgio ibl sky.exr -o sky.ktx2 --size 512 --irradiance irr.ktx2 --specular spec.ktx2 --brdf brdf.png
+imgio compare reference.png encoded.ktx2 --diff diff.png --amplify 8
+imgio info texture.ktx2
+```
+
 ### Cargo features
 
 | Feature | Default | Enables |
@@ -93,6 +106,7 @@ fn main() -> imgio::Result<()> {
 | `color` | yes | colour management (`imgio::color`, pure Rust `moxcms` for ICC parsing) |
 | `gif`, `webp`, `exr`, `tiff`, `jxl`, `jpeg2000`, `vdb`, `avif` | no | the other image file formats (pure Rust crates) |
 | `vulkan`, `opengl` | no | GPU texture upload (the only bindings; loaded at run time) |
+| `cli` | no | the `imgio` command line tool (enables `png`, `jpeg`, `color`) |
 
 ## Formats
 

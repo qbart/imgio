@@ -87,8 +87,10 @@
 - [x] Colour management (`imgio::color`, docs/spec/color.md): ICC profile parsing (matrix / TRC
   and LUT profiles), sRGB / Display P3 / Rec. 2020 / Adobe RGB / ProPhoto, PQ / HLG, conversions,
   applied on file decode (`file::colorimetry`, `file::decode_to`)
-- [ ] CLI (`imgio` binary): convert, encode textures, mips, resize, filters, pack, atlas, IBL,
-  info, compare (metrics)
+- [x] CLI (`imgio` binary, feature `cli`, docs/spec/cli.md): convert, encode textures, mips, resize,
+  filters, pack, atlas, IBL, info, compare (metrics)
+- [ ] LUTs: `.cube` 3D LUT read / write / apply, LUT generation from colour transforms and
+  filters (on the `imgio::color` pipeline evaluator), ICC device links
 
 ## Follow-ups
 

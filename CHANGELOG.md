@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `imgio` command line tool (feature `cli`): info, convert, texture, pack, atlas, ibl, compare.
 - Colour management (`imgio::color`, default feature `color`): ICC v2 / v4 matrix and LUT
   profiles, built-in colour spaces, CICP, conversions matching LittleCMS; `file::colorimetry`
   and colour managed `file::decode_to`.
