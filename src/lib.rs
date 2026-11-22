@@ -42,6 +42,7 @@ pub mod image;
 pub mod ktx1;
 pub mod ktx2;
 mod legacy_enc;
+pub mod lut;
 pub mod metrics;
 pub mod mip;
 pub mod pack;

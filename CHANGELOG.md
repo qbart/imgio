@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- LUTs (`imgio::lut`): `.cube` read / write (with Resolve shapers), trilinear / tetrahedral
+  apply, baking from filters and colour transforms, HALD CLUT and strip images.
 - `imgio` command line tool (feature `cli`): info, convert, texture, pack, atlas, ibl, compare.
 - Colour management (`imgio::color`, default feature `color`): ICC v2 / v4 matrix and LUT
   profiles, built-in colour spaces, CICP, conversions matching LittleCMS; `file::colorimetry`

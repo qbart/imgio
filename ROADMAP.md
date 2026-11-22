@@ -89,8 +89,10 @@
   applied on file decode (`file::colorimetry`, `file::decode_to`)
 - [x] CLI (`imgio` binary, feature `cli`, docs/spec/cli.md): convert, encode textures, mips, resize,
   filters, pack, atlas, IBL, info, compare (metrics)
-- [ ] LUTs: `.cube` 3D LUT read / write / apply, LUT generation from colour transforms and
-  filters (on the `imgio::color` pipeline evaluator), ICC device links
+- [x] LUTs (`imgio::lut`, docs/spec/lut.md): `.cube` read / write / apply (1D, 3D, Resolve
+  shaper; trilinear / tetrahedral), baking from colour transforms and filters, HALD / strip images
+- [ ] ICC device links: read and apply `link` profiles, write a `Lut3d` as a device link
+- [ ] CLI `lut` command: apply / bake / convert `.cube`, HALD and strip LUTs
 
 ## Follow-ups
 
