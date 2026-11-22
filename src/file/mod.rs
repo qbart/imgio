@@ -27,6 +27,7 @@ use vas::storage::Dynamic;
 
 pub mod avif;
 pub mod bmp;
+mod colorimetry;
 pub mod exr;
 pub mod gif;
 pub mod hdr;
@@ -40,6 +41,8 @@ pub mod tiff;
 pub mod vdb;
 pub mod webp;
 pub mod zfile;
+
+pub use colorimetry::{Colorimetry, Transfer, colorimetry, decode_to};
 
 /// An image file format.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

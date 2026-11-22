@@ -3,7 +3,8 @@
 ## Unreleased
 
 - Colour management (`imgio::color`, default feature `color`): ICC v2 / v4 matrix and LUT
-  profiles, built-in colour spaces, CICP, conversions matching LittleCMS.
+  profiles, built-in colour spaces, CICP, conversions matching LittleCMS; `file::colorimetry`
+  and colour managed `file::decode_to`.
 - Image based lighting (`imgio::ibl`): equirect <-> cubemap, SH / convolved irradiance, GGX
   prefiltered specular mip chain, BRDF LUT.
 - Texture atlases (`imgio::atlas`): MaxRects / skyline / shelf packing, smallest page search,

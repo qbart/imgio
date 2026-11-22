@@ -166,7 +166,9 @@ GPU format the device supports (BC1-7, ETC, ASTC, PVRTC, ATC, FXT1, RGBA ...).
 
 ### Image files
 
-`imgio::file`: `FileFormat::detect`, `decode` / `decode_animation` / `encode` on byte slices.
+`imgio::file`: `FileFormat::detect`, `decode` / `decode_animation` / `encode` on byte slices;
+`colorimetry` reads embedded ICC / cICP / gAMA / chromaticities and `decode_to` decodes into a
+target colour space (feature `color`).
 
 | Type | Encoder | Decoder | Why / typical use |
 |---|---|---|---|

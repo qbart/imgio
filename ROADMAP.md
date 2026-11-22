@@ -84,9 +84,9 @@
   extrusion, power-of-two / square / max size, rotation, trimming, multi-page, JSON-like layout
 - [x] HDR prep (`imgio::ibl`, docs/spec/ibl.md): equirect <-> cubemap, irradiance (SH and convolved), GGX
   prefiltered specular mip chain, BRDF LUT
-- [ ] Colour management (`imgio::color`, docs/spec/color.md): [x] ICC profile parsing (matrix / TRC
-  and LUT profiles), sRGB / Display P3 / Rec. 2020 / Adobe RGB / ProPhoto, PQ / HLG, conversions;
-  [ ] applied on file decode
+- [x] Colour management (`imgio::color`, docs/spec/color.md): ICC profile parsing (matrix / TRC
+  and LUT profiles), sRGB / Display P3 / Rec. 2020 / Adobe RGB / ProPhoto, PQ / HLG, conversions,
+  applied on file decode (`file::colorimetry`, `file::decode_to`)
 - [ ] CLI (`imgio` binary): convert, encode textures, mips, resize, filters, pack, atlas, IBL,
   info, compare (metrics)
 

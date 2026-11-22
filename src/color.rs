@@ -47,6 +47,18 @@ pub enum ColorSpace {
     Aces2065,
     /// Gray with a pure gamma transfer (2.2 typical; 1 = linear).
     Gray(f32),
+    /// Gray with the sRGB transfer (D50 relative, like any gray ICC profile).
+    GraySrgb,
+}
+
+/// A transfer function (for [`Profile::from_primaries`]).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Transfer {
+    Linear,
+    /// The sRGB curve.
+    Srgb,
+    /// Pure power with this decoding exponent (PNG gAMA 45455 -> 2.2).
+    Gamma(f32),
 }
 
 /// ICC rendering intent.
@@ -64,6 +76,8 @@ pub enum Intent {
 pub struct Profile {
     #[cfg(feature = "color")]
     inner: moxcms::ColorProfile,
+    /// The built-in space this profile was made from.
+    space: Option<ColorSpace>,
 }
 
 /// Channels of a profile's data colour space.
@@ -88,10 +102,68 @@ mod imp {
         Error::InvalidData
     }
 
+    fn srgb_trc() -> ToneReprCurve {
+        ToneReprCurve::Parametric(vec![2.4, 1.0 / 1.055, 0.055 / 1.055, 1.0 / 12.92, 0.04045])
+    }
+
+    fn mul(a: [[f64; 3]; 3], b: [[f64; 3]; 3]) -> [[f64; 3]; 3] {
+        core::array::from_fn(|i| core::array::from_fn(|j| (0..3).map(|k| a[i][k] * b[k][j]).sum()))
+    }
+
+    /// `m x = v` (Cramer).
+    fn solve(m: [[f64; 3]; 3], v: [f64; 3]) -> Option<[f64; 3]> {
+        let det = |m: [[f64; 3]; 3]| {
+            m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
+                - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
+                + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0])
+        };
+        let d = det(m);
+        if d.abs() < 1e-12 {
+            return None;
+        }
+        Some(core::array::from_fn(|c| {
+            let mut k = m;
+            for (r, row) in k.iter_mut().enumerate() {
+                row[c] = v[r];
+            }
+            det(k) / d
+        }))
+    }
+
+    /// Bradford adaptation from white `w` (XYZ, Y = 1) to D50.
+    fn bradford(w: [f64; 3]) -> Option<[[f64; 3]; 3]> {
+        const B: [[f64; 3]; 3] = [
+            [0.8951, 0.2664, -0.1614],
+            [-0.7502, 1.7135, 0.0367],
+            [0.0389, -0.0685, 1.0296],
+        ];
+        let d50 = crate::color_pipeline::D50;
+        let mv = |v: [f64; 3]| -> [f64; 3] {
+            core::array::from_fn(|i| (0..3).map(|k| B[i][k] * v[k]).sum())
+        };
+        let (s, d) = (mv(w), mv(d50));
+        let diag: [[f64; 3]; 3] = core::array::from_fn(|i| {
+            core::array::from_fn(|j| {
+                if i == j && s[i] != 0.0 {
+                    d[i] / s[i]
+                } else {
+                    0.0
+                }
+            })
+        });
+        // B^-1 diag B
+        let unit =
+            |c: usize| -> [f64; 3] { core::array::from_fn(|r| if r == c { 1.0 } else { 0.0 }) };
+        let cols = [solve(B, unit(0))?, solve(B, unit(1))?, solve(B, unit(2))?];
+        let binv: [[f64; 3]; 3] = core::array::from_fn(|r| core::array::from_fn(|c| cols[c][r]));
+        Some(mul(binv, mul(diag, B)))
+    }
+
     impl Profile {
         pub(super) fn parse_icc(data: &[u8]) -> Result<Profile> {
             Ok(Profile {
                 inner: ColorProfile::new_from_slice(data).map_err(cms)?,
+                space: None,
             })
         }
 
@@ -115,8 +187,16 @@ mod imp {
                 ColorSpace::AcesCg => ColorProfile::new_aces_cg_linear(),
                 ColorSpace::Aces2065 => ColorProfile::new_aces_aces_2065_1_linear(),
                 ColorSpace::Gray(g) => ColorProfile::new_gray_with_gamma(g),
+                ColorSpace::GraySrgb => {
+                    let mut p = ColorProfile::new_gray_with_gamma(2.2);
+                    p.gray_trc = Some(srgb_trc());
+                    p
+                }
             };
-            Profile { inner }
+            Profile {
+                inner,
+                space: Some(space),
+            }
         }
 
         pub(super) fn from_cicp(
@@ -138,7 +218,50 @@ mod imp {
             if p.red_trc.is_none() && p.gray_trc.is_none() {
                 return Err(Error::Unsupported);
             }
-            Ok(Profile { inner: p })
+            Ok(Profile {
+                inner: p,
+                space: None,
+            })
+        }
+
+        /// RGB profile from chromaticities (red, green, blue, white `x, y`) and a transfer:
+        /// colorants adapted to D50 with Bradford, like ICC v4 display profiles.
+        pub(super) fn primaries(xy: [[f32; 2]; 4], t: Transfer) -> Result<Profile> {
+            let xyz = |p: [f32; 2]| -> Result<[f64; 3]> {
+                let (x, y) = (f64::from(p[0]), f64::from(p[1]));
+                if y <= 0.0 || !x.is_finite() || !y.is_finite() {
+                    return Err(Error::InvalidData);
+                }
+                Ok([x / y, 1.0, (1.0 - x - y) / y])
+            };
+            let (r, g, b, w) = (xyz(xy[0])?, xyz(xy[1])?, xyz(xy[2])?, xyz(xy[3])?);
+            let m = [[r[0], g[0], b[0]], [r[1], g[1], b[1]], [r[2], g[2], b[2]]];
+            let s = solve(m, w).ok_or(Error::InvalidData)?;
+            let rgb_xyz: [[f64; 3]; 3] =
+                core::array::from_fn(|i| core::array::from_fn(|j| m[i][j] * s[j]));
+            let a = bradford(w).ok_or(Error::InvalidData)?;
+            let c = mul(a, rgb_xyz);
+            let mut p = ColorProfile::new_srgb();
+            let col = |j: usize| moxcms::Xyzd {
+                x: c[0][j],
+                y: c[1][j],
+                z: c[2][j],
+            };
+            (p.red_colorant, p.green_colorant, p.blue_colorant) = (col(0), col(1), col(2));
+            p.chromatic_adaptation = Some(moxcms::Matrix3d { v: a });
+            let trc = match t {
+                Transfer::Linear => ToneReprCurve::Lut(Vec::new()),
+                Transfer::Srgb => srgb_trc(),
+                Transfer::Gamma(g) => ToneReprCurve::Parametric(vec![g]),
+            };
+            (p.red_trc, p.green_trc, p.blue_trc) =
+                (Some(trc.clone()), Some(trc.clone()), Some(trc));
+            p.cicp = None;
+            p.description = None;
+            Ok(Profile {
+                inner: p,
+                space: None,
+            })
         }
 
         pub(super) fn to_icc(&self) -> Result<Buffer> {
@@ -266,6 +389,25 @@ impl Profile {
             let _ = space;
             Err(Error::Unsupported)
         }
+    }
+
+    /// An RGB profile from chromaticities (red, green, blue, white `x, y`) and a transfer
+    /// (Bradford adapted to D50). `InvalidData` for degenerate primaries.
+    pub fn from_primaries(xy: [[f32; 2]; 4], transfer: Transfer) -> Result<Profile> {
+        #[cfg(feature = "color")]
+        {
+            Profile::primaries(xy, transfer)
+        }
+        #[cfg(not(feature = "color"))]
+        {
+            let _ = (xy, transfer);
+            Err(Error::Unsupported)
+        }
+    }
+
+    /// The built-in space of a profile made with [`Profile::new`].
+    pub fn space(&self) -> Option<ColorSpace> {
+        self.space
     }
 
     /// sRGB.

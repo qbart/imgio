@@ -16,6 +16,13 @@ testdata/color/:
 - `<from>__<to>__<intent>.raw`: LittleCMS 8-bit transforms of the source (`NOOPTIMIZE`: the
   full pipeline, not LittleCMS's precalculated 8-bit device link).
 - `cases.txt`: `from to intent width height channels_in channels_out`.
+- `files/`: images carrying colour data: Pillow PNG / JPEG / WebP / TIFF / AVIF with an
+  embedded P3 profile (`*_p3.*`; the JPEG also with the 245 KB LUT profile, split over APP2
+  segments), PNG with hand-inserted cICP (BT.2020 PQ) and gAMA + cHRM chunks, OpenEXR with a
+  chromaticities attribute (OpenEXR Python; attribute bytes patched), Radiance HDR with a `PRIMARIES=` line;
+  `png_p3_to_srgb.raw` / `png_gama_chrm_to_srgb.raw`: LittleCMS transforms of the PNG pixels
+  to sRGB (perceptual, `NOOPTIMIZE`; the gAMA / cHRM profile is built here from the chunk
+  values).
 """
 import io
 import os
@@ -226,5 +233,70 @@ def main():
         f.write("\n".join(lines) + "\n")
 
 
+def png_chunk(t, body):
+    import zlib
+    return struct.pack(">I", len(body)) + t + body + struct.pack(">I", zlib.crc32(t + body) & 0xFFFFFFFF)
+
+
+def insert_after_ihdr(png, chunks):
+    return png[:33] + b"".join(chunks) + png[33:]
+
+
+def files(profiles):
+    import OpenEXR
+    import Imath
+    out = os.path.join(OUT, "files")
+    os.makedirs(out, exist_ok=True)
+    src = np.fromfile(os.path.join(RAW, "rgb_37x29.rgba"), np.uint8).reshape(29, 37, 4)[:, :, :3].copy()
+    img = Image.fromarray(src, "RGB")
+    p3 = profiles["p3"]
+    for ext, kw in [("png", {}), ("jpg", {"quality": 95}), ("webp", {"lossless": True}),
+                    ("tif", {}), ("avif", {"quality": 90})]:
+        img.save(os.path.join(out, f"p3.{ext}"), icc_profile=p3, **kw)
+    img.save(os.path.join(out, "lut.jpg"), icc_profile=profiles["lut"], quality=95)
+    b = io.BytesIO()
+    img.save(b, "PNG")
+    plain = b.getvalue()
+    with open(os.path.join(out, "cicp.png"), "wb") as f:
+        f.write(insert_after_ihdr(plain, [png_chunk(b"cICP", bytes([9, 16, 0, 1]))]))
+    # gAMA 1/1.8 with Adobe-like primaries and a D50 white.
+    chrm = [34570, 35850, 64000, 33000, 21000, 71000, 15000, 6000]
+    with open(os.path.join(out, "gama_chrm.png"), "wb") as f:
+        f.write(insert_after_ihdr(plain, [png_chunk(b"gAMA", struct.pack(">I", 55556)),
+                                          png_chunk(b"cHRM", struct.pack(">8I", *chrm))]))
+    # LittleCMS references.
+    srgb = ImageCms.ImageCmsProfile(io.BytesIO(profiles["lcms_srgb"]))
+    def lcms(pbytes, name):
+        t = ImageCms.buildTransform(ImageCms.ImageCmsProfile(io.BytesIO(pbytes)), srgb, "RGB", "RGB",
+                                    renderingIntent=0, flags=ImageCms.Flags.NOOPTIMIZE)
+        np.asarray(ImageCms.applyTransform(img, t)).tofile(os.path.join(out, name))
+    lcms(p3, "png_p3_to_srgb.raw")
+    v = [c / 100000 for c in chrm]
+    gprof = matrix_profile("gAMA cHRM", [(v[2], v[3]), (v[4], v[5]), (v[6], v[7])], (v[0], v[1]),
+                           [100000 / 55556])
+    lcms(gprof, "png_gama_chrm_to_srgb.raw")
+    # OpenEXR with chromaticities (P3-D65), 8x4 half RGB.
+    h, w = 4, 8
+    hdr = OpenEXR.Header(w, h)
+    hdr["chromaticities"] = Imath.Chromaticities(Imath.V2f(0.68, 0.32), Imath.V2f(0.265, 0.69),
+                                                 Imath.V2f(0.15, 0.06), Imath.V2f(0.3127, 0.329))
+    hdr["channels"] = {c: Imath.Channel(Imath.PixelType(Imath.PixelType.HALF)) for c in "RGB"}
+    px = (np.arange(w * h, dtype=np.float16) / 16).astype(np.float16).tobytes()
+    f = OpenEXR.OutputFile(os.path.join(out, "p3.exr"), hdr)
+    f.writePixels({"R": px, "G": px, "B": px})
+    f.close()
+    # This OpenEXR Python version writes the chromaticities attribute as zeros: patch it.
+    path = os.path.join(out, "p3.exr")
+    d = bytearray(open(path, "rb").read())
+    key = b"chromaticities\0chromaticities\0" + struct.pack("<i", 32)
+    i = d.find(key) + len(key)
+    d[i:i + 32] = struct.pack("<8f", 0.68, 0.32, 0.265, 0.69, 0.15, 0.06, 0.3127, 0.329)
+    open(path, "wb").write(bytes(d))
+    rgbe = bytes([128, 64, 32, 129]) * 6
+    with open(os.path.join(out, "primaries.hdr"), "wb") as f:
+        f.write(b"#?RADIANCE\nFORMAT=32-bit_rle_rgbe\nPRIMARIES= 0.708 0.292 0.170 0.797 0.131 0.046 0.3127 0.3290\n\n-Y 2 +X 3\n" + rgbe)
+
+
 if __name__ == "__main__":
     main()
+    files({k: open(os.path.join(OUT, k + ".icc"), "rb").read() for k in ["p3", "lut", "lcms_srgb"]})

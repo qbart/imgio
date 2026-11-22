@@ -20,6 +20,20 @@ Spec: ICC profiles and conversions; parsing, built-ins, CICP profiles and ICC wr
   media white points. No black point compensation (LittleCMS forces it only for v4 LUT
   profiles in perceptual / saturation; matrix shapers are unaffected).
 
+## Files (`imgio::file::colorimetry`, `decode_to`)
+
+- `colorimetry(data)`: PNG cICP > iCCP > sRGB > gAMA (+ cHRM); JPEG APP2 `ICC_PROFILE`
+  segments joined by sequence; WebP `ICCP`; TIFF tag 34675 (classic / BigTIFF); AVIF `colr`
+  `prof` / `rICC` before `nclx`; OpenEXR `chromaticities` (linear, Rec. 709 default);
+  Radiance `PRIMARIES=` (linear); JPEG XL = sRGB (decoder renders); others unspecified.
+- `decode_to(data, target, intent)`: unspecified = sRGB (integer) / linear sRGB (float), gray
+  equivalents for gray images (gray profiles; cICP and RGB ICC profiles on gray images are
+  ignored), unmatched embedded profiles (CMYK) ignored; returns the decode unchanged when the
+  source is the target's built-in space. Output keeps the depth; float for linear targets and
+  PQ / HLG sources; gray / RGB per target; 8-bit labeled `*Srgb` for an sRGB target.
+- `Profile::from_primaries`: chromaticities -> XYZ, Bradford to D50 colorants, parametric
+  gamma / sRGB / identity curves.
+
 ## Audit
 
 - tests/color.rs vs LittleCMS 2.19 8-bit transforms with `NOOPTIMIZE` (scripts/
@@ -33,3 +47,9 @@ Spec: ICC profiles and conversions; parsing, built-ins, CICP profiles and ICC wr
   EOTF (< 2e-4), CICP 1/13/0 = sRGB, every built-in transforms and survives an ICC write /
   read; alpha pass-through, gray / RGB mismatches, compressed input, corrupt profiles (no
   panics).
+- tests/color_files.rs: the embedded P3 profile is found byte for byte in Pillow PNG, JPEG,
+  WebP, TIFF and AVIF files, a 245 KB profile over APP2 segments, cICP 9/16/0/1, gAMA + cHRM
+  values, EXR chromaticities, Radiance primaries; a P3 PNG decoded to LittleCMS's sRGB is
+  byte identical with LittleCMS (imgio's built-in sRGB within 1), gAMA + cHRM within 1 of a
+  LittleCMS profile built from the chunks; plain sRGB files unchanged; P3, gray, PQ -> linear
+  float and EXR -> linear sRGB targets (neutrals stay neutral within 0.1%).
