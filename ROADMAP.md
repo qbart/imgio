@@ -76,6 +76,18 @@
 - [x] Image filters (`imgio::filter`, docs/spec/filter.md): flip / rotate / transpose, blur (box, Gaussian), sharpen (unsharp mask),
   brightness / contrast / gamma / exposure, grayscale, channel swizzle, premultiply alpha,
   normal map from height, tone mapping (HDR -> LDR)
+- [ ] Channel packing (`imgio::pack`): build any output channel from any channel of any input
+  image (constants, invert, per-channel scale), e.g. ORM, RMA, mask maps, alpha from luma
+- [ ] Quality metrics (`imgio::metrics`): MSE / PSNR per channel and combined, SSIM, max error
+- [ ] ICO / CUR files (own code): BMP and PNG entries, multi-size, hotspots
+- [ ] Texture atlases (`imgio::atlas`): MaxRects / skyline / shelf packing, padding, edge
+  extrusion, power-of-two / square / max size, rotation, trimming, multi-page, JSON-like layout
+- [ ] HDR prep (`imgio::ibl`): equirect <-> cubemap, irradiance (SH and convolved), GGX
+  prefiltered specular mip chain, BRDF LUT
+- [ ] Colour management (`imgio::color`): ICC profile parsing (matrix / TRC and LUT profiles),
+  sRGB / Display P3 / Rec. 2020 / Adobe RGB / ProPhoto, PQ / HLG, applied on file decode
+- [ ] CLI (`imgio` binary): convert, encode textures, mips, resize, filters, pack, atlas, IBL,
+  info, compare (metrics)
 
 ## Follow-ups
 
