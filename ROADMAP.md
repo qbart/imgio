@@ -57,6 +57,12 @@
     color info; encode 8/16-bit, palette, APNG (`docs/spec/file_png.md`)
   - [x] GIF (`gif` + `color_quant`): browser compositing, loop counts; encode with exact
     palettes / NeuQuant + dithering, animation (`docs/spec/file_gif.md`)
+  - Done: WebP (`webp`): `image-webp` decode (lossy bit-exact with libwebp, lossless, alpha,
+    animation composited like libwebp) and lossless encode.
+  - Done: JPEG (`jpeg`): `jpeg-decoder` decode (baseline, progressive, lossless, CMYK / YCCK;
+    within 1-3 of libjpeg-turbo, lossless exact); no 12-bit DCT / arithmetic coding.
+  - Done: AVIF (`avif`): `avif-parse` + `re_rav1d` decode (planes exact vs dav1d, RGB bit-exact
+    with libavif's built-in conversion), `ravif` encode; no grids / animation.
   - Done: OpenEXR (`exr`): `exr` crate decode (multi-part, layers, mip / rip, f16 / f32 / u32,
     every compression incl. DWAA / DWAB; exact vs OpenEXR) and encode (lossless compressions
     exact vs OpenEXR, PXR24 / B44, tiles, mips).

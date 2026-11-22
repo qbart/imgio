@@ -1,0 +1,24 @@
+# JPEG: Pillow 13 / imagecodecs (libjpeg-turbo 3.2) files; .ref = libjpeg-turbo decode via Pillow (islow IDCT, fancy upsampling)
+# file width height channels bits [key=value...]
+baseline_444.jpg 37 29 3 8
+baseline_422.jpg 37 29 3 8
+baseline_420.jpg 37 29 3 8
+baseline_420_q40.jpg 50 38 3 8
+baseline_440.jpg 37 29 3 8
+baseline_411.jpg 64 48 3 8
+progressive_420.jpg 64 48 3 8
+progressive_444.jpg 37 29 3 8
+restart_420.jpg 64 48 3 8
+restart_rows_prog.jpg 50 38 3 8
+optimized_422.jpg 50 38 3 8
+gray.jpg 64 48 1 8
+gray_progressive.jpg 37 29 1 8
+cmyk_adobe.jpg 64 48 3 8 cmyk=1
+ycck_adobe.jpg 64 48 3 8 cmyk=1
+exif_orient6.jpg 37 29 3 8 orientation=6
+exif_orient3_be.jpg 37 29 3 8 orientation=3
+lossless_gray8.jpg 64 48 1 8
+lossless_rgb8.jpg 37 29 3 8
+lossless_gray12.jpg 64 48 1 12
+lossless_gray16.jpg 64 48 1 16
+twelve_bit.jpg 64 48 1 12 unsupported=1

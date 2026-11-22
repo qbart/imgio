@@ -51,6 +51,11 @@ Copyright © 2016–2026 Binomial LLC.
 | [ruzstd](https://crates.io/crates/ruzstd) | Zstandard decoding of KTX2 levels and XUASTC LDR streams | MIT |
 | [ash](https://crates.io/crates/ash) | optional (feature `vulkan`): Vulkan types and command signatures; tests: Vulkan device setup | MIT OR Apache-2.0 |
 | [libloading](https://crates.io/crates/libloading) | optional (features `vulkan`, `opengl`): looks up Vulkan / GL commands in the process; tests: global loading of the system libraries | ISC |
+| [image-webp](https://crates.io/crates/image-webp) | optional (feature `webp`): WebP decoding / lossless encoding | MIT OR Apache-2.0 |
+| [jpeg-decoder](https://crates.io/crates/jpeg-decoder) | optional (feature `jpeg`): JPEG decoding | MIT OR Apache-2.0 |
+| [avif-parse](https://crates.io/crates/avif-parse) | optional (feature `avif`): AVIF container parsing | MPL-2.0 |
+| [re_rav1d](https://crates.io/crates/re_rav1d) | optional (feature `avif`): AV1 decoding (rav1d, without `asm`) | BSD-2-Clause |
+| [ravif](https://crates.io/crates/ravif) | optional (feature `avif`): AVIF encoding (rav1e, without `asm`) | BSD-3-Clause |
 | [exr](https://crates.io/crates/exr) | optional (feature `exr`): OpenEXR decoding / encoding | BSD-3-Clause |
 | [tiff](https://crates.io/crates/tiff) | optional (feature `tiff`): TIFF encoding | MIT |
 | [weezl](https://crates.io/crates/weezl) | optional (feature `tiff`): LZW for the TIFF decoder | MIT OR Apache-2.0 |
@@ -105,6 +110,9 @@ Not included in the published crate.
 | `testdata/file/png/*.png` | synthetic images written by `scripts/gen_file_testdata_pnggif.py` (own PNG / APNG writer, Pillow 13, ffmpeg 6.1 and imagecodecs encoders); `expected.txt`: hashes of the libpng (imagecodecs), ffmpeg, imagecodecs APNG and Pillow decodes; `encoded_verified.txt`: hashes of imgio encoder output decoded exactly by Pillow / libpng | Apache-2.0 |
 | `testdata/file/gif/*.gif` | synthetic images written by `scripts/gen_file_testdata_pnggif.py` (own GIF writer, Pillow 13 and ffmpeg 6.1 encoders); `expected.txt`: hashes of Pillow's composited frames; `encoded_verified.txt`: hashes of imgio encoder output decoded exactly by Pillow | Apache-2.0 |
 | `testdata/bench/*.ktx2` | `scripts/gen_images.py` bench image encoded by the Basis Universal v2.50 CLI | Apache-2.0 |
+| `testdata/file/webp/*` | `testdata/images/raw` images encoded by libwebp 1.6 (imagecodecs 2026.11.11, Pillow 13, ffmpeg 6.1 `libwebp`), expected pixels = libwebp decodes (`scripts/gen_file_testdata_webjpgavif.py`) | Apache-2.0 |
+| `testdata/file/jpeg/*` | `testdata/images/raw` images encoded by libjpeg-turbo 3.2 (Pillow 13, imagecodecs) and ffmpeg 6.1, expected pixels = libjpeg-turbo decodes (`scripts/gen_file_testdata_webjpgavif.py`) | Apache-2.0 |
+| `testdata/file/avif/*` | `testdata/images/raw` images encoded by libavif 1.4 / libaom (imagecodecs 2026.11.11) and ffmpeg 6.1 `libaom-av1`, expected planes / pixels = dav1d / libavif decodes (`scripts/gen_file_testdata_webjpgavif.py`) | Apache-2.0 |
 | `testdata/file/exr/*` | synthetic images written by the OpenEXR 3.x Python bindings (`scripts/gen_file_testdata_exrtiff.py`); `expected.txt` = OpenEXR decode hashes, `encode.txt` = imgio encodes verified by OpenEXR | Apache-2.0 |
 | `testdata/file/tiff/*` | synthetic images written by tifffile / imagecodecs 2026.11.11 (libtiff) and Pillow 13 (`scripts/gen_file_testdata_exrtiff.py`); `expected.txt` / `*.ref` = libtiff / libjpeg-turbo decodes, `encode.txt` = imgio encodes verified by tifffile | Apache-2.0 |
 | `testdata/file/jxl/*` | `testdata/images/raw` images and crops / gray / 16-bit / float derivatives encoded by libjxl via imagecodecs 2026.11.11 (`jpegxl_encode`), `*.raw` = libjxl decodes (`scripts/gen_file_testdata_jxlj2kvdb.py`) | Apache-2.0 |

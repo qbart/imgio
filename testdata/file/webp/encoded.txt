@@ -1,0 +1,5 @@
+# imgio encoder output verified by Pillow (libwebp), exact
+enc_cutout_rgba_96x64.webp 96 64 4 8 source=cutout_rgba_96x64
+enc_mosaic_rgb_50x38.webp 50 38 3 8 source=mosaic_rgb_50x38
+enc_rgb_37x29.webp 37 29 3 8 source=rgb_37x29
+enc_rgba_64x48.webp 64 48 4 8 source=rgba_64x48

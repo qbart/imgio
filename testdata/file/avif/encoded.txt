@@ -1,0 +1,4 @@
+# imgio encoder output verified by imagecodecs (libavif + dav1d), PSNR
+enc_mosaic_rgb_50x38.avif 50 38 3 10 source=mosaic_rgb_50x38 psnr=31.00
+enc_rgb_37x29.avif 37 29 3 10 source=rgb_37x29 psnr=30.36
+enc_rgba_64x48.avif 64 48 4 10 source=rgba_64x48 psnr=31.11

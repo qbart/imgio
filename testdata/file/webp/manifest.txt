@@ -1,0 +1,19 @@
+# WebP: Pillow 13 / libwebp 1.6 files; .ref = libwebp decode (imagecodecs webp_decode, animations: Pillow frames)
+# file width height channels bits [key=value...]
+lossless_rgb.webp 50 38 3 8 source=mosaic_rgb_50x38
+lossless_rgba.webp 96 64 4 8 source=cutout_rgba_96x64
+lossy_rgb.webp 37 29 3 8
+lossy_rgb_q30.webp 50 38 3 8
+lossy_rgba.webp 64 48 4 8
+lossy_rgba_aq50.webp 96 64 4 8
+alpha_f0_c0.webp 64 48 4 8
+alpha_f0_c1.webp 64 48 4 8
+alpha_f1_c0.webp 64 48 4 8
+alpha_f1_c1.webp 64 48 4 8
+alpha_f2_c0.webp 64 48 4 8
+alpha_f2_c1.webp 64 48 4 8
+alpha_f3_c0.webp 64 48 4 8
+alpha_f3_c1.webp 64 48 4 8
+anim_lossless.webp 48 40 4 8 frames=6 loops=2 delays=100,40,250,70,70,500
+anim_lossy.webp 48 40 4 8 frames=6 loops=2 delays=100,40,250,70,70,500
+anim_crafted.webp 40 32 4 8 frames=8 loops=3 delays=80,60,60,30,30,120,90,45
