@@ -171,7 +171,7 @@ pub fn can_resample(format: Format) -> bool {
     layout(format).is_some()
 }
 
-fn srgb_decode(v: f32) -> f32 {
+pub(crate) fn srgb_decode(v: f32) -> f32 {
     let v = if v < 0.04045 {
         v * (1.0f32 / 12.92f32)
     } else {
@@ -180,7 +180,7 @@ fn srgb_decode(v: f32) -> f32 {
     v.clamp(0.0, 1.0)
 }
 
-fn srgb_encode(v: f32) -> f32 {
+pub(crate) fn srgb_encode(v: f32) -> f32 {
     if v < 0.003_130_8 {
         12.92 * v
     } else {

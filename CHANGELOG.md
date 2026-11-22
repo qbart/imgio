@@ -17,4 +17,6 @@ First functional release.
   TGA, Radiance HDR, RenderMan zfile (own code), PNG / APNG, GIF, WebP, JPEG (decode), OpenEXR,
   TIFF, JPEG XL, JPEG 2000 (decode), OpenVDB (decode, partial) and AVIF, each crate-backed
   format behind its own cargo feature (pure Rust crates only).
+- Image resize (`imgio::resize`): every uncompressed format, sRGB-correct, premultiplied
+  alpha, every resampler filter, exact / contain / cover / width / height fits, crop.
 - `R16Float`, `R32Float`, `Rgb8*`, `Bgra8*` pixel formats.

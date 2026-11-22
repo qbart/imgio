@@ -39,6 +39,7 @@ mod legacy_enc;
 pub mod mip;
 mod parallel;
 mod pvrtc;
+pub mod resize;
 pub mod texture;
 
 pub use buffer::Buffer;

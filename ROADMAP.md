@@ -70,7 +70,7 @@
     CMYK / YCbCr, LZW / Deflate / PackBits / JPEG, predictors; exact vs libtiff except JPEG),
     `tiff` crate encode (multi-page, BigTIFF).
 - [x] Optional Vulkan / OpenGL upload features (`vulkan`, `opengl`; `gpu::TextureSource`)
-- [ ] Image resize: any uncompressed `Image` / `Surface` (8/16-bit, float, sRGB-correct),
+- [x] Image resize (`imgio::resize`, docs/spec/resize.md): any uncompressed `Image` / `Surface` (8/16-bit, float, sRGB-correct),
   filters from the `mip` resampler (box, tent, Mitchell, Catmull-Rom, Kaiser, Lanczos, ...),
   fit / fill / exact sizes, crop; multithreaded
 - [ ] Image filters: flip / rotate / transpose, blur (box, Gaussian), sharpen (unsharp mask),
