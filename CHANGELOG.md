@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Quality metrics (`imgio::metrics`): MSE / PSNR / max / mean error and SSIM (matches
+  scikit-image) per channel and aggregated, difference image.
 - Channel packing (`imgio::pack`): any output channel from any channel of any input,
   constants, invert / scale / bias, size modes, ORM and mask map presets, `split`.
 

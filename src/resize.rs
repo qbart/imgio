@@ -59,7 +59,7 @@ impl Default for ResizeOptions {
 }
 
 /// Number of meaningful channels of an uncompressed format (`None` for block formats).
-fn channels(format: Format) -> Option<usize> {
+pub(crate) fn channels(format: Format) -> Option<usize> {
     use Format::*;
     if format.is_compressed() {
         return None;
