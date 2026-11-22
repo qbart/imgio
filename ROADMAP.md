@@ -76,7 +76,7 @@
 - [x] Image filters (`imgio::filter`, docs/spec/filter.md): flip / rotate / transpose, blur (box, Gaussian), sharpen (unsharp mask),
   brightness / contrast / gamma / exposure, grayscale, channel swizzle, premultiply alpha,
   normal map from height, tone mapping (HDR -> LDR)
-- [ ] Channel packing (`imgio::pack`): build any output channel from any channel of any input
+- [x] Channel packing (`imgio::pack`, docs/spec/pack.md): build any output channel from any channel of any input
   image (constants, invert, per-channel scale), e.g. ORM, RMA, mask maps, alpha from luma
 - [ ] Quality metrics (`imgio::metrics`): MSE / PSNR per channel and combined, SSIM, max error
 - [ ] ICO / CUR files (own code): BMP and PNG entries, multi-size, hotspots

@@ -191,6 +191,7 @@ GPU format the device supports (BC1-7, ETC, ASTC, PVRTC, ATC, FXT1, RGBA ...).
 | `imgio::mip` | Mip chains, every resampler filter (basisu resampler port), sRGB-correct, wrap modes | Texture mipmaps (`texture::build` renormalizes normal maps) |
 | `imgio::resize` | Resize with exact / contain / cover / width / height fits, crop; premultiplied, sRGB-correct | Thumbnails, power-of-two textures |
 | `imgio::filter` | Flip / rotate / transpose, box / Gaussian blur, unsharp mask, exposure / brightness / contrast / gamma / saturation, grayscale, swizzle, premultiply, normal map from height, HDR tone mapping | Asset pipelines, texture prep |
+| `imgio::pack` | Any output channel from any channel of any input (luma, average, max, constants, invert, scale / bias), resizing mismatched inputs; ORM and mask map presets; `split` | ORM / mask maps, alpha from a separate mask, channel extraction |
 
 ### Containers
 

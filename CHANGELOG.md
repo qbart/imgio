@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Channel packing (`imgio::pack`): any output channel from any channel of any input,
+  constants, invert / scale / bias, size modes, ORM and mask map presets, `split`.
+
 ## 0.1.0 (2026-11-22)
 
 First functional release.
