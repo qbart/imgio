@@ -2,10 +2,11 @@
 
 Pure Rust image and GPU texture codecs: BC1-BC7, ETC / EAC, ASTC, PVRTC, Basis Universal
 (ETC1S, UASTC, XUASTC, XUBC7) encoding and transcoding, RGBA and HDR variants, KTX2 / KTX1 /
-DDS / `.astc` / `.basis` containers; image file formats (PNG, TGA, ...) later. No C/C++
-bindings.
+DDS / `.astc` / `.basis` containers, mipmaps, image files (PNG, JPEG, WebP, AVIF, EXR, TIFF,
+JPEG XL, GIF, ...), resize and filters. No C/C++ bindings.
 
-Status: early development, see [ROADMAP.md](ROADMAP.md). Minimum Rust version: 1.88 (the `avif` feature needs 1.90, `jpeg2000` 1.92).
+Status: 0.1, every [ROADMAP.md](ROADMAP.md) item done; the API may still change before 1.0.
+Minimum Rust version: 1.88 (the `avif` feature needs 1.90, `jpeg2000` 1.92).
 
 ## Usage
 
@@ -54,6 +55,32 @@ fn main() -> imgio::Result<()> {
     let target = if file.can_transcode_to(Format::Bc7Unorm) { Format::Bc7Unorm } else { Format::Rgba8Unorm };
     let level0 = file.transcode_to_buffer(0, 0, 0, target)?;
     println!("{} bytes", level0.len());
+    Ok(())
+}
+```
+
+Load an image file, resize it, sharpen it and save it as PNG:
+
+```rust
+use imgio::file::{self, FileFormat};
+use imgio::filter;
+use imgio::resize::{resize, Fit, ResizeOptions};
+use imgio::{Format, Surface};
+
+fn main() -> imgio::Result<()> {
+    // Any supported file: the format is detected from the bytes.
+    let rgba = vec![128u8; 64 * 48 * 4];
+    let png = file::encode(FileFormat::Png, &Surface::new(Format::Rgba8Srgb, 64, 48, &rgba)?)?;
+    let img = file::decode(&png)?;
+
+    // Fit inside 32x32 (keeps the aspect ratio: 32x24), sRGB-correct Lanczos.
+    let opts = ResizeOptions { fit: Fit::Contain, ..Default::default() };
+    let small = resize(&img.surface()?, 32, 32, &opts)?;
+    assert_eq!((small.width, small.height), (32, 24));
+
+    let sharp = filter::unsharp_mask(&small.surface()?, 1.0, 0.5, 0.0)?;
+    let out = file::encode(FileFormat::Png, &sharp.surface()?)?;
+    assert!(!out.is_empty());
     Ok(())
 }
 ```
@@ -156,6 +183,14 @@ GPU format the device supports (BC1-7, ETC, ASTC, PVRTC, ATC, FXT1, RGBA ...).
 | AVIF (`.avif`) | `ravif` (rav1e, no asm; feature `avif`): 8 / 10-bit 4:4:4, alpha | `avif-parse` + `re_rav1d` (dav1d port, no asm) + own YUV -> RGB (bit-exact with libavif): 8-12 bit, all subsamplings, alpha | Modern web photos, HDR stills at small sizes |
 | OpenEXR (`.exr`) | `exr` crate (feature `exr`): half / f32, NONE / RLE / ZIP(S) / PIZ / PXR24 / B44(A), scanline / tiled, mips | `exr` crate: multi-part, layers, mip / rip, f16 / f32 / u32, all compressions incl. DWAA / DWAB | VFX / film HDR interchange, renders, light probes |
 | TIFF / BigTIFF (`.tif`) | `tiff` crate (feature `tiff`): 8 / 16-bit, half / f32, LZW / Deflate / PackBits, predictors, multi-page | own on `weezl` / `miniz_oxide` / `zune-jpeg`: strips / tiles, planar, 1-64 bit, palette / CMYK / YCbCr, JPEG-in-TIFF | Print, scanning, GIS, 16-bit / float masters |
+
+### Image processing
+
+| Module | What | Typical use |
+|---|---|---|
+| `imgio::mip` | Mip chains, every resampler filter (basisu resampler port), sRGB-correct, wrap modes | Texture mipmaps (`texture::build` renormalizes normal maps) |
+| `imgio::resize` | Resize with exact / contain / cover / width / height fits, crop; premultiplied, sRGB-correct | Thumbnails, power-of-two textures |
+| `imgio::filter` | Flip / rotate / transpose, box / Gaussian blur, unsharp mask, exposure / brightness / contrast / gamma / saturation, grayscale, swizzle, premultiply, normal map from height, HDR tone mapping | Asset pipelines, texture prep |
 
 ### Containers
 

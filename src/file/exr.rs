@@ -36,6 +36,7 @@ use vas::Vector;
 use vas::storage::Dynamic;
 
 /// Plane indices per role: single channel, RGB, alpha, Y / RY / BY.
+#[cfg(feature = "exr")]
 type PlaneRoles = (
     Option<usize>,
     [Option<usize>; 3],
