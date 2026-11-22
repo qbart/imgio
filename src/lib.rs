@@ -28,6 +28,7 @@ mod etc;
 mod etc1hq;
 mod etc2modes;
 pub mod file;
+pub mod filter;
 mod format;
 mod fxt1;
 pub mod gpu;

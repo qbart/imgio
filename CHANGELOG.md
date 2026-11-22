@@ -19,4 +19,7 @@ First functional release.
   format behind its own cargo feature (pure Rust crates only).
 - Image resize (`imgio::resize`): every uncompressed format, sRGB-correct, premultiplied
   alpha, every resampler filter, exact / contain / cover / width / height fits, crop.
+- Image filters (`imgio::filter`): flip / rotate / transpose, box / Gaussian blur, unsharp mask,
+  exposure / brightness / contrast / gamma / saturation, grayscale, swizzle, premultiply,
+  normal map from height, HDR tone mapping.
 - `R16Float`, `R32Float`, `Rgb8*`, `Bgra8*` pixel formats.

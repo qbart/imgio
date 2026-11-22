@@ -73,7 +73,7 @@
 - [x] Image resize (`imgio::resize`, docs/spec/resize.md): any uncompressed `Image` / `Surface` (8/16-bit, float, sRGB-correct),
   filters from the `mip` resampler (box, tent, Mitchell, Catmull-Rom, Kaiser, Lanczos, ...),
   fit / fill / exact sizes, crop; multithreaded
-- [ ] Image filters: flip / rotate / transpose, blur (box, Gaussian), sharpen (unsharp mask),
+- [x] Image filters (`imgio::filter`, docs/spec/filter.md): flip / rotate / transpose, blur (box, Gaussian), sharpen (unsharp mask),
   brightness / contrast / gamma / exposure, grayscale, channel swizzle, premultiply alpha,
   normal map from height, tone mapping (HDR -> LDR)
 
