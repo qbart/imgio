@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Image based lighting (`imgio::ibl`): equirect <-> cubemap, SH / convolved irradiance, GGX
+  prefiltered specular mip chain, BRDF LUT.
 - Texture atlases (`imgio::atlas`): MaxRects / skyline / shelf packing, smallest page search,
   padding, border, extrusion, rotation, trimming, duplicates, multiple pages, JSON layout.
 - ICO / CUR files (`imgio::file::ico`, own code): DIB and PNG entries, cursors, multi-size

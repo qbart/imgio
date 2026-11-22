@@ -82,7 +82,7 @@
 - [x] ICO / CUR files (own code, docs/spec/file_ico.md): BMP and PNG entries, multi-size, hotspots
 - [x] Texture atlases (`imgio::atlas`, docs/spec/atlas.md): MaxRects / skyline / shelf packing, padding, edge
   extrusion, power-of-two / square / max size, rotation, trimming, multi-page, JSON-like layout
-- [ ] HDR prep (`imgio::ibl`): equirect <-> cubemap, irradiance (SH and convolved), GGX
+- [x] HDR prep (`imgio::ibl`, docs/spec/ibl.md): equirect <-> cubemap, irradiance (SH and convolved), GGX
   prefiltered specular mip chain, BRDF LUT
 - [ ] Colour management (`imgio::color`): ICC profile parsing (matrix / TRC and LUT profiles),
   sRGB / Display P3 / Rec. 2020 / Adobe RGB / ProPhoto, PQ / HLG, applied on file decode

@@ -34,6 +34,7 @@ mod format;
 mod fxt1;
 pub mod gpu;
 pub mod half;
+pub mod ibl;
 pub mod image;
 pub mod ktx1;
 pub mod ktx2;
