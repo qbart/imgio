@@ -40,6 +40,13 @@ miniz_oxide = { version = "0.8.9", optional = true }
 png = { version = "0.18.1", optional = true }
 gif = { version = "0.14.2", default-features = false, features = ["std", "raii_no_panic"], optional = true }
 color_quant = { version = "2.0.0", optional = true }
+# OpenEXR (feature `exr`): the crate's default `rayon` feature decompresses blocks in parallel.
+exr = { version = "1.74.2", optional = true }
+# TIFF (feature `tiff`): the `tiff` crate writes files; decoding is imgio's own code on top of
+# the LZW, Deflate and JPEG codecs below.
+tiff = { version = "0.11.3", optional = true, default-features = false, features = ["lzw", "deflate"] }
+weezl = { version = "0.1.12", optional = true }
+zune-jpeg = { version = "0.5.15", optional = true }
 
 [features]
 default = ["png", "jpeg"]
@@ -49,8 +56,8 @@ png = ["dep:png"]
 gif = ["dep:gif", "dep:color_quant"]
 webp = []
 jpeg = []
-exr = []
-tiff = []
+exr = ["dep:exr"]
+tiff = ["dep:tiff", "dep:weezl", "dep:miniz_oxide", "dep:zune-jpeg"]
 jxl = ["dep:jxl-oxide", "dep:zune-jpegxl", "dep:zune-core"]
 jpeg2000 = ["dep:hayro-jpeg2000"]
 vdb = ["dep:miniz_oxide"]

@@ -57,6 +57,12 @@
     color info; encode 8/16-bit, palette, APNG (`docs/spec/file_png.md`)
   - [x] GIF (`gif` + `color_quant`): browser compositing, loop counts; encode with exact
     palettes / NeuQuant + dithering, animation (`docs/spec/file_gif.md`)
+  - Done: OpenEXR (`exr`): `exr` crate decode (multi-part, layers, mip / rip, f16 / f32 / u32,
+    every compression incl. DWAA / DWAB; exact vs OpenEXR) and encode (lossless compressions
+    exact vs OpenEXR, PXR24 / B44, tiles, mips).
+  - Done: TIFF (`tiff`): own decoder (BigTIFF, strips / tiles, planar, 1-64 bit, palette /
+    CMYK / YCbCr, LZW / Deflate / PackBits / JPEG, predictors; exact vs libtiff except JPEG),
+    `tiff` crate encode (multi-page, BigTIFF).
 - [x] Optional Vulkan / OpenGL upload features (`vulkan`, `opengl`; `gpu::TextureSource`)
 - [ ] Image resize: any uncompressed `Image` / `Surface` (8/16-bit, float, sRGB-correct),
   filters from the `mip` resampler (box, tent, Mitchell, Catmull-Rom, Kaiser, Lanczos, ...),

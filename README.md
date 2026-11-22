@@ -151,6 +151,8 @@ GPU format the device supports (BC1-7, ETC, ASTC, PVRTC, ATC, FXT1, RGBA ...).
 | OpenVDB (`.vdb`) | - (only C++ exists) | own (feature `vdb`, partial): grid list, float / double grids densified to `R32Float` volumes, none / zip / active-mask compression (no Blosc) | Sparse volumes from DCC tools (smoke, clouds, level sets) as 3D textures |
 | PNG / APNG | `png` crate (8/16-bit, palette, APNG) | `png` crate + own APNG compositing | Lossless images, UI, screenshots, animated stickers |
 | GIF | `gif` + `color_quant` (exact palette or NeuQuant, dithering, animation) | `gif` crate + own compositing | Legacy animations, simple graphics |
+| OpenEXR (`.exr`) | `exr` crate (feature `exr`): half / f32, NONE / RLE / ZIP(S) / PIZ / PXR24 / B44(A), scanline / tiled, mips | `exr` crate: multi-part, layers, mip / rip, f16 / f32 / u32, all compressions incl. DWAA / DWAB | VFX / film HDR interchange, renders, light probes |
+| TIFF / BigTIFF (`.tif`) | `tiff` crate (feature `tiff`): 8 / 16-bit, half / f32, LZW / Deflate / PackBits, predictors, multi-page | own on `weezl` / `miniz_oxide` / `zune-jpeg`: strips / tiles, planar, 1-64 bit, palette / CMYK / YCbCr, JPEG-in-TIFF | Print, scanning, GIS, 16-bit / float masters |
 
 ### Containers
 
