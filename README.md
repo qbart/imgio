@@ -90,6 +90,7 @@ fn main() -> imgio::Result<()> {
 | Feature | Default | Enables |
 |---|---|---|
 | `png`, `jpeg` | yes | PNG / APNG and JPEG files (`imgio::file`) |
+| `color` | yes | colour management (`imgio::color`, pure Rust `moxcms` for ICC parsing) |
 | `gif`, `webp`, `exr`, `tiff`, `jxl`, `jpeg2000`, `vdb`, `avif` | no | the other image file formats (pure Rust crates) |
 | `vulkan`, `opengl` | no | GPU texture upload (the only bindings; loaded at run time) |
 
@@ -196,6 +197,7 @@ GPU format the device supports (BC1-7, ETC, ASTC, PVRTC, ATC, FXT1, RGBA ...).
 | `imgio::metrics` | MSE, PSNR, max / mean error, SSIM (matches scikit-image) per channel and aggregated; difference image | Encoder quality checks, regression tests |
 | `imgio::atlas` | Texture atlases: MaxRects (5 heuristics) / skyline / shelf, smallest page search (power of two, square, multiple of N, fixed), padding, border, extrusion, rotation, alpha trimming, duplicate merging, multiple pages, TexturePacker-style JSON | Sprite sheets, UI and font atlases, batching draw calls |
 | `imgio::ibl` | Equirect <-> cubemap, SH and convolved diffuse irradiance, GGX prefiltered specular mips, split sum BRDF LUT | PBR image based lighting, skyboxes, reflection probes |
+| `imgio::color` | ICC profiles (matrix / TRC and LUT based, v2 / v4), built-in sRGB / Display P3 / Adobe RGB / ProPhoto / Rec. 2020 / Rec. 2100 PQ / HLG / ACES, CICP; conversions byte identical with LittleCMS for matrix profiles | Wide gamut and HDR images shown correctly, print / photo workflows |
 
 ### Containers
 

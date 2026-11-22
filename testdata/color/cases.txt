@@ -1,0 +1,15 @@
+# from to intent width height channels_in channels_out
+lcms_srgb p3 0 64 48 3 3
+p3 lcms_srgb 0 64 48 3 3
+lcms_srgb adobe 1 64 48 3 3
+adobe lcms_srgb 1 64 48 3 3
+prophoto lcms_srgb 0 64 48 3 3
+lcms_srgb prophoto 1 64 48 3 3
+rec2020 p3 1 64 48 3 3
+lcms_srgb rec2020 0 64 48 3 3
+adobe prophoto 3 64 48 3 3
+lut lcms_srgb 0 64 48 3 3
+lcms_srgb lut 0 64 48 3 3
+lut adobe 1 64 48 3 3
+gray22 gray10 0 64 48 1 1
+gray10 gray22 1 64 48 1 1

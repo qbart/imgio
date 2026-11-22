@@ -508,6 +508,7 @@ dependencies = [
  "khronos-egl",
  "libloading",
  "miniz_oxide 0.8.9",
+ "moxcms",
  "png",
  "ravif",
  "re_rav1d",

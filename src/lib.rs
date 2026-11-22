@@ -20,6 +20,9 @@ mod bc6h_signed;
 mod bc7e;
 mod block;
 mod buffer;
+pub mod color;
+#[cfg(feature = "color")]
+mod color_pipeline;
 pub mod convert;
 pub mod dds;
 mod decode;

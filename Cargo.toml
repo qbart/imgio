@@ -54,9 +54,12 @@ jpeg-decoder = { version = "0.3.2", optional = true }
 avif-parse = { version = "2.1.0", optional = true }
 re_rav1d = { version = "0.1.3", optional = true, default-features = false, features = ["bitdepth_8", "bitdepth_16"] }
 ravif = { version = "0.13.0", optional = true, default-features = false, features = ["threading"] }
+# Colour management (feature `color`): ICC parsing, built-in / CICP profiles, ICC writing (the
+# transforms are imgio's own).
+moxcms = { version = "0.8.1", optional = true, default-features = false, features = ["lut"] }
 
 [features]
-default = ["png", "jpeg"]
+default = ["png", "jpeg", "color"]
 # Image file formats backed by pure Rust crates (`imgio::file`); BMP, TGA, HDR and zfile are
 # always built in.
 png = ["dep:png"]
@@ -69,6 +72,8 @@ jxl = ["dep:jxl-oxide", "dep:zune-jpegxl", "dep:zune-core"]
 jpeg2000 = ["dep:hayro-jpeg2000"]
 vdb = ["dep:miniz_oxide"]
 avif = ["dep:avif-parse", "dep:re_rav1d", "dep:ravif"]
+# ICC / CICP colour management (`imgio::color`, pure Rust `moxcms`).
+color = ["dep:moxcms"]
 # Vulkan texture upload (`imgio::gpu::vulkan`, port of KTX-Software vkloader.c). Vulkan and
 # OpenGL are the only allowed bindings: commands are looked up at run time, nothing is linked.
 vulkan = ["dep:ash", "dep:libloading"]
