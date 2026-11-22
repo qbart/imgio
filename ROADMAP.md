@@ -96,6 +96,9 @@
   profiles now byte identical)
 - [x] CLI `lut` command and `--lut` option: apply / bake / convert `.cube`, device link, HALD and
   strip LUTs
+- [x] GPU memory report (`imgio::memory`, docs/spec/memory.md, CLI `memory`): per-format sizes with
+  mips, container headers, Basis transcode targets, desktop / mobile suggestions, budgets
+- [ ] CI compare: thresholds and exit codes, directory comparison, JSON
 
 ## Follow-ups
 

@@ -253,3 +253,39 @@ fn lut_command() -> R {
     std::fs::remove_dir_all(&d)?;
     Ok(())
 }
+
+#[test]
+fn memory_command() -> R {
+    use imgio::memory::{self, Layout};
+    let d = dir("memory")?;
+    std::fs::create_dir_all(d.join("sub"))?;
+    png(&d.join("a.png"), 64, 32)?;
+    png(&d.join("sub/b.png"), 20, 12)?;
+    std::fs::write(d.join("notes.txt"), b"ignored")?;
+    let ktx = p(&d, "sub/t.ktx2");
+    run(&["convert", &p(&d, "a.png"), &ktx, "--format", "bc7-srgb", "--mips"])?;
+    let dir_s = d.to_string_lossy().into_owned();
+    let text = run(&["memory", &dir_s])?;
+    assert!(text.contains("total 3 files"), "{text}");
+    let json = run(&["memory", &dir_s, "--json"])?;
+    // a.png: RGBA8 64x32 with 7 mips; desktop BC7 (colour, alpha varies), mobile ASTC 4x4.
+    let l = Layout::new_2d(64, 32, true);
+    let rgba = memory::texture_bytes(imgio::Format::Rgba8Srgb, &l)?;
+    let bc7 = memory::texture_bytes(imgio::Format::Bc7Srgb, &l)?;
+    assert!(json.contains(&format!(
+        "\"now\":{{\"format\":\"rgba8-srgb\",\"bytes\":{rgba}}}"
+    )));
+    assert!(json.contains(&format!("\"desktop\":{{\"format\":\"bc7-srgb\",\"bytes\":{bc7}}}")));
+    // The KTX2 keeps its BC7 for desktop.
+    assert!(json.contains(&format!(
+        "\"now\":{{\"format\":\"bc7-srgb\",\"bytes\":{bc7}}},\"note\":\"\",\"desktop\":{{\"format\":\"bc7-srgb\",\"bytes\":{bc7}}}"
+    )));
+    let nomips = run(&["memory", &p(&d, "a.png"), "--json", "--no-mips"])?;
+    assert!(nomips.contains(&format!("\"bytes\":{}", 64 * 32 * 4)));
+    // Budget: under passes, over fails with exit code 1.
+    run(&["memory", &dir_s, "--budget", "1M"])?;
+    assert!(fails(&["memory", &dir_s, "--budget", "2K"])?.contains("over budget"));
+    assert!(fails(&["memory", &dir_s, "--budget", "lots"])?.contains("bad size"));
+    std::fs::remove_dir_all(&d)?;
+    Ok(())
+}

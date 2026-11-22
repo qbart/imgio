@@ -7,6 +7,7 @@ use imgio::file::{self, FileFormat, Image};
 use imgio::filter;
 use imgio::ibl;
 use imgio::lut::{self, Cube, Interpolation, Lut3d};
+use imgio::memory::{self, Layout, Target};
 use imgio::metrics::{self, CompareOptions};
 use imgio::mip::Filter;
 use imgio::pack::{self, Channel, ChannelSpec, PackOptions, PackSize};
@@ -30,6 +31,8 @@ USAGE:
   imgio ibl <panorama> -o <env.ktx2> [--size N] [--irradiance FILE] [--irradiance-size N]
             [--specular FILE] [--samples N] [--levels N] [--brdf FILE] [--brdf-size N]
   imgio compare <reference> <test> [--diff FILE] [--amplify N] [--peak P] [--no-ssim]
+  imgio memory <file|dir>... [--no-mips] [--desktop FORMAT] [--mobile FORMAT] [--json]
+               [--budget SIZE]   (SIZE like 512M, 2G; exit 1 when the current total exceeds it)
   imgio lut [input LUT] -o <out.cube|.icc|image> [--size N] [--from SPACE --to SPACE]
             [--intent I] [--title T] [--layout hald|strip] [per-pixel image options]
   imgio formats
@@ -106,6 +109,7 @@ fn run(args: &[String]) -> Res {
         "ibl" => ibl_cmd(rest),
         "compare" => compare(rest),
         "lut" => lut_cmd(rest),
+        "memory" => memory_cmd(rest),
         "formats" => {
             for (name, _) in formats() {
                 println!("{name}");
@@ -146,6 +150,8 @@ const FLAGS: &[&str] = &[
     "--unpremultiply",
     "--directx",
     "--no-ssim",
+    "--no-mips",
+    "--json",
 ];
 
 /// Options with an optional value (taken when the next argument is a number).
@@ -1450,4 +1456,358 @@ fn lut_cmd(rest: &[String]) -> Res {
             save_image(out, &img)
         }
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// memory
+
+/// One file of the memory report.
+struct MemRow {
+    path: String,
+    layout: Layout,
+    /// Current GPU format and bytes (`None` for Basis payloads).
+    now: Option<(Format, u64)>,
+    note: String,
+    desktop: (Format, u64),
+    mobile: (Format, u64),
+}
+
+fn human(b: u64) -> String {
+    let v = b as f64;
+    if b >= 1 << 30 {
+        format!("{:.2} GiB", v / (1u64 << 30) as f64)
+    } else if b >= 1 << 20 {
+        format!("{:.2} MiB", v / (1u64 << 20) as f64)
+    } else if b >= 1 << 10 {
+        format!("{:.1} KiB", v / 1024.0)
+    } else {
+        format!("{b} B")
+    }
+}
+
+fn parse_size(s: &str) -> Res<u64> {
+    let t = s.trim().trim_end_matches(['B', 'b']).trim_end_matches('i');
+    let (num, mul) = match t.chars().last() {
+        Some('K' | 'k') => (&t[..t.len() - 1], 1u64 << 10),
+        Some('M' | 'm') => (&t[..t.len() - 1], 1 << 20),
+        Some('G' | 'g') => (&t[..t.len() - 1], 1 << 30),
+        _ => (t, 1),
+    };
+    let v: f64 = num.trim().parse().map_err(|_| format!("bad size `{s}`"))?;
+    if !(v >= 0.0 && v.is_finite()) {
+        return Err(format!("bad size `{s}`"));
+    }
+    Ok((v * mul as f64).round() as u64)
+}
+
+fn json_str(s: &str) -> String {
+    let mut o = String::from("\"");
+    for c in s.chars() {
+        match c {
+            '"' => o.push_str("\\\""),
+            '\\' => o.push_str("\\\\"),
+            c if (c as u32) < 0x20 => o.push_str(&format!("\\u{:04x}", c as u32)),
+            c => o.push(c),
+        }
+    }
+    o.push('"');
+    o
+}
+
+fn collect_files(path: &str, out: &mut Vec<String>) -> Res {
+    let p = std::path::Path::new(path);
+    if p.is_dir() {
+        let mut entries: Vec<_> = std::fs::read_dir(p)
+            .map_err(e(path))?
+            .filter_map(|x| x.ok().map(|x| x.path()))
+            .collect();
+        entries.sort();
+        for en in entries {
+            let s = en.to_string_lossy().into_owned();
+            if en.is_dir() {
+                collect_files(&s, out)?;
+            } else if is_texture_ext(&ext(&s))
+                || matches!(ext(&s).as_str(), "basis" | "astc")
+                || FileFormat::from_extension(&ext(&s)).is_some()
+            {
+                out.push(s);
+            }
+        }
+    } else {
+        out.push(path.to_string());
+    }
+    Ok(())
+}
+
+fn mem_row(path: &str, a: &Args) -> Res<MemRow> {
+    let data = read(path)?;
+    let mips = !a.has("--no-mips");
+    let fixed = |k: &str| a.get(k).map(parse_format).transpose();
+    let (fd, fm) = (fixed("--desktop")?, fixed("--mobile")?);
+    let est =
+        |c: &memory::Content, t: Target, over: Option<Format>, l: &Layout| -> Res<(Format, u64)> {
+            let f = over.unwrap_or_else(|| memory::suggest(c, t));
+            Ok((f, memory::texture_bytes(f, l).map_err(e(path))?))
+        };
+    if let Some(m) = memory::of_container(&data).map_err(e(path))? {
+        let l = m.layout;
+        let hdr = m.format.is_some_and(|f| f.is_hdr())
+            || matches!(
+                m.basis,
+                Some(
+                    imgio::basis::BasisTexFormat::UastcHdr4x4
+                        | imgio::basis::BasisTexFormat::AstcHdr6x6
+                        | imgio::basis::BasisTexFormat::UastcHdr6x6Intermediate
+                )
+            );
+        // Plain containers: level 0 decoded and analyzed; else the header (R data is gray, RG
+        // data two channels: BC5 / ASTC 4x4).
+        let decoded = if m.basis.is_none() {
+            load_bytes(path, &data)
+                .ok()
+                .and_then(|img| memory::analyze(&img.surface().ok()?).ok())
+        } else {
+            None
+        };
+        let header = memory::Content {
+            alpha: if m.has_alpha || m.channels == 2 {
+                memory::Alpha::Full
+            } else {
+                memory::Alpha::Opaque
+            },
+            gray: m.channels <= 2,
+            hdr,
+            srgb: m.srgb,
+        };
+        let c = match decoded {
+            // Two channel data stays two channel.
+            Some(d) if m.channels == 2 => memory::Content {
+                alpha: memory::Alpha::Full,
+                gray: true,
+                ..d
+            },
+            Some(d) => memory::Content {
+                hdr,
+                srgb: m.srgb,
+                ..d
+            },
+            None => header,
+        };
+        // Already in the target's block family: keep it.
+        let family = |f: Format| {
+            let n = format_name(f);
+            if n.starts_with("bc") {
+                Some(Target::Desktop)
+            } else if ["astc", "etc", "eac", "pvrtc"]
+                .iter()
+                .any(|p| n.starts_with(p))
+            {
+                Some(Target::Mobile)
+            } else {
+                None
+            }
+        };
+        let keep = |t: Target| m.format.filter(|f| family(*f) == Some(t));
+        let (fd, fm) = (fd.or(keep(Target::Desktop)), fm.or(keep(Target::Mobile)));
+        let (desktop, mobile, note) = match m.basis {
+            Some(b) => {
+                let t = |t: Target, over: Option<Format>| -> Res<(Format, u64)> {
+                    let f = over.unwrap_or(memory::transcode_target(b, m.has_alpha, m.srgb, t));
+                    Ok((f, memory::texture_bytes(f, &l).map_err(e(path))?))
+                };
+                (
+                    t(Target::Desktop, fd)?,
+                    t(Target::Mobile, fm)?,
+                    format!("basis {b:?}"),
+                )
+            }
+            None => (
+                est(&c, Target::Desktop, fd, &l)?,
+                est(&c, Target::Mobile, fm, &l)?,
+                String::new(),
+            ),
+        };
+        return Ok(MemRow {
+            path: path.to_string(),
+            layout: l,
+            now: m.format.zip(m.gpu_bytes),
+            note,
+            desktop,
+            mobile,
+        });
+    }
+    let img = file::decode(&data).map_err(e(path))?;
+    let c = memory::analyze(&img.surface().map_err(e(path))?).map_err(e(path))?;
+    let l = Layout::new_2d(img.width, img.height, mips);
+    let f = memory::upload_format(img.format);
+    let now = (f, memory::texture_bytes(f, &l).map_err(e(path))?);
+    let note = match (c.alpha, c.gray) {
+        (memory::Alpha::Opaque, false) => String::new(),
+        (al, g) => format!(
+            "{}{}",
+            match al {
+                memory::Alpha::Opaque => "",
+                memory::Alpha::Binary => "cutout alpha",
+                memory::Alpha::Full => "alpha",
+            },
+            if g {
+                if al == memory::Alpha::Opaque {
+                    "gray"
+                } else {
+                    ", gray"
+                }
+            } else {
+                ""
+            }
+        ),
+    };
+    Ok(MemRow {
+        path: path.to_string(),
+        layout: l,
+        now: Some(now),
+        note,
+        desktop: est(&c, Target::Desktop, fd, &l)?,
+        mobile: est(&c, Target::Mobile, fm, &l)?,
+    })
+}
+
+fn memory_cmd(rest: &[String]) -> Res {
+    let a = Args::parse(rest)?;
+    if a.pos.is_empty() {
+        return Err("memory <file|dir>...".into());
+    }
+    let mut paths = Vec::new();
+    for p in &a.pos {
+        collect_files(p, &mut paths)?;
+    }
+    let mut rows = Vec::new();
+    let mut skipped = Vec::new();
+    for p in &paths {
+        match mem_row(p, &a) {
+            Ok(r) => rows.push(r),
+            Err(err) => skipped.push(err),
+        }
+    }
+    let now: u64 = rows.iter().filter_map(|r| r.now.map(|n| n.1)).sum();
+    let desk: u64 = rows.iter().map(|r| r.desktop.1).sum();
+    let mob: u64 = rows.iter().map(|r| r.mobile.1).sum();
+    let unknown = rows.iter().filter(|r| r.now.is_none()).count();
+    if a.has("--json") {
+        let fmt_obj =
+            |f: Format, b: u64| format!("{{\"format\":\"{}\",\"bytes\":{b}}}", format_name(f));
+        let mut o = String::from("{\"files\":[");
+        for (i, r) in rows.iter().enumerate() {
+            let l = r.layout;
+            o.push_str(&format!(
+                "{}{{\"path\":{},\"width\":{},\"height\":{},\"depth\":{},\"layers\":{},\"faces\":{},\"levels\":{},\"now\":{},\"note\":{},\"desktop\":{},\"mobile\":{}}}",
+                if i > 0 { "," } else { "" },
+                json_str(&r.path),
+                l.width,
+                l.height,
+                l.depth,
+                l.layers,
+                l.faces,
+                l.levels,
+                r.now.map_or("null".to_string(), |(f, b)| fmt_obj(f, b)),
+                json_str(&r.note),
+                fmt_obj(r.desktop.0, r.desktop.1),
+                fmt_obj(r.mobile.0, r.mobile.1),
+            ));
+        }
+        o.push_str(&format!(
+            "],\"total\":{{\"now\":{now},\"desktop\":{desk},\"mobile\":{mob},\"unknown\":{unknown}}},\"skipped\":["
+        ));
+        for (i, s) in skipped.iter().enumerate() {
+            o.push_str(&format!("{}{}", if i > 0 { "," } else { "" }, json_str(s)));
+        }
+        o.push_str("]}");
+        println!("{o}");
+    } else {
+        let w = rows
+            .iter()
+            .map(|r| r.path.len())
+            .max()
+            .unwrap_or(4)
+            .clamp(4, 60);
+        println!(
+            "{:<w$} {:>11} {:>5} {:>22} {:>22} {:>24}",
+            "file", "size", "mips", "now", "desktop", "mobile"
+        );
+        let cell = |f: Format, b: u64| format!("{} {}", human(b), format_name(f));
+        for r in &rows {
+            let l = r.layout;
+            let mut dims = format!("{}x{}", l.width, l.height);
+            if l.depth > 1 {
+                dims.push_str(&format!("x{}", l.depth));
+            }
+            let mut extra = Vec::new();
+            if l.faces == 6 {
+                extra.push("cube".to_string());
+            }
+            if l.layers > 1 {
+                extra.push(format!("{} layers", l.layers));
+            }
+            if !r.note.is_empty() {
+                extra.push(r.note.clone());
+            }
+            println!(
+                "{:<w$} {:>11} {:>5} {:>22} {:>22} {:>24}{}",
+                r.path,
+                dims,
+                l.levels,
+                r.now.map_or("transcoded".to_string(), |(f, b)| cell(f, b)),
+                cell(r.desktop.0, r.desktop.1),
+                cell(r.mobile.0, r.mobile.1),
+                if extra.is_empty() {
+                    String::new()
+                } else {
+                    format!("  ({})", extra.join(", "))
+                }
+            );
+        }
+        let pct = |x: u64| {
+            if now > 0 {
+                format!(" ({:+.0}%)", (x as f64 / now as f64 - 1.0) * 100.0)
+            } else {
+                String::new()
+            }
+        };
+        println!(
+            "total {} files: now {}{}, desktop {}{}, mobile {}{}",
+            rows.len(),
+            human(now),
+            if unknown > 0 {
+                format!(" + {unknown} transcoded")
+            } else {
+                String::new()
+            },
+            human(desk),
+            if unknown == 0 {
+                pct(desk)
+            } else {
+                String::new()
+            },
+            human(mob),
+            if unknown == 0 {
+                pct(mob)
+            } else {
+                String::new()
+            },
+        );
+        for s in &skipped {
+            eprintln!("skipped: {s}");
+        }
+    }
+    if let Some(b) = a.get("--budget") {
+        let limit = parse_size(b)?;
+        if now > limit {
+            return Err(format!(
+                "over budget: {} > {} ({} over)",
+                human(now),
+                human(limit),
+                human(now - limit)
+            ));
+        }
+    }
+    Ok(())
 }

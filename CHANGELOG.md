@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- GPU memory report (`imgio::memory`, `imgio memory`): sizes with mips, container headers,
+  Basis transcode targets, desktop / mobile format suggestions, `--budget`.
 - CLI: `imgio lut` (bake / convert LUTs) and the `--lut` image option.
 - ICC device links: `color::apply_link`, `Profile::is_device_link`, `Lut3d::to_device_link`.
 - Colour conversions with LUT profiles are byte identical with LittleCMS (sampled curves and

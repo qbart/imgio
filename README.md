@@ -95,6 +95,7 @@ imgio pack -o orm.png --orm ao.png roughness.png metallic.png
 imgio atlas -o sprites.png --json sprites.json icons/*.png --trim --rotate --extrude 1
 imgio ibl sky.exr -o sky.ktx2 --size 512 --irradiance irr.ktx2 --specular spec.ktx2 --brdf brdf.png
 imgio compare reference.png encoded.ktx2 --diff diff.png --amplify 8
+imgio memory assets/ --budget 512M           # GPU memory now vs BC / ASTC, fails over budget
 imgio lut -o look.cube --contrast 1.1 --saturation 0.8 && imgio convert in.png out.png --lut look.cube
 imgio lut -o p3_to_srgb.icc --from p3 --to srgb --size 33       # ICC device link
 imgio info texture.ktx2
@@ -217,6 +218,7 @@ target colour space (feature `color`).
 | `imgio::ibl` | Equirect <-> cubemap, SH and convolved diffuse irradiance, GGX prefiltered specular mips, split sum BRDF LUT | PBR image based lighting, skyboxes, reflection probes |
 | `imgio::color` | ICC profiles (matrix / TRC and LUT based, v2 / v4), built-in sRGB / Display P3 / Adobe RGB / ProPhoto / Rec. 2020 / Rec. 2100 PQ / HLG / ACES, CICP, ICC device links; conversions byte identical with LittleCMS (matrix and LUT profiles) | Wide gamut and HDR images shown correctly, print / photo workflows |
 | `imgio::lut` | `.cube` read / write (Adobe and Resolve shaper), trilinear / tetrahedral apply, baking from filters and colour transforms, HALD and strip images, ICC device link export | Colour grading, film looks, engine grading LUT textures |
+| `imgio::memory` | GPU bytes per format with mips / arrays / cubes / volumes, container headers, Basis transcode targets, content analysis and desktop / mobile format suggestions | Texture budgets, choosing formats, CI size checks |
 
 ### Containers
 
