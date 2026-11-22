@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- CLI: `imgio lut` (bake / convert LUTs) and the `--lut` image option.
 - ICC device links: `color::apply_link`, `Profile::is_device_link`, `Lut3d::to_device_link`.
 - Colour conversions with LUT profiles are byte identical with LittleCMS (sampled curves and
   CLUTs evaluated in 16-bit fixed point like LittleCMS); crate license `Apache-2.0 AND MIT`.

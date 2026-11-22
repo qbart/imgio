@@ -166,3 +166,90 @@ fn every_command() -> R {
     std::fs::remove_dir_all(&d)?;
     Ok(())
 }
+
+#[test]
+fn lut_command() -> R {
+    use imgio::lut::Cube;
+    let d = dir("lut")?;
+    png(&d.join("a.png"), 24, 16)?;
+    let a = p(&d, "a.png");
+    // Identity and a desaturating grade.
+    let id = p(&d, "id.cube");
+    run(&["lut", "-o", &id, "--size", "9", "--title", "Identity"])?;
+    let c = Cube::parse(&std::fs::read(&id)?)?;
+    assert_eq!(c.title.as_deref(), Some("Identity"));
+    let l = c.lut.as_ref().ok_or("no 3D")?;
+    assert_eq!(l.size, 9);
+    assert_eq!(l.table[1 + 9 * (2 + 9 * 8)], [0.125, 0.25, 1.0]);
+    let g = p(&d, "gray.cube");
+    run(&["lut", "-o", &g, "--size", "17", "--saturation", "0"])?;
+    let c = Cube::parse(&std::fs::read(&g)?)?;
+    let l = c.lut.as_ref().ok_or("no 3D")?;
+    assert!(l.table.iter().all(|v| v[0] == v[1] && v[1] == v[2]));
+    // Applied to an image: gray pixels, alpha kept.
+    let out = p(&d, "out.png");
+    run(&["convert", &a, &out, "--lut", &g])?;
+    let img = imgio::file::decode(&std::fs::read(&out)?)?;
+    let src = imgio::file::decode(&std::fs::read(&a)?)?;
+    for (q, s) in img.data.chunks(4).zip(src.data.chunks(4)) {
+        assert!(q[0] == q[1] && q[1] == q[2] && q[3] == s[3], "{q:?}");
+    }
+    // As a strip image (17 is not a square) and back: the same result within 16-bit rounding.
+    let strip = p(&d, "gray.png");
+    run(&["lut", &g, "-o", &strip])?;
+    let si = imgio::file::decode(&std::fs::read(&strip)?)?;
+    assert_eq!((si.width, si.height), (289, 17));
+    let out2 = p(&d, "out2.png");
+    run(&[
+        "convert",
+        &a,
+        &out2,
+        "--lut",
+        &strip,
+        "--lut-interp",
+        "trilinear",
+    ])?;
+    let img2 = imgio::file::decode(&std::fs::read(&out2)?)?;
+    let tri = p(&d, "out3.png");
+    run(&[
+        "convert",
+        &a,
+        &tri,
+        "--lut",
+        &g,
+        "--lut-interp",
+        "trilinear",
+    ])?;
+    let img3 = imgio::file::decode(&std::fs::read(&tri)?)?;
+    assert!(
+        img2.data
+            .iter()
+            .zip(img3.data.iter())
+            .all(|(x, y)| x.abs_diff(*y) <= 1)
+    );
+    // HALD for square sizes.
+    let hald = p(&d, "hald.png");
+    run(&["lut", "-o", &hald, "--size", "16", "--exposure", "1"])?;
+    let hi = imgio::file::decode(&std::fs::read(&hald)?)?;
+    assert_eq!((hi.width, hi.height), (64, 64));
+    // A colour transform as a device link, applied with --lut.
+    let link = p(&d, "p3.icc");
+    run(&[
+        "lut", "-o", &link, "--size", "17", "--from", "p3", "--to", "srgb",
+    ])?;
+    let prof = imgio::color::Profile::from_icc(&std::fs::read(&link)?)?;
+    assert!(prof.is_device_link());
+    run(&["convert", &a, &p(&d, "out4.png"), "--lut", &link])?;
+    // A .cube input with nothing else is copied as is (shaper kept).
+    let shaper = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("testdata/lut/shaper.cube");
+    let copy = p(&d, "copy.cube");
+    run(&["lut", &shaper.to_string_lossy(), "-o", &copy])?;
+    let c = Cube::parse(&std::fs::read(&copy)?)?;
+    assert_eq!(c.shaper.as_ref().ok_or("no shaper")?.size, 256);
+    // Errors.
+    assert!(fails(&["lut", "-o", &id, "--blur", "2"])?.contains("per-pixel"));
+    assert!(fails(&["lut", "-o", &id, "--from", "p3"])?.contains("--to"));
+    assert!(fails(&["convert", &a, &out, "--lut", &a])?.contains("HALD"));
+    std::fs::remove_dir_all(&d)?;
+    Ok(())
+}

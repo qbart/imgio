@@ -95,6 +95,8 @@ imgio pack -o orm.png --orm ao.png roughness.png metallic.png
 imgio atlas -o sprites.png --json sprites.json icons/*.png --trim --rotate --extrude 1
 imgio ibl sky.exr -o sky.ktx2 --size 512 --irradiance irr.ktx2 --specular spec.ktx2 --brdf brdf.png
 imgio compare reference.png encoded.ktx2 --diff diff.png --amplify 8
+imgio lut -o look.cube --contrast 1.1 --saturation 0.8 && imgio convert in.png out.png --lut look.cube
+imgio lut -o p3_to_srgb.icc --from p3 --to srgb --size 33       # ICC device link
 imgio info texture.ktx2
 ```
 

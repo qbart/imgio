@@ -6,6 +6,7 @@ use imgio::color::{ColorSpace, Intent, Profile};
 use imgio::file::{self, FileFormat, Image};
 use imgio::filter;
 use imgio::ibl;
+use imgio::lut::{self, Cube, Interpolation, Lut3d};
 use imgio::metrics::{self, CompareOptions};
 use imgio::mip::Filter;
 use imgio::pack::{self, Channel, ChannelSpec, PackOptions, PackSize};
@@ -29,6 +30,8 @@ USAGE:
   imgio ibl <panorama> -o <env.ktx2> [--size N] [--irradiance FILE] [--irradiance-size N]
             [--specular FILE] [--samples N] [--levels N] [--brdf FILE] [--brdf-size N]
   imgio compare <reference> <test> [--diff FILE] [--amplify N] [--peak P] [--no-ssim]
+  imgio lut [input LUT] -o <out.cube|.icc|image> [--size N] [--from SPACE --to SPACE]
+            [--intent I] [--title T] [--layout hald|strip] [per-pixel image options]
   imgio formats
 
 Inputs: any image file, or a texture container (.ktx2 .dds .ktx .basis .astc: level 0, decoded
@@ -45,6 +48,8 @@ IMAGE OPTIONS (applied in this order):
   --grayscale           --premultiply                  --unpremultiply
   --swizzle rgba        (letters r g b a 0 1)
   --normal-map STRENGTH [--directx]                    --tonemap clamp|reinhard|aces [--white W]
+  --lut FILE            apply a LUT: .cube, ICC device link (.icc .icm), HALD or strip image
+  --lut-interp I        tetrahedral (default) | trilinear
   --pixel FORMAT        convert the pixels to this uncompressed format (see `imgio formats`)
 
 TEXTURE OPTIONS:
@@ -53,6 +58,12 @@ TEXTURE OPTIONS:
   --quality Q           fastest|fast|default|high|best   --mips|--no-mips  --levels N
   --normal              renormalize mips as a normal map --zstd LEVEL      --legacy-dds
   --srgb | --linear     (Basis) colour space of the input (default srgb)
+
+LUT: a new table (identity of --size, default 33, or the input LUT) is baked through the
+colour conversion and the per-pixel image options (exposure .. saturation, grayscale, swizzle,
+tonemap, --lut), then written as .cube, an ICC device link (.icc / .icm) or an image (HALD
+for square sizes 4, 9, .. 256, else a size*size x size strip; 16-bit where the file allows).
+A .cube input with no other options is copied as is (shaper and domain kept).
 
 ATLAS OPTIONS:
   --algorithm maxrects|maxrects-bl|maxrects-baf|maxrects-blsf|maxrects-cp|skyline|shelf
@@ -94,6 +105,7 @@ fn run(args: &[String]) -> Res {
         "atlas" => atlas_cmd(rest),
         "ibl" => ibl_cmd(rest),
         "compare" => compare(rest),
+        "lut" => lut_cmd(rest),
         "formats" => {
             for (name, _) in formats() {
                 println!("{name}");
@@ -740,6 +752,10 @@ fn process(mut img: Image, a: &Args, data: Option<&[u8]>) -> Res<Image> {
         };
         img = filter::tone_map(&s(&img)?, &o).map_err(e("tone map"))?;
     }
+    if let Some(path) = a.get("--lut") {
+        let l = load_lut(path)?;
+        img = apply_lut(&img, &l, lut_interp(a)?)?;
+    }
     if let Some(p) = a.get("--pixel") {
         let f = parse_format(p)?;
         if f.is_compressed() {
@@ -1284,4 +1300,154 @@ fn compare(rest: &[String]) -> Res {
         save_image(d, &img)?;
     }
     Ok(())
+}
+
+// ---------------------------------------------------------------------------------------------
+// LUTs
+
+/// A LUT file: a `.cube` or an ICC device link.
+enum LutFile {
+    Cube(Cube),
+    Link(Box<Profile>),
+}
+
+fn lut_interp(a: &Args) -> Res<Interpolation> {
+    Ok(match a.get("--lut-interp").unwrap_or("tetrahedral") {
+        "tetrahedral" => Interpolation::Tetrahedral,
+        "trilinear" => Interpolation::Trilinear,
+        s => return Err(format!("unknown LUT interpolation `{s}`")),
+    })
+}
+
+/// `.cube`, `.icc` / `.icm` device link, or a HALD (square) / strip (`n*n x n`) image.
+fn load_lut(path: &str) -> Res<LutFile> {
+    let data = read(path)?;
+    match ext(path).as_str() {
+        "cube" => Ok(LutFile::Cube(Cube::parse(&data).map_err(e(path))?)),
+        "icc" | "icm" => {
+            let p = Profile::from_icc(&data).map_err(e(path))?;
+            if !p.is_device_link() {
+                return Err(format!("{path}: not a device link profile"));
+            }
+            Ok(LutFile::Link(Box::new(p)))
+        }
+        _ => {
+            let img = load_bytes(path, &data)?;
+            let s = img.surface().map_err(e(path))?;
+            let (w, h) = (img.width as u64, img.height as u64);
+            let lut = if w == h {
+                Lut3d::from_hald(&s)
+            } else if w == h * h {
+                Lut3d::from_strip(&s)
+            } else {
+                return Err(format!(
+                    "{path}: {w}x{h} is neither a HALD (square, side level^3) nor a strip (n*n x n)"
+                ));
+            }
+            .map_err(e(path))?;
+            Ok(LutFile::Cube(Cube::new(lut)))
+        }
+    }
+}
+
+fn apply_lut(img: &Image, l: &LutFile, interp: Interpolation) -> Res<Image> {
+    let s = img.surface().map_err(e("lut"))?;
+    match l {
+        LutFile::Cube(c) => lut::apply(&s, c, interp, img.format),
+        LutFile::Link(p) => imgio::color::apply_link(&s, p, img.format),
+    }
+    .map_err(e("lut"))
+}
+
+fn lut_cmd(rest: &[String]) -> Res {
+    let a = Args::parse(rest)?;
+    let out = a.output()?;
+    let src = match a.pos.as_slice() {
+        [] => None,
+        [p] => Some(load_lut(p)?),
+        _ => return Err("lut [input] -o <output>".into()),
+    };
+    const SPATIAL: &[&str] = &[
+        "--crop",
+        "--resize",
+        "--flip",
+        "--rotate",
+        "--transpose",
+        "--blur",
+        "--box-blur",
+        "--sharpen",
+        "--normal-map",
+        "--premultiply",
+        "--unpremultiply",
+        "--color",
+    ];
+    if let Some((k, _)) = a.opts.iter().find(|(k, _)| SPATIAL.contains(&k.as_str())) {
+        return Err(format!("{k} is not a per-pixel colour operation (lut)"));
+    }
+    const KEEP: &[&str] = &["--output", "--title", "--lut-interp"];
+    let copy = ext(out) == "cube" && a.opts.iter().all(|(k, _)| KEEP.contains(&k.as_str()));
+    let mut cube = match src {
+        Some(LutFile::Cube(c)) if copy => c,
+        src => {
+            let size = match (&src, a.num::<usize>("--size")?) {
+                (_, Some(n)) => n,
+                (Some(LutFile::Cube(Cube { lut: Some(l), .. })), None) => l.size,
+                _ => 33,
+            };
+            let id = Lut3d::identity(size).map_err(e("--size"))?;
+            let mut img = id.to_strip(Format::Rgba32Float).map_err(e("lut"))?;
+            if let Some(l) = &src {
+                img = apply_lut(&img, l, lut_interp(&a)?)?;
+            }
+            match (a.get("--from"), a.get("--to")) {
+                (None, None) => {}
+                (Some(f), Some(t)) => {
+                    let from = Profile::new(color_space(f)?).map_err(e("--from"))?;
+                    let to = Profile::new(color_space(t)?).map_err(e("--to"))?;
+                    img = imgio::color::convert(
+                        &surf(&img)?,
+                        &from,
+                        &to,
+                        intent(&a)?,
+                        Format::Rgba32Float,
+                    )
+                    .map_err(e("colour"))?;
+                }
+                _ => return Err("--from and --to go together".into()),
+            }
+            let img = process(img, &a, None)?;
+            Cube::new(Lut3d::from_strip(&surf(&img)?).map_err(e("lut"))?)
+        }
+    };
+    let title = a.get("--title");
+    match ext(out).as_str() {
+        "cube" => {
+            if let Some(t) = title {
+                let mut s = vas::String::default();
+                s.push_str(t).map_err(|_| "title too long".to_string())?;
+                cube.title = Some(s);
+            }
+            write(out, &cube.to_bytes().map_err(e(out))?)
+        }
+        x => {
+            let l = cube.lut.as_ref().ok_or("no 3D table")?;
+            if x == "icc" || x == "icm" {
+                let b = l
+                    .to_device_link(title.unwrap_or("imgio LUT"))
+                    .map_err(e(out))?;
+                return write(out, &b);
+            }
+            let square = (2..=16).any(|k| k * k == l.size);
+            let img = match a
+                .get("--layout")
+                .unwrap_or(if square { "hald" } else { "strip" })
+            {
+                "hald" => l.to_hald(Format::Rgba16Unorm),
+                "strip" => l.to_strip(Format::Rgba16Unorm),
+                s => return Err(format!("unknown layout `{s}`")),
+            }
+            .map_err(e(out))?;
+            save_image(out, &img)
+        }
+    }
 }

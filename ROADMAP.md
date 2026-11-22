@@ -94,7 +94,8 @@
 - [x] ICC device links: read and apply `link` profiles (`color::apply_link`), write a `Lut3d` as
   a device link (`Lut3d::to_device_link`); 16-bit curve / CLUT evaluation like LittleCMS (LUT
   profiles now byte identical)
-- [ ] CLI `lut` command: apply / bake / convert `.cube`, HALD and strip LUTs
+- [x] CLI `lut` command and `--lut` option: apply / bake / convert `.cube`, device link, HALD and
+  strip LUTs
 
 ## Follow-ups
 
