@@ -30,8 +30,9 @@ check:
 	cargo build --release --no-default-features
 
 # Minimum supported Rust version (Cargo.toml `rust-version`).
+# `jpeg2000` (hayro-jpeg2000) needs Rust 1.92 and `avif` (avif-parse) 1.90.
 msrv:
-	cargo +1.88 build --release --all-features
+	cargo +1.88 build --release --features png,jpeg,gif,webp,exr,tiff,jxl,vdb,vulkan,opengl
 
 # Files that go into the published crate.
 package:

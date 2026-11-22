@@ -17,7 +17,7 @@
 - [x] KTX2 plain formats, KTX2 writer (raw / zstd; Basis payloads via `write_basis`)
 - [x] DDS reader and writer (own implementation: legacy FourCC and DX10 headers, mips, arrays,
   cubemaps; every `Format` with a DXGI equivalent)
-- [ ] Image file formats (encode/decode API on byte slices, pure Rust; table = target scope,
+- [x] Image file formats (encode/decode API on byte slices, pure Rust; table = target scope,
   crate = reference for the feature set):
 
   | Format | Reference crate | Decode | Encode |

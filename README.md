@@ -5,7 +5,7 @@ Pure Rust image and GPU texture codecs: BC1-BC7, ETC / EAC, ASTC, PVRTC, Basis U
 DDS / `.astc` / `.basis` containers; image file formats (PNG, TGA, ...) later. No C/C++
 bindings.
 
-Status: early development, see [ROADMAP.md](ROADMAP.md). Minimum Rust version: 1.88.
+Status: early development, see [ROADMAP.md](ROADMAP.md). Minimum Rust version: 1.88 (the `avif` feature needs 1.90, `jpeg2000` 1.92).
 
 ## Usage
 

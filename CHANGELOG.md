@@ -13,4 +13,8 @@ First functional release.
 - Uncompressed format conversion, sRGB-correct mip generation (`imgio::mip`), one-call texture
   builder (`imgio::texture::build`).
 - Optional Vulkan / OpenGL upload (`vulkan`, `opengl` features).
-- Image file API (`imgio::file`): format detection and the shared decode / encode interface.
+- Image files (`imgio::file`): format detection and decode / encode on byte slices for BMP,
+  TGA, Radiance HDR, RenderMan zfile (own code), PNG / APNG, GIF, WebP, JPEG (decode), OpenEXR,
+  TIFF, JPEG XL, JPEG 2000 (decode), OpenVDB (decode, partial) and AVIF, each crate-backed
+  format behind its own cargo feature (pure Rust crates only).
+- `R16Float`, `R32Float`, `Rgb8*`, `Bgra8*` pixel formats.
