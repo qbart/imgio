@@ -1,6 +1,13 @@
+// SPDX-FileCopyrightText: 1998-2022 Marti Maria Saguer (Little CMS: 16-bit curve and CLUT
+// interpolation in `interp16`, `to_word`, `to_fixed_domain`, `linear_interp`, `Clut::eval`)
+// SPDX-FileCopyrightText: 2026 imgio contributors
+// SPDX-License-Identifier: Apache-2.0 AND MIT
+// The marked parts are translated to Rust from Little CMS 2.14 (cmsintrp.c, cmsgamma.c,
+// cmslut.c) and modified; see NOTICE.md and LICENSES/MIT-LittleCMS.txt.
 //! Per pixel ICC pipeline evaluation in f64 (the LittleCMS model without its optimizations):
 //! device -> PCS (XYZ D50) -> device, through matrix / TRC shapers, gray TRCs or LUT tags
-//! (`lut8`, `lut16`, `mAB`, `mBA`) with tetrahedral CLUT interpolation.
+//! (`lut8`, `lut16`, `mAB`, `mBA`); sampled curves and CLUTs are evaluated in 16-bit fixed
+//! point like LittleCMS does even in float pipelines.
 
 use crate::{Error, Result};
 use moxcms::{ColorProfile, DataColorSpace, LutStore, LutWarehouse, ToneReprCurve};
@@ -81,7 +88,7 @@ impl Curve {
                     x.powf(*g)
                 }
             }
-            Curve::Table(t) => interp(t, x),
+            Curve::Table(t) => interp16(t, x),
             Curve::Para(k, p) => {
                 let [g, a, b, c, d, e, f] = *p;
                 let pw = |v: f64| if v > 0.0 { v.powf(g) } else { 0.0 };
@@ -192,6 +199,34 @@ fn interp(t: &[f64], x: f64) -> f64 {
     t[i] + (t[i + 1] - t[i]) * f
 }
 
+/// A sampled curve the way LittleCMS evaluates it (`cmsEvalToneCurveFloat`: tables are 16-bit
+/// curves even in float pipelines): input rounded to a 16-bit word, `LinLerp1D` fixed point
+/// interpolation, 16-bit output.
+fn interp16(t: &[f64], x: f64) -> f64 {
+    let n = t.len();
+    if n < 2 {
+        return interp(t, x);
+    }
+    let d = x * 65535.0 + 0.5;
+    let v: i64 = if d.is_nan() || d <= 0.0 {
+        0
+    } else if d >= 65535.0 {
+        65535
+    } else {
+        d.floor() as i64
+    };
+    let word = |i: usize| (t[i] * 65535.0).round() as i64;
+    if v == 0xffff {
+        return word(n - 1) as f64 / 65535.0;
+    }
+    let val3 = (n - 1) as i64 * v;
+    let val3 = val3 + (val3 + 0x7fff) / 0xffff;
+    let (cell, rest) = ((val3 >> 16) as usize, val3 & 0xffff);
+    let (y0, y1) = (word(cell), word((cell + 1).min(n - 1)));
+    let out = ((((y1 - y0) * rest + 0x8000) >> 16) + y0) & 0xffff;
+    out as f64 / 65535.0
+}
+
 /// Inverse of a monotonic table (either direction), clamped to 0..1.
 fn interp_inv(t: &[f64], y: f64) -> f64 {
     let n = t.len();
@@ -232,12 +267,150 @@ struct Clut {
     n_in: usize,
     n_out: usize,
     data: F,
+    /// LittleCMS uses trilinear interpolation for tables indexed by Lab (PCS -> device of Lab
+    /// profiles), tetrahedral otherwise.
+    trilinear: bool,
+}
+
+/// `_cmsQuickSaturateWord(v * 65535)`.
+fn to_word(v: f64) -> i32 {
+    let d = v * 65535.0 + 0.5;
+    if d.is_nan() || d <= 0.0 {
+        0
+    } else if d >= 65535.0 {
+        65535
+    } else {
+        d.floor() as i32
+    }
+}
+
+/// `_cmsToFixedDomain`.
+fn to_fixed_domain(a: i32) -> i32 {
+    a + (a + 0x7fff) / 0xffff
+}
+
+/// LittleCMS `LinearInterp` (16.16 fixed point, u32 arithmetic).
+fn linear_interp(a: i32, l: i32, h: i32) -> i32 {
+    let dif = ((h - l) as u32).wrapping_mul(a as u32).wrapping_add(0x8000);
+    i32::from(((dif >> 16).wrapping_add(l as u32)) as u16)
 }
 
 impl Clut {
-    /// Tetrahedral (3 inputs), bilinear (2) or linear (1) interpolation of inputs in 0..1.
-    #[allow(clippy::needless_range_loop)]
+    /// Evaluates like LittleCMS `EvaluateCLUTfloatIn16` (ICC CLUTs are 16-bit stages even in
+    /// float pipelines): inputs rounded to 16-bit words, `Eval1Input` / `TetrahedralInterp16`
+    /// / `TrilinearInterp16` (with their 32-bit wrap-around), outputs `word / 65535`. Two
+    /// input tables use the float path.
     fn eval(&self, x: &[f64], out: &mut [f64]) {
+        if !matches!(self.n_in, 1 | 3) {
+            return self.eval_float(x, out);
+        }
+        let n = self.n_out;
+        let word = |i: usize| -> i32 {
+            (self.data.get(i).copied().unwrap_or(0.0) * 65535.0).round() as i32
+        };
+        let input: [i32; 3] =
+            core::array::from_fn(|d| if d < self.n_in { to_word(x[d]) } else { 0 });
+        // opta: stride of each input (the first input varies slowest).
+        let mut opta = [0usize; 3];
+        let mut stride = n;
+        for d in (0..self.n_in).rev() {
+            opta[d] = stride;
+            stride *= self.grid[d];
+        }
+        let domain: [i32; 3] = core::array::from_fn(|d| self.grid[d] as i32 - 1);
+        if self.n_in == 1 {
+            if input[0] == 0xffff || domain[0] == 0 {
+                let y0 = domain[0] as usize * opta[0];
+                for (c, o) in out.iter_mut().enumerate().take(n) {
+                    *o = f64::from(word(y0 + c)) / 65535.0;
+                }
+                return;
+            }
+            let fk = to_fixed_domain(input[0] * domain[0]);
+            let (k0, rk) = ((fk >> 16) as usize, fk & 0xffff);
+            let (b0, b1) = (k0 * opta[0], (k0 + 1) * opta[0]);
+            for (c, o) in out.iter_mut().enumerate().take(n) {
+                *o = f64::from(linear_interp(rk, word(b0 + c), word(b1 + c))) / 65535.0;
+            }
+            return;
+        }
+        let f: [i32; 3] = core::array::from_fn(|d| to_fixed_domain(input[d] * domain[d]));
+        let base = (f[0] >> 16) as usize * opta[0]
+            + (f[1] >> 16) as usize * opta[1]
+            + (f[2] >> 16) as usize * opta[2];
+        let (rx, ry, rz) = (f[0] & 0xffff, f[1] & 0xffff, f[2] & 0xffff);
+        let step = |d: usize| if input[d] == 0xffff { 0 } else { opta[d] };
+        let (x1, y1, z1) = (step(0), step(1), step(2));
+        let t = |o: usize, c: usize| word(base + o + c);
+        for (c, o) in out.iter_mut().enumerate().take(n) {
+            let v = if self.trilinear {
+                let lerp = |a: i32, l: i32, h: i32| -> i32 {
+                    let p = (h - l).wrapping_mul(a).wrapping_add(0x8000) >> 16;
+                    i32::from(l.wrapping_add(p) as u16)
+                };
+                let dx00 = lerp(rx, t(0, c), t(x1, c));
+                let dx01 = lerp(rx, t(z1, c), t(x1 + z1, c));
+                let dx10 = lerp(rx, t(y1, c), t(x1 + y1, c));
+                let dx11 = lerp(rx, t(y1 + z1, c), t(x1 + y1 + z1, c));
+                let dxy0 = lerp(ry, dx00, dx10);
+                let dxy1 = lerp(ry, dx01, dx11);
+                lerp(rz, dxy0, dxy1)
+            } else {
+                let c0 = t(0, c);
+                let (c1, c2, c3) = if rx >= ry {
+                    if ry >= rz {
+                        (
+                            t(x1, c) - c0,
+                            t(x1 + y1, c) - t(x1, c),
+                            t(x1 + y1 + z1, c) - t(x1 + y1, c),
+                        )
+                    } else if rz >= rx {
+                        (
+                            t(x1 + z1, c) - t(z1, c),
+                            t(x1 + y1 + z1, c) - t(x1 + z1, c),
+                            t(z1, c) - c0,
+                        )
+                    } else {
+                        (
+                            t(x1, c) - c0,
+                            t(x1 + y1 + z1, c) - t(x1 + z1, c),
+                            t(x1 + z1, c) - t(x1, c),
+                        )
+                    }
+                } else if rx >= rz {
+                    (
+                        t(x1 + y1, c) - t(y1, c),
+                        t(y1, c) - c0,
+                        t(x1 + y1 + z1, c) - t(x1 + y1, c),
+                    )
+                } else if ry >= rz {
+                    (
+                        t(x1 + y1 + z1, c) - t(y1 + z1, c),
+                        t(y1, c) - c0,
+                        t(y1 + z1, c) - t(y1, c),
+                    )
+                } else {
+                    (
+                        t(x1 + y1 + z1, c) - t(y1 + z1, c),
+                        t(y1 + z1, c) - t(z1, c),
+                        t(z1, c) - c0,
+                    )
+                };
+                let rest = c1
+                    .wrapping_mul(rx)
+                    .wrapping_add(c2.wrapping_mul(ry))
+                    .wrapping_add(c3.wrapping_mul(rz))
+                    .wrapping_add(0x8001);
+                let r = rest.wrapping_add(rest >> 16) >> 16;
+                i32::from(c0.wrapping_add(r) as u16)
+            };
+            *o = f64::from(v) / 65535.0;
+        }
+    }
+
+    /// Bilinear (2 inputs) interpolation in f64.
+    #[allow(clippy::needless_range_loop)]
+    fn eval_float(&self, x: &[f64], out: &mut [f64]) {
         let n = self.n_out;
         let mut base = [0usize; 3];
         let mut frac = [0.0f64; 3];
@@ -402,6 +575,7 @@ impl Lut {
                         n_in,
                         n_out,
                         data,
+                        trilinear: input_is_pcs && pcs_lab && n_in == 3,
                     }),
                     m: Vector::default(),
                     last,
@@ -451,6 +625,7 @@ impl Lut {
                             n_in: ci,
                             n_out: co,
                             data,
+                            trilinear: mba && pcs_lab && ci == 3,
                         })
                     }
                     None => None,
@@ -470,6 +645,21 @@ impl Lut {
                 })
             }
         }
+    }
+
+    /// The A2B0 table of a device link: device values in and out (no PCS encoding).
+    pub(crate) fn device_link(w: &LutWarehouse) -> Result<Lut> {
+        Lut::new(w, false, false)
+    }
+
+    /// Input and output channels.
+    pub(crate) fn channels(&self) -> (usize, usize) {
+        (self.n_in, self.n_out)
+    }
+
+    /// Evaluates a device link table (normalized device values).
+    pub(crate) fn eval_link(&self, v: &[f64; 3]) -> [f64; 3] {
+        self.eval(v)
     }
 
     fn apply(cs: &[Curve], v: &mut [f64]) {

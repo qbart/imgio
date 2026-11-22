@@ -213,8 +213,8 @@ target colour space (feature `color`).
 | `imgio::metrics` | MSE, PSNR, max / mean error, SSIM (matches scikit-image) per channel and aggregated; difference image | Encoder quality checks, regression tests |
 | `imgio::atlas` | Texture atlases: MaxRects (5 heuristics) / skyline / shelf, smallest page search (power of two, square, multiple of N, fixed), padding, border, extrusion, rotation, alpha trimming, duplicate merging, multiple pages, TexturePacker-style JSON | Sprite sheets, UI and font atlases, batching draw calls |
 | `imgio::ibl` | Equirect <-> cubemap, SH and convolved diffuse irradiance, GGX prefiltered specular mips, split sum BRDF LUT | PBR image based lighting, skyboxes, reflection probes |
-| `imgio::color` | ICC profiles (matrix / TRC and LUT based, v2 / v4), built-in sRGB / Display P3 / Adobe RGB / ProPhoto / Rec. 2020 / Rec. 2100 PQ / HLG / ACES, CICP; conversions byte identical with LittleCMS for matrix profiles | Wide gamut and HDR images shown correctly, print / photo workflows |
-| `imgio::lut` | `.cube` read / write (Adobe and Resolve shaper), trilinear / tetrahedral apply, baking from filters and colour transforms, HALD and strip images | Colour grading, film looks, engine grading LUT textures |
+| `imgio::color` | ICC profiles (matrix / TRC and LUT based, v2 / v4), built-in sRGB / Display P3 / Adobe RGB / ProPhoto / Rec. 2020 / Rec. 2100 PQ / HLG / ACES, CICP, ICC device links; conversions byte identical with LittleCMS (matrix and LUT profiles) | Wide gamut and HDR images shown correctly, print / photo workflows |
+| `imgio::lut` | `.cube` read / write (Adobe and Resolve shaper), trilinear / tetrahedral apply, baking from filters and colour transforms, HALD and strip images, ICC device link export | Colour grading, film looks, engine grading LUT textures |
 
 ### Containers
 
@@ -230,4 +230,5 @@ target colour space (feature `color`).
 
 ## License
 
-Apache-2.0. See [NOTICE.md](NOTICE.md) for third-party code and test data.
+Apache-2.0, with the 16-bit curve / CLUT interpolation in `src/color_pipeline.rs` translated
+from Little CMS (MIT). See [NOTICE.md](NOTICE.md) for third-party code and test data.

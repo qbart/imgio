@@ -386,6 +386,104 @@ impl Lut3d {
         Ok(lut)
     }
 
+    /// The table as an ICC v4.3 RGB -> RGB device link profile (class `link`; A2B0 `lut16`:
+    /// identity curves, this lattice as the CLUT with values clamped to 0..1 and rounded to
+    /// 16 bits; `desc` = `description`, empty `cprt` and `pseq`). The domain must be 0..1 and
+    /// `size` at most 255 (`InvalidArgument`). Read it with [`crate::color::Profile::from_icc`]
+    /// and apply with [`crate::color::apply_link`].
+    pub fn to_device_link(&self, description: &str) -> Result<Buffer> {
+        self.validate()?;
+        let n = self.size;
+        if n > 255 || self.domain_min != [0.0; 3] || self.domain_max != [1.0; 3] {
+            return Err(Error::InvalidArgument);
+        }
+        let mut b = Buffer::default();
+        let put = |b: &mut Buffer, v: &[u8]| b.extend_from_slice(v).map_err(oom);
+        // Tag data, laid out after a 128 byte header and a 4 tag table.
+        let mluc = |text: &str| -> Result<Buffer> {
+            let mut t = Buffer::default();
+            let units = text.encode_utf16().count();
+            put(&mut t, b"mluc\0\0\0\0")?;
+            put(&mut t, &1u32.to_be_bytes())?;
+            put(&mut t, &12u32.to_be_bytes())?;
+            put(&mut t, b"enUS")?;
+            put(&mut t, &((units * 2) as u32).to_be_bytes())?;
+            put(&mut t, &28u32.to_be_bytes())?;
+            for u in text.encode_utf16() {
+                put(&mut t, &u.to_be_bytes())?;
+            }
+            Ok(t)
+        };
+        let desc = mluc(description)?;
+        let cprt = mluc("")?;
+        let mut a2b = Buffer::default();
+        put(&mut a2b, b"mft2\0\0\0\0")?;
+        put(&mut a2b, &[3, 3, n as u8, 0])?;
+        for i in 0..9 {
+            let v: u32 = if i % 4 == 0 { 0x10000 } else { 0 };
+            put(&mut a2b, &v.to_be_bytes())?;
+        }
+        put(&mut a2b, &2u16.to_be_bytes())?;
+        put(&mut a2b, &2u16.to_be_bytes())?;
+        let ramp = [0u8, 0, 0xff, 0xff];
+        for _ in 0..3 {
+            put(&mut a2b, &ramp)?;
+        }
+        // ICC CLUT order: the first input (red) varies slowest.
+        for r in 0..n {
+            for g in 0..n {
+                for bl in 0..n {
+                    for v in self.table[r + n * (g + n * bl)] {
+                        let q = (f64::from(v).clamp(0.0, 1.0) * 65535.0).round() as u16;
+                        put(&mut a2b, &q.to_be_bytes())?;
+                    }
+                }
+            }
+        }
+        for _ in 0..3 {
+            put(&mut a2b, &ramp)?;
+        }
+        let pseq: [u8; 12] = *b"pseq\0\0\0\0\0\0\0\0";
+        let tags: [(&[u8; 4], &[u8]); 4] = [
+            (b"desc", &desc),
+            (b"cprt", &cprt),
+            (b"A2B0", &a2b),
+            (b"pseq", &pseq),
+        ];
+        let pad = |len: usize| (len + 3) & !3;
+        let mut off = 128 + 4 + 12 * tags.len();
+        let mut table = Buffer::default();
+        put(&mut table, &(tags.len() as u32).to_be_bytes())?;
+        for (sig, data) in &tags {
+            put(&mut table, *sig)?;
+            put(&mut table, &(off as u32).to_be_bytes())?;
+            put(&mut table, &(data.len() as u32).to_be_bytes())?;
+            off += pad(data.len());
+        }
+        let total = off;
+        put(&mut b, &(total as u32).to_be_bytes())?;
+        put(&mut b, &[0; 4])?;
+        put(&mut b, &[4, 0x30, 0, 0])?;
+        put(&mut b, b"linkRGB RGB ")?;
+        put(&mut b, &[0; 12])?;
+        put(&mut b, b"acsp")?;
+        put(&mut b, &[0; 24])?;
+        put(&mut b, &[0; 4])?;
+        for v in [0xf6d6u32, 0x10000, 0xd32d] {
+            put(&mut b, &v.to_be_bytes())?;
+        }
+        put(&mut b, &[0; 48])?;
+        put(&mut b, &table)?;
+        for (_, data) in &tags {
+            put(&mut b, data)?;
+            put(&mut b, &[0; 3][..pad(data.len()) - data.len()])?;
+        }
+        if b.len() != total {
+            return Err(Error::InvalidData);
+        }
+        Ok(b)
+    }
+
     /// Image `w x h` with table entry `k` at pixel `pos(k)`.
     fn to_image(
         &self,

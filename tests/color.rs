@@ -28,14 +28,6 @@ fn intent(v: u8) -> Intent {
 /// Largest allowed (max, mean) difference to LittleCMS 8-bit transforms (`NOOPTIMIZE`) per
 /// case: matrix / TRC and gray profiles are exact; LUT profiles differ by LittleCMS's 16-bit
 /// stage precision near black (one pixel at 2, the true value lies between).
-fn bound(from: &str, to: &str) -> (u8, f64) {
-    if from == "lut" || to == "lut" {
-        (2, 0.02)
-    } else {
-        (0, 0.0)
-    }
-}
-
 #[test]
 fn matches_littlecms() -> R {
     let text = String::from_utf8(read("cases.txt")?)?;
@@ -81,11 +73,8 @@ fn matches_littlecms() -> R {
                 want[i]
             );
         }
-        let (bm, bmean) = bound(from, to);
-        assert!(
-            max <= bm && mean <= bmean,
-            "{from} -> {to} {it}: max {max} mean {mean}"
-        );
+        // Byte identical, LUT profiles included (16-bit curve and CLUT evaluation).
+        assert!(max == 0, "{from} -> {to} {it}: max {max} mean {mean}");
         n += 1;
     }
     assert_eq!(n, 14);

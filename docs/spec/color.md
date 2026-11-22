@@ -10,12 +10,15 @@ Spec: ICC profiles and conversions; parsing, built-ins, CICP profiles and ICC wr
 - `convert(src, from, to, intent, format)`: stored values normalized like `convert`, gray /
   gray + alpha / RGB / RGBA, alpha copied, any uncompressed output (integer outputs clamp).
 - Pipeline (LittleCMS model, no precalculated device link): device -> PCS XYZ D50 -> device.
-  Matrix / TRC: curves (`curv` tables linear interpolation, gamma, parametric types 0..4),
+  Matrix / TRC: curves (`curv` tables as LittleCMS evaluates 16-bit curves: input rounded to
+  a word, `LinLerp1D` fixed point, 16-bit output; gamma, parametric types 0..4),
   colorant matrix; inverse with analytic parametric inverses / monotonic table search, sign
   symmetric below 0 (extended range floats). Gray: Y * D50 / Y. LUT tags: lut8 / lut16 (matrix
   for XYZ input, input tables, CLUT, output tables; lut16 Lab legacy encoding), mAB (A, CLUT,
-  M, matrix + offset, B), mBA (B, matrix + offset, M, CLUT, A); tetrahedral (LittleCMS
-  `Eval3Inputs`), bilinear or linear CLUTs; stage values clamped to 0..1; XYZ u1Fixed15 and Lab
+  M, matrix + offset, B), mBA (B, matrix + offset, M, CLUT, A); CLUTs like LittleCMS
+  `EvaluateCLUTfloatIn16`: 16-bit words, `TetrahedralInterp16` (trilinear for Lab indexed
+  tables), `Eval1Input`, with their 32-bit wrap-around (2 input tables: f64 bilinear); stage
+  values clamped to 0..1; XYZ u1Fixed15 and Lab
   encodings. Intent tables A2B0/1/2 with fallback to 0; absolute = relative scaled by
   media white points. No black point compensation (LittleCMS forces it only for v4 LUT
   profiles in perceptual / saturation; matrix shapers are unaffected).
@@ -38,9 +41,15 @@ Spec: ICC profiles and conversions; parsing, built-ins, CICP profiles and ICC wr
 
 - tests/color.rs vs LittleCMS 2.19 8-bit transforms with `NOOPTIMIZE` (scripts/
   gen_color_testdata.py, hand-built profiles): 9 matrix / TRC cases (sRGB, Display P3, Adobe
-  RGB, ProPhoto, Rec. 2020; perceptual, relative, absolute) and 2 gray cases are byte
-  identical; 3 LUT profile cases (lut16 XYZ PCS, 17^3 / 33^3 grids, shaper curves) within 1
-  except one near-black value at 2 (true value between), mean <= 0.016.
+  RGB, ProPhoto, Rec. 2020; perceptual, relative, absolute), 2 gray cases and 3 LUT profile
+  cases (lut16 XYZ PCS, 17^3 / 33^3 grids, shaper curves) are byte identical (LUT profiles
+  were within 2 with f64 curve / CLUT interpolation; LittleCMS 2.14 sources read for the 16-bit
+  evaluation).
+- Device links (`apply_link`, `Profile::is_device_link`): the A2B0 table maps device values
+  directly (RGB or gray each side); `convert` rejects links. tests/lut.rs: LittleCMS `linkicc`
+  links (P3 -> sRGB mAB with sampled curves, gray 1D CLUT) match `transicc -c0 -l` within one
+  16-bit word (f32 pipeline rounding edges: at most 4 values), the rest within its 4 decimal
+  print.
 - moxcms's own transforms (a resampled 3D device link for LUT profiles) were 10+ levels off
   in steep regions; replaced by the pipeline above.
 - Built-in sRGB vs LittleCMS sRGB, identity, Rec. 2020 float round trip, linear sRGB = sRGB

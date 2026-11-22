@@ -259,3 +259,123 @@ fn bake_profiles() -> R {
     assert!(worst <= 4 && mean < 0.25, "{worst} {mean}");
     Ok(())
 }
+
+fn fnv(b: &[u8]) -> u64 {
+    b.iter().fold(0xcbf2_9ce4_8422_2325, |h, &x| {
+        (h ^ u64::from(x)).wrapping_mul(0x0100_0000_01b3)
+    })
+}
+
+/// The first 1024 input pixels clamped to 0..1, as `channels` f32 (gray: red).
+#[cfg(feature = "color")]
+fn link_input(channels: usize) -> R<(Vec<u8>, Format)> {
+    let inp = floats(&read("input.f32")?);
+    let mut b = Vec::new();
+    for p in 0..1024 {
+        for c in 0..channels {
+            b.extend_from_slice(&inp[p * 4 + c].clamp(0.0, 1.0).to_le_bytes());
+        }
+        if channels == 3 {
+            b.extend_from_slice(&1.0f32.to_le_bytes());
+        }
+    }
+    let f = if channels == 1 {
+        Format::R32Float
+    } else {
+        Format::Rgba32Float
+    };
+    Ok((b, f))
+}
+
+/// Largest difference between `got` (RGBA or R f32) and `want` (`n` per pixel).
+#[cfg(feature = "color")]
+fn worst(got: &[u8], want: &[f32], n: usize) -> f32 {
+    let g = floats(got);
+    let step = g.len() / 1024;
+    (0..1024)
+        .flat_map(|p| (0..n).map(move |c| (p, c)))
+        .map(|(p, c)| (g[p * step + c] - want[p * n + c]).abs())
+        .fold(0.0, f32::max)
+}
+
+/// Values of `got` differing from `want` by more than `tol`.
+#[cfg(feature = "color")]
+fn count_over(got: &[u8], want: &[f32], n: usize, tol: f32) -> usize {
+    let g = floats(got);
+    let step = g.len() / 1024;
+    (0..1024)
+        .flat_map(|p| (0..n).map(move |c| (p, c)))
+        .filter(|&(p, c)| (g[p * step + c] - want[p * n + c]).abs() > tol)
+        .count()
+}
+
+#[cfg(feature = "color")]
+#[test]
+fn device_links_match_littlecms() -> R {
+    use imgio::color::{self, Intent, Profile};
+    // Links made by LittleCMS linkicc (mAB tables), applied like transicc.
+    for (name, ch) in [("p3_srgb", 3), ("gray", 1)] {
+        let link = Profile::from_icc(&read(&format!("{name}.link.icc"))?)?;
+        assert!(link.is_device_link());
+        let (b, f) = link_input(ch)?;
+        let src = Surface::new(f, 1024, 1, &b)?;
+        let got = color::apply_link(&src, &link, f)?;
+        let want = floats(&read(&format!("{name}_link.f32"))?);
+        let e = worst(&got.data, &want, ch);
+        // LittleCMS evaluates in f32: a matrix result on a 16-bit rounding edge of a sampled
+        // curve can land one word away.
+        let off = count_over(&got.data, &want, ch, 1e-6);
+        assert!(
+            e < 1.6e-5 && off <= 4,
+            "{name}: {e}, {off} values over 1e-6"
+        );
+        // Not a source / target profile.
+        assert!(color::convert(&src, &link, &Profile::srgb()?, Intent::Perceptual, f).is_err());
+    }
+    let (b, f) = link_input(3)?;
+    let src = Surface::new(f, 1024, 1, &b)?;
+    assert!(color::apply_link(&src, &Profile::srgb()?, f).is_err());
+    // imgio's device link of grade.cube: LittleCMS applies it as the table says.
+    let cube = Cube::parse(&read("grade.cube")?)?;
+    let lut3 = cube.lut.as_ref().ok_or("no 3D")?;
+    let icc = lut3.to_device_link("Grade test")?;
+    if std::env::var("IMGIO_WRITE_ENCODED").is_ok() {
+        let d = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("testdata/lut/enc");
+        std::fs::create_dir_all(&d)?;
+        std::fs::write(d.join("grade_link.icc"), &icc[..])?;
+        return Ok(());
+    }
+    let text = String::from_utf8(read("encoded_verified.txt")?)?;
+    let want_hash = text
+        .lines()
+        .find_map(|l| l.strip_prefix("grade_link.icc "))
+        .ok_or("re-run scripts/gen_lut_testdata.py --verify")?;
+    assert_eq!(
+        format!("{:016x}", fnv(&icc)),
+        want_hash,
+        "device link output changed, re-run scripts/gen_lut_testdata.py --verify"
+    );
+    let link = Profile::from_icc(&icc)?;
+    assert!(link.is_device_link());
+    let got = color::apply_link(&src, &link, f)?;
+    let want = floats(&read("grade_link_lcms.f32")?);
+    let e = worst(&got.data, &want, 3);
+    let off = count_over(&got.data, &want, 3, 1e-6);
+    assert!(
+        e < 1.6e-5 && off <= 4,
+        "grade link: {e}, {off} values over 1e-6"
+    );
+    // Close to applying the table in f64, clamped and rounded to 16 bits like the link (the
+    // rest is LittleCMS's 16-bit interpolation).
+    let mut q = Lut3d::identity(lut3.size)?;
+    for (d, s) in q.table.iter_mut().zip(lut3.table.iter()) {
+        *d = s.map(|v| ((f64::from(v).clamp(0.0, 1.0) * 65535.0).round() / 65535.0) as f32);
+    }
+    let direct = lut::apply(&src, &Cube::new(q), Interpolation::Tetrahedral, f)?;
+    let e = worst(&direct.data, &want, 3);
+    assert!(e < 3.1e-5, "{e}");
+    // Only 0..1 domains.
+    let dom = Cube::parse(&read("domain.cube")?)?;
+    assert!(dom.lut.ok_or("no 3D")?.to_device_link("x").is_err());
+    Ok(())
+}

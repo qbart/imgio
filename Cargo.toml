@@ -5,7 +5,7 @@ edition = "2024"
 # Core and every feature except `jpeg2000` (needs 1.92) and `avif` (needs 1.90).
 rust-version = "1.88"
 description = "Pure Rust GPU texture and image codecs: BC1-BC7, ETC/EAC, ASTC, PVRTC, Basis Universal encode/transcode, KTX2/KTX1/DDS, mipmaps, image files (PNG, JPEG, WebP, AVIF, EXR, TIFF, JPEG XL, ...), resize and filters."
-license = "Apache-2.0"
+license = "Apache-2.0 AND MIT"
 repository = "https://github.com/qbart/imgio"
 homepage = "https://github.com/qbart/imgio"
 documentation = "https://docs.rs/imgio"

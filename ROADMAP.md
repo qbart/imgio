@@ -91,7 +91,9 @@
   filters, pack, atlas, IBL, info, compare (metrics)
 - [x] LUTs (`imgio::lut`, docs/spec/lut.md): `.cube` read / write / apply (1D, 3D, Resolve
   shaper; trilinear / tetrahedral), baking from colour transforms and filters, HALD / strip images
-- [ ] ICC device links: read and apply `link` profiles, write a `Lut3d` as a device link
+- [x] ICC device links: read and apply `link` profiles (`color::apply_link`), write a `Lut3d` as
+  a device link (`Lut3d::to_device_link`); 16-bit curve / CLUT evaluation like LittleCMS (LUT
+  profiles now byte identical)
 - [ ] CLI `lut` command: apply / bake / convert `.cube`, HALD and strip LUTs
 
 ## Follow-ups

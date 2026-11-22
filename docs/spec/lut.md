@@ -17,6 +17,10 @@ Spec: 1D / 3D colour lookup tables, `.cube` files, applying and baking them.
 - Baking: `Lut3d::from_fn`, `Lut3d::bake(size, domain, op)` runs a per-pixel image operation on
   an `Rgba32Float` image of the lattice points (`filter::adjust`, `tone_map`, `grayscale`,
   `color::convert`, ...), `Lut3d::from_profiles` = `color::convert` between two profiles.
+- Device links: `Lut3d::to_device_link` writes an ICC v4.3 `link` profile (RGB -> RGB, A2B0
+  `lut16`: identity curves and matrix, the lattice as CLUT in ICC order (red slowest), values
+  clamped to 0..1 and rounded to 16 bits; `desc`, empty `cprt` and `pseq`); domain 0..1 and
+  size <= 255. `color::apply_link` applies any RGB / gray link (see color.md).
 - Images: HALD CLUT (`level^2` table, `level^3` square image, entry `k` at pixel `k`) and strips
   (`size^2 x size`, pixel `(r + size * b, g)`, Unreal / Unity grading textures), both ways.
 
@@ -32,3 +36,7 @@ Spec: 1D / 3D colour lookup tables, `.cube` files, applying and baking them.
 - Identity exact within 1e-6; HALD / strip layouts checked per pixel and round trip;
   baked lattice entries equal the filter / colour transform output; a baked 33^3 P3 -> sRGB
   LUT applied to an 8-bit image is within 4 levels (mean < 0.25) of LittleCMS.
+- Device links: the `grade.cube` link (hash in `encoded_verified.txt`) applied by LittleCMS
+  `transicc -c0 -l` equals the 16-bit table within 2 / 65535 (`--verify`) and imgio's
+  `apply_link` within one 16-bit word (at most 4 values over 1e-6); LittleCMS `linkicc` links
+  likewise; a 0..1 domain is required.

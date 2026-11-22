@@ -92,10 +92,10 @@ pub enum Channels {
 #[cfg(feature = "color")]
 mod imp {
     use super::*;
-    use crate::color_pipeline::{Side, media_white};
+    use crate::color_pipeline::{Lut, Side, media_white};
     use moxcms::{
         CicpColorPrimaries, CicpProfile, ColorProfile, DataColorSpace, MatrixCoefficients,
-        ToneReprCurve, TransferCharacteristics,
+        ProfileClass, ToneReprCurve, TransferCharacteristics,
     };
 
     fn cms(_: moxcms::CmsError) -> Error {
@@ -271,6 +271,10 @@ mod imp {
             Ok(b)
         }
 
+        pub(super) fn is_link(&self) -> bool {
+            self.inner.profile_class == ProfileClass::DeviceLink
+        }
+
         pub(super) fn channels(&self) -> Channels {
             match self.inner.color_space {
                 DataColorSpace::Gray => Channels::Gray,
@@ -287,6 +291,9 @@ mod imp {
         intent: Intent,
         format: Format,
     ) -> Result<Image> {
+        if from.is_link() || to.is_link() {
+            return Err(Error::InvalidArgument);
+        }
         let (fc, tc) = (from.channels(), to.channels());
         if fc == Channels::Other || tc == Channels::Other {
             return Err(Error::Unsupported);
@@ -314,6 +321,50 @@ mod imp {
         } else {
             [1.0; 3]
         };
+        transform(src, gray_in, gray_out, format, |dv| {
+            let xyz = sin.device_to_xyz(dv);
+            let xyz: [f64; 3] = core::array::from_fn(|i| xyz[i] * scale[i]);
+            sout.xyz_to_device(xyz)
+        })
+    }
+
+    /// Applies the A2B0 table of a device link profile.
+    pub(super) fn apply_link(src: &Surface, link: &Profile, format: Format) -> Result<Image> {
+        if link.inner.profile_class != ProfileClass::DeviceLink {
+            return Err(Error::InvalidArgument);
+        }
+        let w = link
+            .inner
+            .lut_a_to_b_perceptual
+            .as_ref()
+            .ok_or(Error::InvalidData)?;
+        let lut = Lut::device_link(w)?;
+        let (ci, co) = lut.channels();
+        let gray = |c: DataColorSpace, n: usize| match (c, n) {
+            (DataColorSpace::Gray, 1) => Ok(true),
+            (DataColorSpace::Rgb, 3) => Ok(false),
+            _ => Err(Error::Unsupported),
+        };
+        let gray_in = gray(link.inner.color_space, ci)?;
+        let gray_out = gray(link.inner.pcs, co)?;
+        let n_in = super::format_channels(src.format()).ok_or(Error::Unsupported)?;
+        let n_out = super::format_channels(format).ok_or(Error::Unsupported)?;
+        if gray_in != (n_in <= 2) || gray_out != (n_out <= 2) {
+            return Err(Error::InvalidArgument);
+        }
+        transform(src, gray_in, gray_out, format, |v| lut.eval_link(&v))
+    }
+
+    /// Runs `f` on the colour of every pixel (gray: `v[0]`, the result's `[0]`), copying
+    /// alpha, and writes `format`.
+    fn transform(
+        src: &Surface,
+        gray_in: bool,
+        gray_out: bool,
+        format: Format,
+        f: impl Fn([f64; 3]) -> [f64; 3] + Sync,
+    ) -> Result<Image> {
+        let n_in = super::format_channels(src.format()).ok_or(Error::Unsupported)?;
         let (w, h) = (src.width() as usize, src.height() as usize);
         let rgba = crate::convert::convert_to_buffer(src, Format::Rgba32Float)?;
         let mut out = crate::buffer::zeroed(w * h * 16)?;
@@ -336,9 +387,7 @@ mod imp {
                 } else {
                     [at(p), at(p + 1), at(p + 2)]
                 };
-                let xyz = sin.device_to_xyz(dv);
-                let xyz: [f64; 3] = core::array::from_fn(|i| xyz[i] * scale[i]);
-                let o = sout.xyz_to_device(xyz);
+                let o = f(dv);
                 let a = if alpha_in {
                     at(p + if gray_in { 1 } else { 3 }) as f32
                 } else {
@@ -442,7 +491,20 @@ impl Profile {
         }
     }
 
-    /// Gray, RGB or other.
+    /// Whether this is a device link profile (class `link`: device values in, device values
+    /// out, applied with [`apply_link`]).
+    pub fn is_device_link(&self) -> bool {
+        #[cfg(feature = "color")]
+        {
+            self.is_link()
+        }
+        #[cfg(not(feature = "color"))]
+        {
+            false
+        }
+    }
+
+    /// Gray, RGB or other (for a device link: its input side).
     pub fn data_channels(&self) -> Channels {
         #[cfg(feature = "color")]
         {
@@ -470,7 +532,8 @@ fn has_alpha(n: usize) -> bool {
 /// `to` and writes `format` (gray formats need gray profiles, RGB formats RGB profiles:
 /// `InvalidArgument` otherwise). Alpha is copied (1 when the source has none).
 ///
-/// Errors: `Unsupported` for compressed formats, CMYK / Lab profiles, a transform the engine
+/// Errors: `InvalidArgument` for device links (see [`apply_link`]), `Unsupported` for
+/// compressed formats, CMYK / Lab profiles, a transform the engine
 /// cannot build, or without the `color` feature.
 pub fn convert(
     src: &Surface,
@@ -486,6 +549,24 @@ pub fn convert(
     #[cfg(not(feature = "color"))]
     {
         let _ = (src, from, to, intent, format);
+        Err(Error::Unsupported)
+    }
+}
+
+/// Applies a device link profile ([`Profile::is_device_link`]: its A2B0 table, RGB or gray on
+/// each side) to `src` (values as stored) and writes `format`; alpha is copied (1 when the
+/// source has none). Gray data needs a gray side and vice versa (`InvalidArgument`).
+///
+/// Errors: `InvalidArgument` for a profile that is not a link, `Unsupported` for other colour
+/// spaces, compressed formats or without the `color` feature.
+pub fn apply_link(src: &Surface, link: &Profile, format: Format) -> Result<Image> {
+    #[cfg(feature = "color")]
+    {
+        imp::apply_link(src, link, format)
+    }
+    #[cfg(not(feature = "color"))]
+    {
+        let _ = (src, link, format);
         Err(Error::Unsupported)
     }
 }

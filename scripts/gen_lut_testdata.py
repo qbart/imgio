@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Generates the LUT test data (deterministic).
 
-Usage: VENV/bin/python -I scripts/gen_lut_testdata.py
+Usage: VENV/bin/python -I scripts/gen_lut_testdata.py [--verify]
 
 Needs numpy and colour-science 0.4.7 (offline reference, never linked). Writes testdata/lut/:
 
@@ -16,8 +16,20 @@ Needs numpy and colour-science 0.4.7 (offline reference, never linked). Writes t
   `read_LUT` then `LUT.apply` with `table_interpolation_trilinear` / `_tetrahedral` (inputs
   clamped to the domain first for 1D tables, as the .cube spec says; colour clamps 3D inputs
   itself), in float64.
+- `p3_srgb.link.icc`, `gray.link.icc`: device links made by LittleCMS 2.14 `linkicc` (perceptual,
+  default precision, creation date cleared) from testdata/color `p3.icc` -> `lcms_srgb.icc` and `gray22.icc` ->
+  `gray10.icc`; `<name>_link.f32`: LittleCMS `transicc -c0 -l` (no optimization, float) of the
+  first 1024 input pixels clamped to 0..1 (RGB, or red for gray), divided by 255.
+
+`--verify` applies the device link imgio's tests wrote to `enc/` (IMGIO_WRITE_ENCODED=1,
+`Lut3d::to_device_link` of `grade.cube`) with `transicc -c0 -l`, checks it against
+colour-science tetrahedral interpolation of the 16-bit table (within 2 / 65535: LittleCMS
+interpolates in 16-bit fixed point), stores the LittleCMS output as
+`grade_link_lcms.f32` and writes `encoded_verified.txt` (name, fnv1a64 of the bytes).
 """
 import os
+import subprocess
+import sys
 
 import numpy as np
 import colour
@@ -59,7 +71,73 @@ def inputs():
     return a.astype(np.float32)
 
 
+COLOR = os.path.join(ROOT, "testdata/color")
+N_LINK = 1024
+
+
+def link_inputs():
+    a = np.fromfile(os.path.join(OUT, "input.f32"), np.float32).reshape(-1, 4)[:N_LINK, :3]
+    return np.clip(a.astype(np.float64), 0, 1)
+
+
+def transicc(link, vals):
+    """Applies a device link to rows of 0..1 values (LittleCMS works in 0..255 here)."""
+    text = "".join(" ".join(f"{v * 255:.9g}" for v in row) + "\n" for row in vals)
+    out = subprocess.run(["transicc", "-n", "-c0", "-l" + link], input=text, capture_output=True,
+                         text=True, check=True).stdout
+    rows = [l.split() for l in out.splitlines() if l.strip() and l[0] in "0123456789-"]
+    return np.array(rows, np.float64) / 255
+
+
+def fnv(b):
+    h = 0xCBF29CE484222325
+    for x in b:
+        h ^= x
+        h = (h * 0x100000001B3) & 0xFFFFFFFFFFFFFFFF
+    return h
+
+
+def links():
+    rgb = link_inputs()
+    for name, a, b, gray in [("p3_srgb", "p3.icc", "lcms_srgb.icc", False),
+                             ("gray", "gray22.icc", "gray10.icc", True)]:
+        path = os.path.join(OUT, name + ".link.icc")
+        subprocess.run(["linkicc", "-t0", "-o" + path, os.path.join(COLOR, a), os.path.join(COLOR, b)],
+                       check=True, capture_output=True)
+        # Deterministic: clear the creation date (no profile ID is stored).
+        b = bytearray(open(path, "rb").read())
+        assert b[84:100] == bytes(16)
+        b[24:36] = bytes(12)
+        open(path, "wb").write(b)
+        out = transicc(path, rgb[:, :1] if gray else rgb)
+        assert out.shape == (N_LINK, 1 if gray else 3), out.shape
+        out.astype(np.float32).tofile(os.path.join(OUT, f"{name}_link.f32"))
+
+
+def verify():
+    name = "grade_link.icc"
+    data = open(os.path.join(OUT, "enc", name), "rb").read()
+    rgb = link_inputs()
+    got = transicc(os.path.join(OUT, "enc", name), rgb)
+    cube = colour.read_LUT(os.path.join(OUT, "grade.cube"))
+    q = colour.LUT3D(np.round(np.clip(cube.table, 0, 1) * 65535) / 65535)
+    want = q.apply(rgb, interpolator=table_interpolation_tetrahedral)
+    err = np.abs(got - want).max()
+    # LittleCMS interpolates 16-bit CLUTs in 16-bit fixed point.
+    if err > 2 / 65535:
+        sys.exit(f"{name}: LittleCMS differs from the table by {err}")
+    got.astype(np.float32).tofile(os.path.join(OUT, "grade_link_lcms.f32"))
+    with open(os.path.join(OUT, "encoded_verified.txt"), "w") as fh:
+        fh.write("# imgio device links applied by LittleCMS transicc as the table says "
+                 "(scripts/gen_lut_testdata.py --verify)\n")
+        fh.write(f"{name} {fnv(data):016x}\n")
+    print(name, "verified, max error", err)
+
+
 def main():
+    if "--verify" in sys.argv:
+        verify()
+        return
     os.makedirs(OUT, exist_ok=True)
     img = inputs()
     img.tofile(os.path.join(OUT, "input.f32"))
@@ -101,6 +179,7 @@ def main():
             else:
                 out = back.apply(rgb, interpolator=interp)
             out.astype(np.float32).tofile(os.path.join(OUT, f"{name}_{tag}.f32"))
+    links()
 
 
 if __name__ == "__main__":

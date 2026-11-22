@@ -1,0 +1,2 @@
+# imgio device links applied by LittleCMS transicc as the table says (scripts/gen_lut_testdata.py --verify)
+grade_link.icc f1e42d6970dea951
