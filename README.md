@@ -194,6 +194,7 @@ GPU format the device supports (BC1-7, ETC, ASTC, PVRTC, ATC, FXT1, RGBA ...).
 | `imgio::filter` | Flip / rotate / transpose, box / Gaussian blur, unsharp mask, exposure / brightness / contrast / gamma / saturation, grayscale, swizzle, premultiply, normal map from height, HDR tone mapping | Asset pipelines, texture prep |
 | `imgio::pack` | Any output channel from any channel of any input (luma, average, max, constants, invert, scale / bias), resizing mismatched inputs; ORM and mask map presets; `split` | ORM / mask maps, alpha from a separate mask, channel extraction |
 | `imgio::metrics` | MSE, PSNR, max / mean error, SSIM (matches scikit-image) per channel and aggregated; difference image | Encoder quality checks, regression tests |
+| `imgio::atlas` | Texture atlases: MaxRects (5 heuristics) / skyline / shelf, smallest page search (power of two, square, multiple of N, fixed), padding, border, extrusion, rotation, alpha trimming, duplicate merging, multiple pages, TexturePacker-style JSON | Sprite sheets, UI and font atlases, batching draw calls |
 
 ### Containers
 

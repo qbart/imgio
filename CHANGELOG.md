@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Texture atlases (`imgio::atlas`): MaxRects / skyline / shelf packing, smallest page search,
+  padding, border, extrusion, rotation, trimming, duplicates, multiple pages, JSON layout.
 - ICO / CUR files (`imgio::file::ico`, own code): DIB and PNG entries, cursors, multi-size
   encoding; `FileFormat::Ico`.
 - Quality metrics (`imgio::metrics`): MSE / PSNR / max / mean error and SSIM (matches

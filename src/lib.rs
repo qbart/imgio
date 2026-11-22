@@ -13,6 +13,7 @@ pub mod astc_file;
 #[allow(dead_code, unused_imports)]
 pub(crate) mod astcenc;
 mod atc;
+pub mod atlas;
 pub mod basis;
 mod bc;
 mod bc6h_signed;
