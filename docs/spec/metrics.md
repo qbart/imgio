@@ -12,9 +12,21 @@ normalized like `convert` (unorm 0..1, snorm -1..1, floats as is), in f64.
 - `peak` option (1 unorm, 2 snorm, max for HDR); `difference` renders `|a - b| * amplify` as
   RGBA8.
 
+- `Thresholds { min_psnr, min_ssim, max_error, max_mean_error, max_mse, scope }`: `check`
+  lists failed limits (`metric`, `channel`, value, limit) per channel (default) or on the RGB /
+  all aggregate; NaN fails except SSIM, which is skipped when not computed.
+- CLI `compare` (cli.md): limits as flags, `--scope`; two files or two directories (every
+  image / texture under the reference matched by relative path: pass / fail / missing / extra /
+  error), `--diff` (file, or a directory of `<path>.diff.png` for failures), `--json`
+  (non-finite numbers are `null`: infinite PSNR or no SSIM), exit 1 on any failure, missing
+  file or error (`--strict`: extras too).
+
 ## Audit
 
 - tests/metrics.rs: 8 cases (RGB noise / JPEG, RGBA blur / identical, gray quantize / shift,
   R16 noise, RGBA16F HDR scale with peak = max) match numpy / scikit-image 0.26 within 1e-12
   relative (MSE, max, mean, SSIM, PSNR, aggregates); small images, disabled SSIM, mixed
-  formats, size / peak / compressed errors, difference image.
+  formats, size / peak / compressed errors, difference image; thresholds: per channel /
+  RGB / all scopes, every metric, skipped SSIM.
+- tests/cli.rs `compare_ci`: identical pair under strict limits, failed limit exit code,
+  directory pass / fail / missing / extra counts in JSON, diffs only for failures, `--strict`.

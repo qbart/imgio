@@ -15,6 +15,9 @@
 //!
 //! [`difference`] renders `|a - b| * amplify` as an RGBA8 image (alpha 255).
 //!
+//! [`Thresholds`] turns metrics into pass / fail (minimum PSNR / SSIM, maximum max / mean error
+//! / MSE, per channel or on an aggregate), e.g. for image regression tests in CI.
+//!
 //! SSIM channels run in parallel.
 
 use crate::file::Image;
@@ -285,4 +288,110 @@ pub fn difference(a: &Surface, b: &Surface, amplify: f32) -> Result<Image> {
         }
     }
     Ok(img)
+}
+
+/// What [`Thresholds`] are checked against.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Scope {
+    /// Every channel on its own (the strictest).
+    #[default]
+    Channels,
+    /// The RGB aggregate.
+    Rgb,
+    /// The all-channel aggregate.
+    All,
+}
+
+/// Pass / fail limits for [`Metrics`] (`None` = not checked), e.g. for CI image regression.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct Thresholds {
+    /// PSNR at least this (dB; identical channels are infinite).
+    pub min_psnr: Option<f64>,
+    /// SSIM at least this (skipped where SSIM was not computed: disabled or under 11x11).
+    pub min_ssim: Option<f64>,
+    /// Largest absolute difference at most this (0..1 units for unorm data).
+    pub max_error: Option<f64>,
+    /// Mean absolute difference at most this.
+    pub max_mean_error: Option<f64>,
+    /// MSE at most this.
+    pub max_mse: Option<f64>,
+    pub scope: Scope,
+}
+
+/// A failed limit.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Failure {
+    /// `psnr`, `ssim`, `max_error`, `mean_error` or `mse`.
+    pub metric: &'static str,
+    /// `R`, `G`, `B`, `A` (channels of the first format: 1 = `R`, 2 = `R` `G`), `RGB` or `all`.
+    pub channel: &'static str,
+    pub value: f64,
+    pub limit: f64,
+}
+
+impl Thresholds {
+    /// Whether any limit is set.
+    pub fn any(&self) -> bool {
+        self.min_psnr.is_some()
+            || self.min_ssim.is_some()
+            || self.max_error.is_some()
+            || self.max_mean_error.is_some()
+            || self.max_mse.is_some()
+    }
+
+    /// The failed limits (empty = pass). NaN metrics fail every limit set on them except SSIM.
+    pub fn check(&self, m: &Metrics) -> Result<Vector<Failure, Dynamic>> {
+        let mut out = Vector::<Failure, Dynamic>::default();
+        const NAMES: [&str; 4] = ["R", "G", "B", "A"];
+        let sets: [(&'static str, &ChannelMetrics); 4];
+        let list: &[(&'static str, &ChannelMetrics)] = match self.scope {
+            Scope::Channels => {
+                sets = core::array::from_fn(|i| (NAMES[i], &m.per_channel[i]));
+                &sets[..m.channels.min(4)]
+            }
+            Scope::Rgb => &[("RGB", &m.rgb)],
+            Scope::All => &[("all", &m.all)],
+        };
+        for &(channel, c) in list {
+            let mut fail = |metric: &'static str, value: f64, limit: f64| {
+                out.push(Failure {
+                    metric,
+                    channel,
+                    value,
+                    limit,
+                })
+                .map_err(|_| Error::OutOfMemory)
+            };
+            // NaN fails (`ge` / `le` are false for NaN).
+            let ge = |v: f64, l: f64| v.partial_cmp(&l).is_some_and(|o| o.is_ge());
+            let le = |v: f64, l: f64| v.partial_cmp(&l).is_some_and(|o| o.is_le());
+            if let Some(l) = self.min_psnr
+                && !ge(c.psnr, l)
+            {
+                fail("psnr", c.psnr, l)?;
+            }
+            if let Some(l) = self.min_ssim
+                && !c.ssim.is_nan()
+                && c.ssim < l
+            {
+                fail("ssim", c.ssim, l)?;
+            }
+            if let Some(l) = self.max_error
+                && !le(c.max_error, l)
+            {
+                fail("max_error", c.max_error, l)?;
+            }
+            if let Some(l) = self.max_mean_error
+                && !le(c.mean_error, l)
+            {
+                fail("mean_error", c.mean_error, l)?;
+            }
+            if let Some(l) = self.max_mse
+                && !le(c.mse, l)
+            {
+                fail("mse", c.mse, l)?;
+            }
+        }
+        Ok(out)
+    }
 }

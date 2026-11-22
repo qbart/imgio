@@ -98,7 +98,8 @@
   strip LUTs
 - [x] GPU memory report (`imgio::memory`, docs/spec/memory.md, CLI `memory`): per-format sizes with
   mips, container headers, Basis transcode targets, desktop / mobile suggestions, budgets
-- [ ] CI compare: thresholds and exit codes, directory comparison, JSON
+- [x] CI compare (`metrics::Thresholds`, CLI `compare`): PSNR / SSIM / error limits, exit codes,
+  directory comparison (missing / extra), diffs for failures, JSON
 
 ## Follow-ups
 

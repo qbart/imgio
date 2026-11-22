@@ -16,7 +16,7 @@ errors are messages on stderr with exit code 1; no panics.
 - `atlas`: every `AtlasOptions` field as a flag, pages named `name<i>.ext`, `--json`.
 - `ibl`: panorama -> cube KTX2 (mips), `--irradiance` (SH), `--specular` (GGX levels),
   `--brdf` (PNG RGBA16 or KTX2 RG16).
-- `compare`: metrics table, `--diff` image.
+- `compare`: metrics table, `--diff` image; CI limits, directories, JSON (see metrics.md).
 - `memory paths...`: see memory.md (table / JSON, totals, `--budget`).
 - `lut [input] -o out`: an identity of `--size` (33) or the input LUT, baked through
   `--from/--to` colour spaces and the per-pixel image options (spatial ones rejected) on an

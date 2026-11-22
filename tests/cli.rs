@@ -263,7 +263,14 @@ fn memory_command() -> R {
     png(&d.join("sub/b.png"), 20, 12)?;
     std::fs::write(d.join("notes.txt"), b"ignored")?;
     let ktx = p(&d, "sub/t.ktx2");
-    run(&["convert", &p(&d, "a.png"), &ktx, "--format", "bc7-srgb", "--mips"])?;
+    run(&[
+        "convert",
+        &p(&d, "a.png"),
+        &ktx,
+        "--format",
+        "bc7-srgb",
+        "--mips",
+    ])?;
     let dir_s = d.to_string_lossy().into_owned();
     let text = run(&["memory", &dir_s])?;
     assert!(text.contains("total 3 files"), "{text}");
@@ -275,7 +282,9 @@ fn memory_command() -> R {
     assert!(json.contains(&format!(
         "\"now\":{{\"format\":\"rgba8-srgb\",\"bytes\":{rgba}}}"
     )));
-    assert!(json.contains(&format!("\"desktop\":{{\"format\":\"bc7-srgb\",\"bytes\":{bc7}}}")));
+    assert!(json.contains(&format!(
+        "\"desktop\":{{\"format\":\"bc7-srgb\",\"bytes\":{bc7}}}"
+    )));
     // The KTX2 keeps its BC7 for desktop.
     assert!(json.contains(&format!(
         "\"now\":{{\"format\":\"bc7-srgb\",\"bytes\":{bc7}}},\"note\":\"\",\"desktop\":{{\"format\":\"bc7-srgb\",\"bytes\":{bc7}}}"
@@ -286,6 +295,83 @@ fn memory_command() -> R {
     run(&["memory", &dir_s, "--budget", "1M"])?;
     assert!(fails(&["memory", &dir_s, "--budget", "2K"])?.contains("over budget"));
     assert!(fails(&["memory", &dir_s, "--budget", "lots"])?.contains("bad size"));
+    std::fs::remove_dir_all(&d)?;
+    Ok(())
+}
+
+#[test]
+fn compare_ci() -> R {
+    let d = dir("ci")?;
+    let (r, n) = (d.join("ref"), d.join("new"));
+    std::fs::create_dir_all(r.join("sub"))?;
+    std::fs::create_dir_all(&n)?;
+    png(&r.join("same.png"), 16, 16)?;
+    png(&n.join("same.png"), 16, 16)?;
+    png(&r.join("sub/gone.png"), 8, 8)?;
+    png(&r.join("blur.png"), 24, 24)?;
+    run(&[
+        "convert",
+        &p(&r, "blur.png"),
+        &p(&n, "blur.png"),
+        "--blur",
+        "1.5",
+    ])?;
+    png(&n.join("new.png"), 8, 8)?;
+    let (rs, ns) = (
+        r.to_string_lossy().into_owned(),
+        n.to_string_lossy().into_owned(),
+    );
+    let diffs = p(&d, "diffs");
+    // Identical pair passes every limit.
+    run(&[
+        "compare",
+        &p(&r, "same.png"),
+        &p(&n, "same.png"),
+        "--max-error",
+        "0",
+        "--min-psnr",
+        "99",
+    ])?;
+    // A failed limit exits 1 and names the metric.
+    let err = fails(&[
+        "compare",
+        &p(&r, "blur.png"),
+        &p(&n, "blur.png"),
+        "--min-psnr",
+        "40",
+    ])?;
+    assert!(err.contains("psnr R"), "{err}");
+    // Directories: pass, fail, missing, extra; diff images only for failures.
+    let out = Command::new(env!("CARGO_BIN_EXE_imgio"))
+        .args([
+            "compare",
+            &rs,
+            &ns,
+            "--min-psnr",
+            "40",
+            "--diff",
+            &diffs,
+            "--json",
+        ])
+        .output()?;
+    assert_eq!(out.status.code(), Some(1));
+    let json = String::from_utf8(out.stdout)?;
+    assert!(
+        json.contains("\"passed\":1,\"failed\":1,\"missing\":1,\"extra\":1,\"errors\":0"),
+        "{json}"
+    );
+    assert!(
+        json.contains("\"path\":\"blur.png\",\"status\":\"fail\""),
+        "{json}"
+    );
+    assert!(json.contains("\"metric\":\"psnr\""));
+    assert!(d.join("diffs/blur.png.diff.png").is_file());
+    assert!(!d.join("diffs/same.png.diff.png").exists());
+    // Without limits only the missing file fails; extras fail with --strict.
+    std::fs::remove_file(r.join("sub/gone.png"))?;
+    run(&["compare", &rs, &ns])?;
+    assert!(fails(&["compare", &rs, &ns, "--strict"])?.contains("1 of 3"));
+    assert!(fails(&["compare", &rs, &p(&n, "same.png")])?.contains("two files or two directories"));
     std::fs::remove_dir_all(&d)?;
     Ok(())
 }

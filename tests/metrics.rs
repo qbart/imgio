@@ -129,3 +129,62 @@ fn edge_cases() -> R {
     assert_eq!(&d.data[..8], &[40, 0, 0, 255, 0, 0, 0, 255]);
     Ok(())
 }
+
+#[test]
+fn thresholds() -> Result<(), Box<dyn std::error::Error>> {
+    use imgio::metrics::{CompareOptions, Scope, Thresholds, compare};
+    use imgio::{Format, Surface};
+    // Gray ramp vs the same with one value off by 10 levels in G.
+    let a: Vec<u8> = (0..16 * 16 * 4).map(|i| (i % 251) as u8).collect();
+    let mut b = a.clone();
+    b[4 * 37 + 1] = b[4 * 37 + 1].wrapping_add(10);
+    let (sa, sb) = (
+        Surface::new(Format::Rgba8Unorm, 16, 16, &a)?,
+        Surface::new(Format::Rgba8Unorm, 16, 16, &b)?,
+    );
+    let m = compare(&sa, &sb, &CompareOptions::default())?;
+    let none = Thresholds::default();
+    assert!(!none.any() && none.check(&m)?.is_empty());
+    let t = Thresholds {
+        max_error: Some(5.0 / 255.0),
+        min_psnr: Some(40.0),
+        ..Thresholds::default()
+    };
+    let f = t.check(&m)?;
+    // Only G breaks the max error; its PSNR (10 levels in 256 px) is ~52 dB, others infinite.
+    assert_eq!(f.len(), 1);
+    assert_eq!((f[0].metric, f[0].channel), ("max_error", "G"));
+    // Values come from f32 unorm conversion.
+    assert!((f[0].value - 10.0 / 255.0).abs() < 1e-7);
+    let strict = Thresholds {
+        min_psnr: Some(60.0),
+        scope: Scope::Rgb,
+        ..Thresholds::default()
+    };
+    let f = strict.check(&m)?;
+    assert_eq!((f.len(), f[0].metric, f[0].channel), (1, "psnr", "RGB"));
+    let all = Thresholds {
+        max_mse: Some(0.0),
+        max_mean_error: Some(0.0),
+        min_ssim: Some(1.0),
+        scope: Scope::All,
+        ..Thresholds::default()
+    };
+    let names: Vec<&str> = all.check(&m)?.iter().map(|f| f.metric).collect();
+    assert_eq!(names, ["ssim", "mean_error", "mse"]);
+    // SSIM not computed (disabled): its limit is skipped.
+    let m = compare(
+        &sa,
+        &sb,
+        &CompareOptions {
+            ssim: false,
+            ..CompareOptions::default()
+        },
+    )?;
+    let s = Thresholds {
+        min_ssim: Some(1.0),
+        ..Thresholds::default()
+    };
+    assert!(s.check(&m)?.is_empty());
+    Ok(())
+}

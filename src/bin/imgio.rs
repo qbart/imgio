@@ -8,7 +8,7 @@ use imgio::filter;
 use imgio::ibl;
 use imgio::lut::{self, Cube, Interpolation, Lut3d};
 use imgio::memory::{self, Layout, Target};
-use imgio::metrics::{self, CompareOptions};
+use imgio::metrics::{self, CompareOptions, Scope, Thresholds};
 use imgio::mip::Filter;
 use imgio::pack::{self, Channel, ChannelSpec, PackOptions, PackSize};
 use imgio::resize::{self, Fit, ResizeOptions};
@@ -30,7 +30,11 @@ USAGE:
   imgio atlas -o <atlas.png> [--json FILE] <input>... [atlas options]
   imgio ibl <panorama> -o <env.ktx2> [--size N] [--irradiance FILE] [--irradiance-size N]
             [--specular FILE] [--samples N] [--levels N] [--brdf FILE] [--brdf-size N]
-  imgio compare <reference> <test> [--diff FILE] [--amplify N] [--peak P] [--no-ssim]
+  imgio compare <reference> <test> [--diff FILE|DIR] [--amplify N] [--peak P] [--no-ssim]
+                [--min-psnr DB] [--min-ssim S] [--max-error E] [--max-mean-error E]
+                [--max-mse M] [--scope channels|rgb|all] [--json] [--strict]
+                (two files, or two directories matched by relative path; exit 1 on a
+                failed limit, size mismatch or missing file; --strict also fails extras)
   imgio memory <file|dir>... [--no-mips] [--desktop FORMAT] [--mobile FORMAT] [--json]
                [--budget SIZE]   (SIZE like 512M, 2G; exit 1 when the current total exceeds it)
   imgio lut [input LUT] -o <out.cube|.icc|image> [--size N] [--from SPACE --to SPACE]
@@ -150,8 +154,6 @@ const FLAGS: &[&str] = &[
     "--unpremultiply",
     "--directx",
     "--no-ssim",
-    "--no-mips",
-    "--json",
 ];
 
 /// Options with an optional value (taken when the next argument is a number).
@@ -162,6 +164,12 @@ const MULTI: &[(&str, usize)] = &[("--orm", 3)];
 
 impl Args {
     fn parse(a: &[String]) -> Res<Args> {
+        Args::parse_with(a, &[])
+    }
+
+    /// Like [`Args::parse`] with command specific value-less options (`--json` takes a file in
+    /// `atlas` but is a flag in `memory` / `compare`).
+    fn parse_with(a: &[String], flags: &[&str]) -> Res<Args> {
         let mut pos = Vec::new();
         let mut opts = Vec::new();
         let mut i = 0;
@@ -173,7 +181,7 @@ impl Args {
                 } else {
                     s.clone()
                 };
-                if FLAGS.contains(&key.as_str()) {
+                if FLAGS.contains(&key.as_str()) || flags.contains(&key.as_str()) {
                     opts.push((key, None));
                 } else if OPTIONAL.contains(&key.as_str()) {
                     let v = a.get(i + 1).filter(|v| v.parse::<f32>().is_ok()).cloned();
@@ -1266,44 +1274,306 @@ fn ibl_cmd(rest: &[String]) -> Res {
 // ---------------------------------------------------------------------------------------------
 // compare
 
+fn thresholds(a: &Args) -> Res<Thresholds> {
+    Ok(Thresholds {
+        min_psnr: a.num("--min-psnr")?,
+        min_ssim: a.num("--min-ssim")?,
+        max_error: a.num("--max-error")?,
+        max_mean_error: a.num("--max-mean-error")?,
+        max_mse: a.num("--max-mse")?,
+        scope: match a.get("--scope").unwrap_or("channels") {
+            "channels" => Scope::Channels,
+            "rgb" => Scope::Rgb,
+            "all" => Scope::All,
+            s => return Err(format!("unknown scope `{s}` (channels|rgb|all)")),
+        },
+    })
+}
+
+/// Outcome of comparing one pair.
+struct Cmp {
+    path: String,
+    /// `pass`, `fail`, `missing` (no test file), `extra` (no reference) or `error`.
+    status: &'static str,
+    metrics: Option<metrics::Metrics>,
+    failures: Vec<metrics::Failure>,
+    message: String,
+}
+
+fn compare_pair(ra: &str, rb: &str, a: &Args, th: &Thresholds, diff: Option<&str>) -> Cmp {
+    let mut c = Cmp {
+        path: rb.to_string(),
+        status: "pass",
+        metrics: None,
+        failures: Vec::new(),
+        message: String::new(),
+    };
+    let run = |c: &mut Cmp| -> Res {
+        let (ia, ib) = (load(ra)?, load(rb)?);
+        if (ia.width, ia.height) != (ib.width, ib.height) {
+            c.status = "fail";
+            c.message = format!(
+                "sizes differ: {}x{} vs {}x{}",
+                ia.width, ia.height, ib.width, ib.height
+            );
+            return Ok(());
+        }
+        let (sa, sb) = (ia.surface().map_err(e(ra))?, ib.surface().map_err(e(rb))?);
+        let o = CompareOptions {
+            peak: a.num("--peak")?.unwrap_or(1.0),
+            ssim: !a.has("--no-ssim"),
+        };
+        let m = metrics::compare(&sa, &sb, &o).map_err(e("compare"))?;
+        c.failures = th
+            .check(&m)
+            .map_err(e("compare"))?
+            .iter()
+            .copied()
+            .collect();
+        if !c.failures.is_empty() {
+            c.status = "fail";
+        }
+        c.metrics = Some(m);
+        if let Some(d) = diff {
+            let img = metrics::difference(&sa, &sb, a.num("--amplify")?.unwrap_or(1.0))
+                .map_err(e("diff"))?;
+            if let Some(parent) = std::path::Path::new(d).parent() {
+                std::fs::create_dir_all(parent).map_err(e(d))?;
+            }
+            save_image(d, &img)?;
+        }
+        Ok(())
+    };
+    if let Err(err) = run(&mut c) {
+        c.status = "error";
+        c.message = err;
+    }
+    c
+}
+
+fn json_num(v: f64) -> String {
+    if v.is_finite() {
+        format!("{v}")
+    } else {
+        "null".into()
+    }
+}
+
+fn cmp_json(c: &Cmp) -> String {
+    let ch = |m: &metrics::ChannelMetrics| {
+        format!(
+            "{{\"mse\":{},\"psnr\":{},\"max_error\":{},\"mean_error\":{},\"ssim\":{}}}",
+            json_num(m.mse),
+            json_num(m.psnr),
+            json_num(m.max_error),
+            json_num(m.mean_error),
+            json_num(m.ssim)
+        )
+    };
+    let metrics = c.metrics.as_ref().map_or("null".to_string(), |m| {
+        let names = ["R", "G", "B", "A"];
+        let per: Vec<String> = names
+            .iter()
+            .zip(m.per_channel.iter())
+            .take(m.channels)
+            .map(|(n, v)| format!("\"{n}\":{}", ch(v)))
+            .collect();
+        format!(
+            "{{{},\"rgb\":{},\"all\":{}}}",
+            per.join(","),
+            ch(&m.rgb),
+            ch(&m.all)
+        )
+    });
+    let fails: Vec<String> = c
+        .failures
+        .iter()
+        .map(|f| {
+            format!(
+                "{{\"metric\":\"{}\",\"channel\":\"{}\",\"value\":{},\"limit\":{}}}",
+                f.metric,
+                f.channel,
+                json_num(f.value),
+                json_num(f.limit)
+            )
+        })
+        .collect();
+    format!(
+        "{{\"path\":{},\"status\":\"{}\",\"message\":{},\"metrics\":{metrics},\"failures\":[{}]}}",
+        json_str(&c.path),
+        c.status,
+        json_str(&c.message),
+        fails.join(",")
+    )
+}
+
+fn cmp_reasons(c: &Cmp) -> String {
+    let mut r: Vec<String> = c
+        .failures
+        .iter()
+        .map(|f| {
+            let op = if matches!(f.metric, "psnr" | "ssim") {
+                "<"
+            } else {
+                ">"
+            };
+            format!("{} {} {:.6} {op} {}", f.metric, f.channel, f.value, f.limit)
+        })
+        .collect();
+    if !c.message.is_empty() {
+        r.insert(0, c.message.clone());
+    }
+    r.join("; ")
+}
+
 fn compare(rest: &[String]) -> Res {
-    let a = Args::parse(rest)?;
+    let a = Args::parse_with(rest, &["--json", "--strict"])?;
     let [ra, rb] = a.pos.as_slice() else {
-        return Err("compare <reference> <test>".into());
+        return Err("compare <reference> <test> (files or directories)".into());
     };
-    let (ia, ib) = (load(ra)?, load(rb)?);
-    if (ia.width, ia.height) != (ib.width, ib.height) {
-        return Err(format!(
-            "sizes differ: {}x{} vs {}x{}",
-            ia.width, ia.height, ib.width, ib.height
-        ));
+    let th = thresholds(&a)?;
+    let json = a.has("--json");
+    let is_dir = |p: &str| std::path::Path::new(p).is_dir();
+    if !(is_dir(ra) && is_dir(rb)) {
+        if is_dir(ra) || is_dir(rb) {
+            return Err("compare two files or two directories".into());
+        }
+        let c = compare_pair(ra, rb, &a, &th, a.get("--diff"));
+        if json {
+            println!("{}", cmp_json(&c));
+        } else if let Some(m) = &c.metrics {
+            let names = ["R", "G", "B", "A"];
+            println!(
+                "{:>4} {:>12} {:>9} {:>10} {:>10} {:>8}",
+                "", "MSE", "PSNR dB", "max err", "mean err", "SSIM"
+            );
+            let row = |n: &str, c: &metrics::ChannelMetrics| {
+                println!(
+                    "{n:>4} {:>12.6e} {:>9.3} {:>10.6} {:>10.6} {:>8.5}",
+                    c.mse, c.psnr, c.max_error, c.mean_error, c.ssim
+                );
+            };
+            for (n, ch) in names.iter().zip(m.per_channel.iter()).take(m.channels) {
+                row(n, ch);
+            }
+            row("RGB", &m.rgb);
+            row("all", &m.all);
+            if th.any() {
+                println!(
+                    "{}",
+                    if c.status == "pass" {
+                        "PASS".to_string()
+                    } else {
+                        format!("FAIL: {}", cmp_reasons(&c))
+                    }
+                );
+            }
+        }
+        return match c.status {
+            "pass" => Ok(()),
+            "error" => Err(c.message),
+            _ => Err(cmp_reasons(&c)),
+        };
     }
-    let (sa, sb) = (ia.surface().map_err(e(ra))?, ib.surface().map_err(e(rb))?);
-    let o = CompareOptions {
-        peak: a.num("--peak")?.unwrap_or(1.0),
-        ssim: !a.has("--no-ssim"),
+    // Directories: every image / texture under the reference, matched by relative path.
+    let rel = |root: &str, p: &str| -> String {
+        std::path::Path::new(p)
+            .strip_prefix(root)
+            .map(|r| r.to_string_lossy().into_owned())
+            .unwrap_or_else(|_| p.to_string())
     };
-    let m = metrics::compare(&sa, &sb, &o).map_err(e("compare"))?;
-    let names = ["R", "G", "B", "A"];
-    println!(
-        "{:>4} {:>12} {:>9} {:>10} {:>10} {:>8}",
-        "", "MSE", "PSNR dB", "max err", "mean err", "SSIM"
-    );
-    let row = |n: &str, c: &metrics::ChannelMetrics| {
+    let (mut fa, mut fb) = (Vec::new(), Vec::new());
+    collect_files(ra, &mut fa)?;
+    collect_files(rb, &mut fb)?;
+    let ra_rel: Vec<String> = fa.iter().map(|p| rel(ra, p)).collect();
+    let mut results = Vec::new();
+    for (pa, r) in fa.iter().zip(&ra_rel) {
+        let pb = std::path::Path::new(rb).join(r);
+        let pbs = pb.to_string_lossy().into_owned();
+        if !pb.is_file() {
+            results.push(Cmp {
+                path: r.clone(),
+                status: "missing",
+                metrics: None,
+                failures: Vec::new(),
+                message: format!("no {r} in {rb}"),
+            });
+            continue;
+        }
+        let mut c = compare_pair(pa, &pbs, &a, &th, None);
+        // Diff images for the failures only (CI artifacts).
+        if let Some(d) = a.get("--diff")
+            && c.status == "fail"
+            && c.metrics.is_some()
+        {
+            let out = std::path::Path::new(d).join(format!("{r}.diff.png"));
+            let o = out.to_string_lossy().into_owned();
+            let again = compare_pair(pa, &pbs, &a, &Thresholds::default(), Some(&o));
+            if again.status == "error" {
+                c.message = again.message;
+            }
+        }
+        c.path = r.clone();
+        results.push(c);
+    }
+    for pb in &fb {
+        let r = rel(rb, pb);
+        if !ra_rel.contains(&r) {
+            results.push(Cmp {
+                path: r.clone(),
+                status: "extra",
+                metrics: None,
+                failures: Vec::new(),
+                message: format!("no reference {r} in {ra}"),
+            });
+        }
+    }
+    let count = |s: &str| results.iter().filter(|c| c.status == s).count();
+    let strict = a.has("--strict");
+    let bad =
+        count("fail") + count("missing") + count("error") + if strict { count("extra") } else { 0 };
+    if json {
+        let items: Vec<String> = results.iter().map(cmp_json).collect();
         println!(
-            "{n:>4} {:>12.6e} {:>9.3} {:>10.6} {:>10.6} {:>8.5}",
-            c.mse, c.psnr, c.max_error, c.mean_error, c.ssim
+            "{{\"files\":[{}],\"passed\":{},\"failed\":{},\"missing\":{},\"extra\":{},\"errors\":{}}}",
+            items.join(","),
+            count("pass"),
+            count("fail"),
+            count("missing"),
+            count("extra"),
+            count("error")
         );
-    };
-    for (n, c) in names.iter().zip(m.per_channel.iter()).take(m.channels) {
-        row(n, c);
+    } else {
+        for c in &results {
+            let summary = c.metrics.as_ref().map_or(String::new(), |m| {
+                format!(
+                    "  psnr {:.2} dB  ssim {:.5}  max {:.6}",
+                    m.all.psnr, m.all.ssim, m.all.max_error
+                )
+            });
+            let why = cmp_reasons(c);
+            println!(
+                "{:<7} {}{summary}{}",
+                c.status.to_uppercase(),
+                c.path,
+                if why.is_empty() {
+                    String::new()
+                } else {
+                    format!("  [{why}]")
+                }
+            );
+        }
+        println!(
+            "{} passed, {} failed, {} missing, {} extra, {} errors",
+            count("pass"),
+            count("fail"),
+            count("missing"),
+            count("extra"),
+            count("error")
+        );
     }
-    row("RGB", &m.rgb);
-    row("all", &m.all);
-    if let Some(d) = a.get("--diff") {
-        let img =
-            metrics::difference(&sa, &sb, a.num("--amplify")?.unwrap_or(1.0)).map_err(e("diff"))?;
-        save_image(d, &img)?;
+    if bad > 0 {
+        return Err(format!("{bad} of {} comparisons failed", results.len()));
     }
     Ok(())
 }
@@ -1672,7 +1942,7 @@ fn mem_row(path: &str, a: &Args) -> Res<MemRow> {
 }
 
 fn memory_cmd(rest: &[String]) -> Res {
-    let a = Args::parse(rest)?;
+    let a = Args::parse_with(rest, &["--json"])?;
     if a.pos.is_empty() {
         return Err("memory <file|dir>...".into());
     }

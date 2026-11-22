@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- CI image comparison: `metrics::Thresholds`; `imgio compare` limits, directories, JSON,
+  exit codes, diff images for failures.
 - GPU memory report (`imgio::memory`, `imgio memory`): sizes with mips, container headers,
   Basis transcode targets, desktop / mobile format suggestions, `--budget`.
 - CLI: `imgio lut` (bake / convert LUTs) and the `--lut` image option.
