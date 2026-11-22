@@ -12,7 +12,7 @@ Minimum Rust version: 1.88 (the `avif` feature needs 1.90, `jpeg2000` 1.92).
 
 ```toml
 [dependencies]
-imgio = "0.1"
+imgio = "0.2"
 ```
 
 Encode RGBA pixels to BC7 and write a KTX2 file with a full mip chain:
