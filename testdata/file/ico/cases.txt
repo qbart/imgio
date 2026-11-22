@@ -1,0 +1,7 @@
+# file entries largest | per entry: width height bits hotspot_x hotspot_y png
+dib_depths.ico 6 5 16 16 1 0 0 0 16 16 4 0 0 0 32 32 8 0 0 0 32 32 24 0 0 0 32 32 32 0 0 0 48 48 8 0 0 0
+dib_odd.ico 3 0 37 13 1 0 0 0 33 9 24 0 0 0 35 7 32 0 0 0
+mixed.ico 3 2 16 16 32 0 0 0 64 64 32 0 0 1 256 256 32 0 0 1
+hotspot.cur 3 2 32 32 0 5 7 0 16 16 0 2 3 0 48 48 0 23 40 1
+pil_png.ico 3 2 16 16 32 0 0 1 32 32 32 0 0 1 128 128 32 0 0 1
+pil_bmp.ico 2 1 24 24 32 0 0 0 64 64 32 0 0 0

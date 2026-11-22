@@ -9,7 +9,7 @@
 //! Formats backed by a pure Rust crate are behind a cargo feature of the same name (`png`,
 //! `gif`, `webp`, `jpeg`, `exr`, `tiff`, `jxl`, `jpeg2000`, `vdb`, `avif`); without it their
 //! functions return [`Error::Unsupported`]. BMP, TGA, Radiance HDR and RenderMan zfile are
-//! imgio's own code and always available.
+//! imgio's own code and always available, as is ICO / CUR (PNG entries need `png`).
 //!
 //! Decoded pixel formats (native depth, no silent precision loss):
 //! - 8-bit gray `R8Unorm`, gray + alpha `Rg8Unorm` (R = gray, G = alpha), RGB `Rgb8Srgb`,
@@ -30,6 +30,7 @@ pub mod bmp;
 pub mod exr;
 pub mod gif;
 pub mod hdr;
+pub mod ico;
 pub mod jpeg;
 pub mod jpeg2000;
 pub mod jxl;
@@ -71,10 +72,12 @@ pub enum FileFormat {
     Zfile,
     /// AVIF (`.avif`).
     Avif,
+    /// Windows icon or cursor (`.ico`, `.cur`).
+    Ico,
 }
 
 /// Every [`FileFormat`].
-pub const ALL: [FileFormat; 14] = [
+pub const ALL: [FileFormat; 15] = [
     FileFormat::Bmp,
     FileFormat::Tga,
     FileFormat::Gif,
@@ -89,6 +92,7 @@ pub const ALL: [FileFormat; 14] = [
     FileFormat::Vdb,
     FileFormat::Zfile,
     FileFormat::Avif,
+    FileFormat::Ico,
 ];
 
 impl FileFormat {
@@ -120,6 +124,8 @@ impl FileFormat {
             FileFormat::Zfile
         } else if is_avif(data) {
             FileFormat::Avif
+        } else if ico::looks_like_ico(data) {
+            FileFormat::Ico
         } else if starts(b"BM") && data.len() >= 26 {
             FileFormat::Bmp
         } else if tga::looks_like_tga(data) {
@@ -147,6 +153,7 @@ impl FileFormat {
             FileFormat::Vdb => "vdb",
             FileFormat::Zfile => "zfile",
             FileFormat::Avif => "avif",
+            FileFormat::Ico => "ico",
         }
     }
 
@@ -168,6 +175,7 @@ impl FileFormat {
             "vdb" => FileFormat::Vdb,
             "zfile" | "z" => FileFormat::Zfile,
             "avif" => FileFormat::Avif,
+            "ico" | "cur" => FileFormat::Ico,
             _ => return None,
         })
     }
@@ -291,6 +299,7 @@ pub fn decode_as(fmt: FileFormat, data: &[u8]) -> Result<Image> {
         FileFormat::Vdb => vdb::decode(data),
         FileFormat::Zfile => zfile::decode(data),
         FileFormat::Avif => avif::decode(data),
+        FileFormat::Ico => ico::decode(data),
     }
 }
 
@@ -321,6 +330,7 @@ pub fn encode(fmt: FileFormat, src: &Surface) -> Result<Buffer> {
         FileFormat::JpegXl => jxl::encode(src, &jxl::EncodeOptions::default()),
         FileFormat::Zfile => zfile::encode(src, &zfile::EncodeOptions::default()),
         FileFormat::Avif => avif::encode(src, &avif::EncodeOptions::default()),
+        FileFormat::Ico => ico::encode(src, &ico::EncodeOptions::default()),
         FileFormat::Jpeg | FileFormat::Jpeg2000 | FileFormat::Vdb => Err(Error::Unsupported),
     }
 }
@@ -331,7 +341,11 @@ mod tests {
 
     #[test]
     fn detects_signatures() {
-        let cases: [(&[u8], FileFormat); 13] = [
+        let cases: [(&[u8], FileFormat); 14] = [
+            (
+                b"\0\0\x01\0\x01\0\x10\x10\0\0\x01\0\x20\0\0\0\0\0\x16\0\0\0",
+                FileFormat::Ico,
+            ),
             (b"\x89PNG\r\n\x1a\n....", FileFormat::Png),
             (b"GIF89a......", FileFormat::Gif),
             (b"RIFF\0\0\0\0WEBPVP8 ", FileFormat::WebP),

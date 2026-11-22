@@ -1,0 +1,6 @@
+# imgio encoder output decoded exactly by Pillow (scripts/gen_file_testdata_ico.py --verify)
+cursor.cur 0ada902045929f16
+default.ico fd045a4b97e2f9c6
+entries.ico ca731180c49eb775
+gray_small.ico 83dc3d331edc6c9e
+png.ico 96d3ff6792a5decd

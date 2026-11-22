@@ -2,7 +2,7 @@
 
 Shared API (every format module follows it):
 
-- `FileFormat` (14 formats), `FileFormat::detect(bytes)` (signatures; TGA last by footer /
+- `FileFormat` (15 formats), `FileFormat::detect(bytes)` (signatures; TGA last by footer /
   header heuristics), `extension`, `from_extension`.
 - `Image { format, width, height, data: Buffer }` (owned, tightly packed), `surface()`,
   `from_surface`, `with_format` (relabel, e.g. sRGB -> unorm).

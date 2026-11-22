@@ -183,6 +183,7 @@ GPU format the device supports (BC1-7, ETC, ASTC, PVRTC, ATC, FXT1, RGBA ...).
 | AVIF (`.avif`) | `ravif` (rav1e, no asm; feature `avif`): 8 / 10-bit 4:4:4, alpha | `avif-parse` + `re_rav1d` (dav1d port, no asm) + own YUV -> RGB (bit-exact with libavif): 8-12 bit, all subsamplings, alpha | Modern web photos, HDR stills at small sizes |
 | OpenEXR (`.exr`) | `exr` crate (feature `exr`): half / f32, NONE / RLE / ZIP(S) / PIZ / PXR24 / B44(A), scanline / tiled, mips | `exr` crate: multi-part, layers, mip / rip, f16 / f32 / u32, all compressions incl. DWAA / DWAB | VFX / film HDR interchange, renders, light probes |
 | TIFF / BigTIFF (`.tif`) | `tiff` crate (feature `tiff`): 8 / 16-bit, half / f32, LZW / Deflate / PackBits, predictors, multi-page | own on `weezl` / `miniz_oxide` / `zune-jpeg`: strips / tiles, planar, 1-64 bit, palette / CMYK / YCbCr, JPEG-in-TIFF | Print, scanning, GIS, 16-bit / float masters |
+| ICO / CUR (`.ico`, `.cur`) | own: 32-bit DIB + AND mask or PNG entries, standard sizes from one image or given entries, cursor hotspots | own (BMP and PNG decoders): 1-32 bit DIBs with AND masks, PNG entries, every entry or the largest | Windows / web favicons, application icons, cursors |
 
 ### Image processing
 

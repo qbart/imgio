@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- ICO / CUR files (`imgio::file::ico`, own code): DIB and PNG entries, cursors, multi-size
+  encoding; `FileFormat::Ico`.
 - Quality metrics (`imgio::metrics`): MSE / PSNR / max / mean error and SSIM (matches
   scikit-image) per channel and aggregated, difference image.
 - Channel packing (`imgio::pack`): any output channel from any channel of any input,

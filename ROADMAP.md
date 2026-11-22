@@ -79,7 +79,7 @@
 - [x] Channel packing (`imgio::pack`, docs/spec/pack.md): build any output channel from any channel of any input
   image (constants, invert, per-channel scale), e.g. ORM, RMA, mask maps, alpha from luma
 - [x] Quality metrics (`imgio::metrics`, docs/spec/metrics.md): MSE / PSNR per channel and combined, SSIM, max error
-- [ ] ICO / CUR files (own code): BMP and PNG entries, multi-size, hotspots
+- [x] ICO / CUR files (own code, docs/spec/file_ico.md): BMP and PNG entries, multi-size, hotspots
 - [ ] Texture atlases (`imgio::atlas`): MaxRects / skyline / shelf packing, padding, edge
   extrusion, power-of-two / square / max size, rotation, trimming, multi-page, JSON-like layout
 - [ ] HDR prep (`imgio::ibl`): equirect <-> cubemap, irradiance (SH and convolved), GGX
